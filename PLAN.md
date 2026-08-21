@@ -4,6 +4,10 @@ Multi-tenant website platform on Payload 3: one deployment hosting many customer
 sites (business, portfolio, store), each with its own domain, languages, content
 and theme.
 
+**Persian-first.** `fa` is the base locale, the default text direction is RTL, and
+the default typeface is Vazirmatn. Latin locales are the secondary case, not the
+default — see §3.
+
 **Status:** planning. No code yet. Verified against Payload docs (~v3.85, Aug 2026).
 
 ---
@@ -21,10 +25,12 @@ is an INSERT, not a deploy.
 | Tenancy | `@payloadcms/plugin-multi-tenant`, `tenantsSlug: 'sites'` | Official, does the admin scoping we'd otherwise hand-roll |
 | Isolation | Shared DB, `site` relationship on every collection | Row-level. Schema/DB-per-tenant costs migrations × N for no MVP benefit |
 | Routing | `next.config` `rewrites()` on `Host` | Official pattern. Config, not middleware code |
-| Languages | Payload localization, per-site locale subset | Locked in Wave 1 — see §2 |
+| Languages | Persian `fa` base + RTL, per-site locale subset | Locked in Wave 1 — see §3 |
+| Typography | Vazirmatn via `next/font/google`, self-hosted at build | On Google Fonts (v16, 100–900), covers Persian *and* Latin in one family |
+| Direction | `dir` from the active locale's `rtl` flag | Bilingual sites flip direction per locale, so it can't be global |
 | Site type | Field on `sites`: `business \| portfolio \| store` | Gates available blocks. Not separate deploys, not separate collections |
 | Pages | One `pages` collection, `layout` blocks field | One block library, filtered per site type |
-| Theming | Per-site token doc → CSS custom properties on `<body>` | No per-tenant CSS build, no Tailwind rebuild per site |
+| Theming | Per-site token doc → Tailwind v4 `@theme` CSS variables | v4 theme tokens *are* CSS variables, so a per-site override is just re-declaring them at `body` scope |
 | Per-site singletons | `isGlobal: true` collections | Payload *globals* cannot be tenant-scoped — see §4.1 |
 | Custom domains | Caddy on-demand TLS + `ask` endpoint | ~8 lines of Caddyfile vs. a cert/domain-API integration |
 | Hosting | VPS + Docker Compose (web, postgres, caddy) | On-demand TLS needs a long-lived process; also makes the jobs queue trivial |
@@ -42,16 +48,17 @@ pnpx create-payload-app eshobe-cms -t website
 The template already ships Pages, Posts, Media, Categories, 5 layout blocks
 (Hero, Content, Media, CTA, Archive), drafts + draft preview, SSR live preview,
 SEO plugin, Search plugin, Redirects plugin, jobs queue + scheduled publish,
-on-demand revalidation hooks, Tailwind + shadcn/ui. That is most of Waves 2, 3
-and 6 already written.
+on-demand revalidation hooks, and Next 16 / React 19 / Tailwind v4 with
+shadcn/ui. That is most of Waves 2, 3 and 6 already written.
 
 Adding multi-tenancy to the template is a small, well-understood diff. Adding a
 page builder, live preview, SEO and revalidation to the bare multi-tenant example
 is not. Read `npx create-payload-app --example multi-tenant` for reference and
 port its config across.
 
-**Three template things must be actively undone** (details in Wave 1):
-its two Payload globals, its access control, and its revalidation paths.
+**Four template things must be actively undone** (details in Waves 0–1): it
+defaults to `@payloadcms/db-mongodb`, and it carries two Payload globals,
+LTR-assuming styles, and single-tenant access control and revalidation paths.
 
 ---
 
@@ -59,7 +66,7 @@ its two Payload globals, its access control, and its revalidation paths.
 
 | # | Decision | Choice | Consequence |
 |---|---|---|---|
-| 1 | Multilingual | **Yes, from day one** | Localization configured in Wave 1, before real content exists. Avoids the destructive retrofit entirely (see §4.6) |
+| 1 | Multilingual | **Yes — Persian base, RTL** | `defaultLocale: 'fa'`, `rtl: true`, Vazirmatn. Localization configured in Wave 1, before real content exists, avoiding the destructive retrofit (§4.6) |
 | 2 | Hosting | **VPS + Docker Compose** | Caddy on-demand TLS for customer domains; jobs run in-process; no serverless constraints |
 | 3 | Operator | **Agency — we create sites, clients edit content** | Wave 5 is an internal action, not a signup funnel. Billing (Wave 8) leaves the critical path. Per-site roles matter more (§4.3) |
 | 4 | Editor freedom | Fixed block library + theme tokens | Predictable output, no freeform drag-drop |
@@ -71,18 +78,112 @@ onboarding polish — the plan is weighted accordingly.
 
 ---
 
-## 3. Localization design
+## 3. Persian-first, RTL and localization
 
 Locked as decision #1, so the shape is settled now rather than discovered later.
 
+### 3.1 Locales
+
+```ts
+localization: {
+  locales: [
+    { label: 'فارسی',   code: 'fa', rtl: true },
+    { label: 'English', code: 'en' },
+  ],
+  defaultLocale: 'fa',
+  fallback: true,
+  filterAvailableLocales: async ({ req, locales }) => /* active site's subset */,
+}
+```
+
+`rtl: true` is documented to render the admin UI right-to-left and set default
+text alignment on inputs to rtl, so the editing experience is Persian-native for
+free.
+
 **Per-site locale subsets.** `sites` carries `locales` (array of codes) and
-`defaultLocale`. The root config declares every locale the platform supports;
+`defaultLocale`; most sites will be `fa`-only, some `fa` + `en`.
 `filterAvailableLocales({ req, locales })` narrows the admin locale selector to
 the active site's subset. Documented caveat: it resolves once at the app root and
 is not recomputed on navigation, so a small client component must call
 `router.refresh()` when the active tenant changes — pair it with the
 `useTenantSelection` hook from `@payloadcms/plugin-multi-tenant/client`, whose
 `setTenant({ refresh: true })` already supports this.
+
+### 3.2 Admin panel in Persian
+
+Separate from content localization: Payload's *interface* language is the `i18n`
+key, and Payload ships Persian translations (`packages/translations/src/languages/fa.ts`,
+confirmed present).
+
+```ts
+import { en } from '@payloadcms/translations/languages/en'
+import { fa } from '@payloadcms/translations/languages/fa'
+
+i18n: { supportedLanguages: { fa, en }, fallbackLanguage: 'fa' }
+```
+
+Keep the list to these two — every bundled language adds to the admin JS payload.
+
+### 3.3 Direction
+
+Direction is **per-locale, not global** — a `fa` + `en` site flips between RTL and
+LTR — so `<html lang dir>` has to be resolved server-side per request or the page
+flashes the wrong direction on load.
+
+The complication: `<html>` lives in the group's root layout, which sits *above*
+`[domain]` and so receives neither the domain nor the locale as params. Resolution:
+
+- Root layout reads `host` from `await headers()` → site → its `defaultLocale`.
+- A small middleware parses the first path segment and sets an `x-locale` request
+  header, which the root layout reads for the active locale.
+
+This is the one place middleware earns its keep; everything else in §5 stays in
+`next.config`. Rendered rich text also needs `dir` on its wrapper for
+`@tailwindcss/typography` to place list markers and quote marks correctly.
+
+### 3.4 Typography
+
+**Vazirmatn** as the default, via `next/font/google` — confirmed on Google Fonts
+(v16, weights 100–900) and self-hosted at build time, so no external request and
+no layout shift. It covers Persian *and* Latin in one family, which avoids
+per-script font switching on bilingual pages.
+
+Persian needs more vertical room than Latin: set body `line-height` around `1.8`
+in the theme tokens, not the Latin-typical `1.5`.
+
+Ship Vazirmatn only. A per-site font picker (Estedad, Sahel — both OFL, both
+needing `next/font/local`) is a `theme` field to add when a client actually asks.
+
+### 3.5 RTL-safe blocks
+
+Tailwind v4 makes this cheap, and getting it wrong is the most likely source of
+silent visual regressions. Rule for every block built in Wave 2:
+
+- Logical utilities only: `ps-*`/`pe-*`, `ms-*`/`me-*`, `start-*`/`end-*`,
+  `text-start`/`text-end`, `border-s`/`border-e`.
+- Never `pl-*`, `pr-*`, `ml-*`, `mr-*`, `left-*`, `right-*`, `text-left`,
+  `text-right`.
+- `rtl:` / `ltr:` variants for the cases that genuinely differ (directional
+  icons, carousel arrows, shadow offsets).
+
+Worth an ESLint rule banning the physical utilities in block components, so this
+is enforced rather than remembered.
+
+### 3.6 Numbers and dates
+
+Iranian sites expect Jalali dates and Persian-Indic digits. Both come from the
+platform — no date library needed:
+
+```ts
+new Intl.DateTimeFormat('fa-IR', { calendar: 'persian', dateStyle: 'long' })
+new Intl.NumberFormat('fa-IR')   // ۱٬۲۳۴
+```
+
+Format by the active locale, so `en` pages still get Gregorian and Latin digits.
+For store prices in Wave 7, decide Toman vs Rial explicitly — the currency is
+Rial but prices are quoted in Toman, and getting that wrong is off by 10×.
+
+### 3.7 Which fields are localized
 
 **Localize inner block fields, not the `layout` array.** Localizing a container
 field creates independent localized *sets* of everything nested inside it — each
@@ -92,7 +193,7 @@ text/richtext/media fields *inside* each block as `localized: true`. One shared
 structure, translated copy. Cheaper to build, far less editor work, and the right
 default for agency-managed sites.
 
-**Fields to localize in Wave 1:**
+Fields to localize in Wave 1:
 
 - `pages`: `title`, `slug`, and the text fields inside each block
 - `posts`: `title`, `slug`, `content`
@@ -263,26 +364,33 @@ Two consequences:
 Each wave ends with something demonstrable. Wave 1 is the risky foundation and is
 deliberately a thin end-to-end slice before any breadth.
 
-**Wave 0 — Foundation.** Website template, Postgres via Docker Compose,
-`postgresAdapter({ idType: 'uuid' })` (non-enumerable IDs across tenants), env
-vars `DATABASE_URL` / `PAYLOAD_SECRET`, hosts-file helper.
+**Wave 0 — Foundation.** Website template; **swap `@payloadcms/db-mongodb` for
+`@payloadcms/db-postgres`** (the template defaults to Mongo); Postgres via Docker
+Compose; `postgresAdapter({ idType: 'uuid' })` (non-enumerable IDs across
+tenants); env vars `DATABASE_URL` / `PAYLOAD_SECRET`; Vazirmatn wired via
+`next/font/google` with `dir="rtl"` and `lang="fa"` on the shell; hosts-file
+helper.
 
 **Wave 1 — Tenancy + i18n skeleton.** The whole plan stands or falls here.
 `sites` collection (`name`, `slug`, `domain`, `type`, `status`, `locales`,
 `defaultLocale`); multi-tenant plugin wired per §4.1; `Header`/`Footer` globals
 converted to `isGlobal` collections; users' `tenants` array with per-row `role`;
 access control rewritten per §4.2 and §4.3; `findForSite` funnel; localization
-config + `filterAvailableLocales`; localized fields per §3; `next.config` rewrite;
-`[domain]/[[...path]]` route with locale parsing. **Done when:** two sites on two
-`*.localhost` domains each serve their own homepage in two languages, and the
-cross-tenant + draft-leak tests pass.
+with `defaultLocale: 'fa'` and `rtl: true`; admin UI in Persian via
+`i18n.supportedLanguages`; `filterAvailableLocales`; localized fields per §3.7;
+`next.config` rewrite; `x-locale` middleware and per-locale `<html lang dir>`
+per §3.3; `[domain]/[[...path]]` route with locale parsing. **Done when:** two
+sites on two `*.localhost` domains each serve their own homepage, RTL in Persian
+and LTR in English, and the cross-tenant + draft-leak tests pass.
 
 **Wave 2 — Page builder.** Keep the template's 5 blocks, add what the three site
 types need (Features, Pricing, Gallery, Testimonials, Team, Contact, Logos, FAQ).
 Each block declares its allowed site types; the `layout` field filters `blocks`
-accordingly. Inner text fields localized, `layout` itself not (§3). `theme`
-collection (colours, fonts, radius, spacing) → CSS custom properties in the site
-layout. Per-site slug hook (§4.4).
+accordingly. Inner text fields localized, `layout` itself not (§3.7). **Every
+block RTL-safe with logical utilities only (§3.5), enforced by an ESLint rule.**
+`theme` collection (colours, font, radius, spacing, `line-height` defaulting to
+`1.8`) → Tailwind v4 `@theme` variables re-declared at `body` scope. Per-site slug
+hook (§4.4). Jalali date and Persian-digit formatting helpers (§3.6).
 
 **Wave 3 — Editing experience.** `versions.drafts` with `autosave: { interval:
 375 }`; `admin.livePreview.url` as a function building
@@ -346,10 +454,12 @@ self-serve or invoicing becomes the bottleneck.
 |---|---|
 | Cross-tenant data leak via Local API (§4.2) | Single query funnel + tests in Wave 1, before any breadth |
 | Ecommerce plugin (Beta) won't tenant-scope | Spike before committing; documented fallback |
-| Postgres table sprawl (blocks × locales × versions) | Localizing inner fields rather than `layout` keeps this bounded; `blocksAsJSON` available if block tables get heavy |
+| Postgres table sprawl (blocks × locales × versions) | Localizing inner block fields rather than `layout` keeps this bounded; `blocksAsJSON` available if block tables get heavy |
 | One deploy = one blast radius | Accepted. Read replicas and per-plan rate limits are the upgrade path |
 | Migration drift | `push` in dev only, never mixed with `migrate`; commit every migration file |
-| `filterAvailableLocales` staleness on tenant switch | `router.refresh()` from a client component bound to `useTenantSelection` (§3) |
+| `filterAvailableLocales` staleness on tenant switch | `router.refresh()` from a client component bound to `useTenantSelection` (§3.1) |
+| Silent RTL regressions from physical Tailwind utilities | Logical utilities only, enforced by an ESLint rule rather than review (§3.5) |
+| shadcn/ui and template components assume LTR | Audit them once in Wave 2 as the blocks are built; fix at the component, not per block |
 
 ---
 
@@ -357,21 +467,25 @@ self-serve or invoicing becomes the bottleneck.
 
 Wave 1 (the one that matters):
 
-1. `pnpm dev`, create sites `acme` (`acme.localhost`, locales `en`+`fa`) and
-   `studio` (`studio.localhost`, `en` only), one published page each.
+1. `pnpm dev`, create sites `acme` (`acme.localhost`, locales `fa`+`en`) and
+   `studio` (`studio.localhost`, `fa` only), one published page each.
 2. Both domains serve their own homepage; neither serves the other's.
-3. `acme.localhost:3000/fa` serves Persian; `studio.localhost:3000/fa` does not
-   exist. `studio`'s admin locale selector offers only `en`.
-4. Save a draft on `acme`, then `curl http://acme.localhost:3000/secret` while
+3. `acme.localhost:3000` serves Persian with `<html lang="fa" dir="rtl">`;
+   `acme.localhost:3000/en` serves `dir="ltr"`; `studio.localhost:3000/en` does
+   not exist and `studio`'s admin locale selector offers only `fa`.
+4. The admin panel chrome renders in Persian, right-to-left.
+5. Save a draft on `acme`, then `curl http://acme.localhost:3000/secret` while
    logged out → 404, not the draft.
-5. Log in as `acme`'s owner → `studio`'s pages are absent from the admin list view
+6. Log in as `acme`'s owner → `studio`'s pages are absent from the admin list view
    *and* from relationship pickers.
-6. Log in as an `acme` editor → no Publish button; API publish attempt rejected.
-7. Automated: one test per assertion in 2–6, run in CI.
+7. Log in as an `acme` editor → no Publish button; API publish attempt rejected.
+8. Automated: one test per assertion in 2–7, run in CI.
 
-Later waves: live preview reflects an unsaved edit on the right domain and locale;
-a real domain gets a certificate on first request and an unknown domain is
-refused; `payload migrate:status` clean after a container restart.
+Later waves: no block renders with a physical-direction utility (lint gate); a
+Persian page's dates render Jalali and its numbers in Persian digits; live preview
+reflects an unsaved edit on the right domain and locale; a real domain gets a
+certificate on first request and an unknown domain is refused;
+`payload migrate:status` clean after a container restart.
 
 ---
 
@@ -383,6 +497,12 @@ refused; `payload migrate:status` clean after a container restart.
 @payloadcms/plugin-redirects      @payloadcms/live-preview-react
 @payloadcms/plugin-form-builder   @payloadcms/plugin-stripe
 @payloadcms/plugin-search         @payloadcms/plugin-ecommerce (Beta)
+@payloadcms/translations          stripe
 ```
 
-Note: Payload's deployment docs use `DATABASE_URL`, not `DATABASE_URI`.
+Notes:
+
+- Payload's deployment docs use `DATABASE_URL`, not `DATABASE_URI`.
+- The website template ships `@payloadcms/db-mongodb`; remove it in Wave 0.
+- `stripe` (the SDK) is not installed automatically by the ecommerce plugin.
+- Vazirmatn needs no package — `next/font/google` fetches and self-hosts it.
