@@ -76,6 +76,12 @@ Because we operate the sites, the admin panel is the product surface for clients
 That raises the value of per-site roles and lowers the value of self-serve
 onboarding polish — the plan is weighted accordingly.
 
+These decisions are restated as enforceable rules in [`CLAUDE.md`](./CLAUDE.md),
+which is the working contract: Persian-first content, `formatDate`/`formatNumber`
+for every date and number, Vazirmatn only, logical Tailwind utilities only, and
+the multi-tenancy leak rules. This plan carries the reasoning; `CLAUDE.md` carries
+the rules. Written in Wave 0 so they bind from the first commit of real code.
+
 ---
 
 ## 3. Persian-first, RTL and localization
@@ -169,17 +175,40 @@ silent visual regressions. Rule for every block built in Wave 2:
 Worth an ESLint rule banning the physical utilities in block components, so this
 is enforced rather than remembered.
 
-### 3.6 Numbers and dates
+### 3.6 Dates and numbers — platform-wide rule
 
-Iranian sites expect Jalali dates and Persian-Indic digits. Both come from the
-platform — no date library needed:
+Iranian sites expect Shamsi (Jalali) dates and Persian-Indic digits, and this
+applies to **every** date and number the platform renders — post dates, form
+submission timestamps, order dates, admin-facing lists, prices. Not just article
+bylines.
+
+Both come from the platform. No date library:
 
 ```ts
-new Intl.DateTimeFormat('fa-IR', { calendar: 'persian', dateStyle: 'long' })
-new Intl.NumberFormat('fa-IR')   // ۱٬۲۳۴
+// src/lib/format.ts — the only place dates and numbers are formatted
+export const formatDate = (d: Date | string, locale: string) =>
+  new Intl.DateTimeFormat(locale === 'fa' ? 'fa-IR' : locale, {
+    calendar: locale === 'fa' ? 'persian' : undefined,
+    dateStyle: 'long',
+  }).format(new Date(d))
+
+export const formatNumber = (n: number, locale: string) =>
+  new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale).format(n) // ۱٬۲۳۴
 ```
 
-Format by the active locale, so `en` pages still get Gregorian and Latin digits.
+Enforced as a rule, not a convention: nothing renders a raw `Date`, an ISO
+string, or a bare `toLocaleDateString()`. Everything goes through these two
+functions, which take the active locale — so `en` pages still get Gregorian dates
+and Latin digits from the same call site.
+
+Built in **Wave 0**, before any content exists, so there is never a page that
+formats dates its own way.
+
+**Known gap:** Payload's admin date picker is Gregorian. Editors will pick
+Gregorian dates in the panel even though the front end renders Shamsi. A Jalali
+picker needs a custom field component — decided in Wave 3, not worked around
+elsewhere.
+
 For store prices in Wave 7, decide Toman vs Rial explicitly — the currency is
 Rial but prices are quoted in Toman, and getting that wrong is off by 10×.
 
@@ -368,8 +397,10 @@ deliberately a thin end-to-end slice before any breadth.
 `@payloadcms/db-postgres`** (the template defaults to Mongo); Postgres via Docker
 Compose; `postgresAdapter({ idType: 'uuid' })` (non-enumerable IDs across
 tenants); env vars `DATABASE_URL` / `PAYLOAD_SECRET`; Vazirmatn wired via
-`next/font/google` with `dir="rtl"` and `lang="fa"` on the shell; hosts-file
-helper.
+`next/font/google` with `dir="rtl"` and `lang="fa"` on the shell;
+`src/lib/format.ts` with `formatDate` / `formatNumber` per §3.6, written before
+any page exists so nothing formats dates its own way; `CLAUDE.md` with the
+enforced rules; hosts-file helper.
 
 **Wave 1 — Tenancy + i18n skeleton.** The whole plan stands or falls here.
 `sites` collection (`name`, `slug`, `domain`, `type`, `status`, `locales`,
@@ -390,7 +421,8 @@ accordingly. Inner text fields localized, `layout` itself not (§3.7). **Every
 block RTL-safe with logical utilities only (§3.5), enforced by an ESLint rule.**
 `theme` collection (colours, font, radius, spacing, `line-height` defaulting to
 `1.8`) → Tailwind v4 `@theme` variables re-declared at `body` scope. Per-site slug
-hook (§4.4). Jalali date and Persian-digit formatting helpers (§3.6).
+hook (§4.4). All dates and numbers through `src/lib/format.ts` (§3.6) — no block
+formats its own.
 
 **Wave 3 — Editing experience.** `versions.drafts` with `autosave: { interval:
 375 }`; `admin.livePreview.url` as a function building
@@ -398,7 +430,9 @@ hook (§4.4). Jalali date and Persian-digit formatting helpers (§3.6).
 `RefreshRouteOnSave` from `@payloadcms/live-preview-react` in the site layout;
 SEO / Search / Redirects plugins scoped to sites; form builder. Note: a
 `frame-ancestors` CSP allowing the admin origin is required or the preview iframe
-silently stays blank.
+silently stays blank. **Decide the Jalali admin date picker here** (§3.6): a
+custom field component wrapping a Persian calendar, or accept Gregorian input in
+the panel.
 
 **Wave 4 — Custom domains.** `domain` + `domainVerified` on `sites`; a
 `GET /api/domain-check` endpoint that 200s only for a known active domain; Caddy
@@ -459,6 +493,7 @@ self-serve or invoicing becomes the bottleneck.
 | Migration drift | `push` in dev only, never mixed with `migrate`; commit every migration file |
 | `filterAvailableLocales` staleness on tenant switch | `router.refresh()` from a client component bound to `useTenantSelection` (§3.1) |
 | Silent RTL regressions from physical Tailwind utilities | Logical utilities only, enforced by an ESLint rule rather than review (§3.5) |
+| Dates and numbers formatted ad hoc, leaking Gregorian or Latin digits onto Persian pages | Single `src/lib/format.ts` built in Wave 0; nothing calls `Intl` or `toLocaleDateString` directly (§3.6) |
 | shadcn/ui and template components assume LTR | Audit them once in Wave 2 as the blocks are built; fix at the component, not per block |
 
 ---
