@@ -1,0 +1,26 @@
+# Dev only: Postgres for `pnpm dev`. The production stack (web + caddy +
+# postgres) lands in Waves 4/6 — see PLAN.md.
+
+services:
+  db:
+    # ponytail: 16 because it is already on the dev machine and Docker Hub is
+    # unreachable from here. Payload/Drizzle needs no 17-only feature.
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      # 5433 on the host: 5432 is taken by another project's Postgres
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: eshobe
+      POSTGRES_PASSWORD: eshobe
+      POSTGRES_DB: eshobe
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eshobe -d eshobe']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

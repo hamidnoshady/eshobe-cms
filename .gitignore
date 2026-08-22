@@ -2,18 +2,31 @@ node_modules/
 .pnpm-store/
 
 .next/
+next-env.d.ts
 out/
 build/
 dist/
+.vercel/
+*.tsbuildinfo
 
 .env
 .env*.local
 !.env.example
 
 media/
+public/media/
+public/robots.txt
+public/sitemap*.xml
+
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 .DS_Store
 Thumbs.db

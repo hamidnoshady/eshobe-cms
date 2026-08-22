@@ -1,0 +1,6 @@
+# pnpm 11 reads build-script approvals here, not from package.json.
+# sharp: image resizing. esbuild / unrs-resolver: native binaries.
+allowBuilds:
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
