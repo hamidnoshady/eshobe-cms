@@ -11,12 +11,12 @@ import {
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
 import { Code } from '../../blocks/Code/config'
 import { MediaBlock } from '../../blocks/MediaBlock/config'
-import { generatePreviewPath } from '../../utilities/generatePreviewPath'
+import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
 import { populateAuthors } from './hooks/populateAuthors'
-import { revalidateDelete, revalidatePost } from './hooks/revalidatePost'
 
 import {
   MetaDescriptionField,
@@ -25,15 +25,16 @@ import {
   OverviewField,
   PreviewField,
 } from '@payloadcms/plugin-seo/fields'
+import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 
 export const Posts: CollectionConfig<'posts'> = {
   slug: 'posts',
   access: {
-    create: authenticated,
+    create: writeUnlessPublishing('posts'),
     delete: authenticated,
     read: authenticatedOrPublished,
-    update: authenticated,
+    update: writeUnlessPublishing('posts'),
   },
   // This config controls what's populated by default when a post is referenced
   // https://payloadcms.com/docs/queries/select#defaultpopulate-collection-config-property
@@ -49,27 +50,21 @@ export const Posts: CollectionConfig<'posts'> = {
   },
   admin: {
     defaultColumns: ['title', 'slug', 'updatedAt'],
-    livePreview: {
-      url: ({ data, req }) =>
-        generatePreviewPath({
-          slug: data?.slug,
-          collection: 'posts',
-          req,
-        }),
-    },
-    preview: (data, { req }) =>
-      generatePreviewPath({
-        slug: data?.slug as string,
-        collection: 'posts',
-        req,
-      }),
+    // No preview until Wave 5 builds the `/posts` route. A button that 404s reads
+    // as a broken CMS, so it is absent rather than wrong.
     useAsTitle: 'title',
+  },
+  labels: {
+    singular: 'نوشته',
+    plural: 'نوشته‌ها',
   },
   fields: [
     {
       name: 'title',
       type: 'text',
+      label: 'عنوان',
       required: true,
+      localized: true,
     },
     {
       type: 'tabs',
@@ -98,6 +93,7 @@ export const Posts: CollectionConfig<'posts'> = {
               }),
               label: false,
               required: true,
+              localized: true,
             },
           ],
           label: 'Content',
@@ -143,12 +139,13 @@ export const Posts: CollectionConfig<'posts'> = {
             }),
             MetaTitleField({
               hasGenerateFn: true,
+              overrides: { localized: true },
             }),
             MetaImageField({
               relationTo: 'media',
             }),
 
-            MetaDescriptionField({}),
+            MetaDescriptionField({ overrides: { localized: true } }),
             PreviewField({
               // if the `generateUrl` function is configured
               hasGenerateFn: true,
@@ -214,12 +211,13 @@ export const Posts: CollectionConfig<'posts'> = {
         },
       ],
     },
-    slugField(),
+    slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
   ],
   hooks: {
-    afterChange: [revalidatePost],
+    // No revalidation until Wave 5 builds the `/posts` route — there is no path to
+    // bust, and the template's `/{slug}` shape is wrong under `[domain]` anyway.
     afterRead: [populateAuthors],
-    afterDelete: [revalidateDelete],
+    beforeValidate: [uniqueSlugPerSite],
   },
   versions: {
     drafts: {

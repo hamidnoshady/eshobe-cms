@@ -1,12 +1,24 @@
-import type { GlobalConfig } from 'payload'
+import type { CollectionConfig } from 'payload'
 
 import { link } from '@/fields/link'
-import { revalidateFooter } from './hooks/revalidateFooter'
+import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { authenticated } from '../access/authenticated'
 
-export const Footer: GlobalConfig = {
+/**
+ * Was a Payload global — see the note on `Header`.
+ */
+export const Footer: CollectionConfig = {
   slug: 'footer',
   access: {
+    create: authenticated,
+    delete: authenticated,
+    // Public: every page renders the footer. Scoped by `findForSite`.
     read: () => true,
+    update: authenticated,
+  },
+  labels: {
+    singular: 'پابرگ',
+    plural: 'پابرگ',
   },
   fields: [
     {
@@ -27,6 +39,6 @@ export const Footer: GlobalConfig = {
     },
   ],
   hooks: {
-    afterChange: [revalidateFooter],
+    afterChange: [revalidateSiteGlobal('footer')],
   },
 }

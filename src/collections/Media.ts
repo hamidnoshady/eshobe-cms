@@ -23,15 +23,24 @@ export const Media: CollectionConfig = {
     read: anyone,
     update: authenticated,
   },
+  labels: {
+    singular: 'رسانه',
+    plural: 'رسانه‌ها',
+  },
   fields: [
     {
       name: 'alt',
       type: 'text',
+      label: 'متن جایگزین',
       //required: true,
+      // Alt text is read out by screen readers in the page's language.
+      localized: true,
     },
     {
       name: 'caption',
       type: 'richText',
+      label: 'توضیح',
+      localized: true,
       editor: lexicalEditor({
         features: ({ rootFeatures }) => {
           return [...rootFeatures, FixedToolbarFeature(), InlineToolbarFeature()]

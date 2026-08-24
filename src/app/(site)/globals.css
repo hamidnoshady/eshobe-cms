@@ -213,8 +213,17 @@
   }
   body {
     @apply bg-background text-foreground min-h-[100vh] flex flex-col;
-    /* Persian needs more vertical room than the Latin-typical 1.5 */
-    line-height: 1.8;
+    /* Persian needs more vertical room than the Latin-typical 1.5. A site's `theme`
+       document overrides `--line-height` on this same element. */
+    line-height: var(--line-height, 1.8);
+  }
+  /* Per-paragraph direction inside editor prose, done by the browser's own bidi
+     algorithm — `plaintext` is `dir="auto"` as a style, so an English blockquote
+     pasted into a Persian article reads correctly without the JSX converters
+     having to emit `dir` on every node type. The wrapper carries the field's
+     overall direction; this handles blocks that disagree with it. */
+  .payload-richtext :is(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
+    unicode-bidi: plaintext;
   }
 }
 

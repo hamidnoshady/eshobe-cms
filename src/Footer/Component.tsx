@@ -1,20 +1,29 @@
-import { getCachedGlobal } from '@/utilities/getGlobals'
 import Link from 'next/link'
 import React from 'react'
 
 import { ThemeSelector } from '@/providers/Theme/ThemeSelector'
 import { CMSLink } from '@/components/Link'
 import { Logo } from '@/components/Logo/Logo'
+import { findGlobalForSite } from '@/lib/site-query'
+import { getSiteContext } from '@/lib/site-context'
+import { defaultLocale, localeHref } from '@/lib/locales'
 
 export async function Footer() {
-  const footerData = await getCachedGlobal('footer', 1)()
+  const { locale, site } = await getSiteContext()
+
+  const footerData = site
+    ? await findGlobalForSite('footer', site.id, { depth: 1, locale })
+    : null
 
   const navItems = footerData?.navItems || []
 
   return (
     <footer className="mt-auto border-t border-border bg-black dark:bg-card text-white">
       <div className="container py-8 gap-8 flex flex-col md:flex-row md:justify-between">
-        <Link className="flex items-center" href="/">
+        <Link
+          className="flex items-center"
+          href={localeHref('/', locale, site?.defaultLocale ?? defaultLocale)}
+        >
           <Logo />
         </Link>
 

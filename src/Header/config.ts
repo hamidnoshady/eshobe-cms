@@ -1,12 +1,26 @@
-import type { GlobalConfig } from 'payload'
+import type { CollectionConfig } from 'payload'
 
 import { link } from '@/fields/link'
-import { revalidateHeader } from './hooks/revalidateHeader'
+import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { authenticated } from '../access/authenticated'
 
-export const Header: GlobalConfig = {
+/**
+ * Was a Payload global. Globals are single documents platform-wide and cannot be
+ * tenant-scoped, so per-site singletons are collections registered with
+ * `isGlobal: true` in the multi-tenant plugin.
+ */
+export const Header: CollectionConfig = {
   slug: 'header',
   access: {
+    create: authenticated,
+    delete: authenticated,
+    // Public: every page renders the nav. Scoped by `findForSite`.
     read: () => true,
+    update: authenticated,
+  },
+  labels: {
+    singular: 'سربرگ',
+    plural: 'سربرگ',
   },
   fields: [
     {
@@ -27,6 +41,6 @@ export const Header: GlobalConfig = {
     },
   ],
   hooks: {
-    afterChange: [revalidateHeader],
+    afterChange: [revalidateSiteGlobal('header')],
   },
 }

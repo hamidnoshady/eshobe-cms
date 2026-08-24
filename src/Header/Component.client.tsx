@@ -7,10 +7,12 @@ import React, { useEffect, useState } from 'react'
 import type { Header } from '@/payload-types'
 
 import { Logo } from '@/components/Logo/Logo'
+import { useLocaleHref } from '@/providers/Locale'
 import { HeaderNav } from './Nav'
 
 interface HeaderClientProps {
-  data: Header
+  /** Null until the site's editor saves a header, and on an unknown host. */
+  data: Header | null
 }
 
 export const HeaderClient: React.FC<HeaderClientProps> = ({ data }) => {
@@ -18,6 +20,7 @@ export const HeaderClient: React.FC<HeaderClientProps> = ({ data }) => {
   const [theme, setTheme] = useState<string | null>(null)
   const { headerTheme, setHeaderTheme } = useHeaderTheme()
   const pathname = usePathname()
+  const localeHref = useLocaleHref()
 
   useEffect(() => {
     setHeaderTheme(null)
@@ -32,7 +35,7 @@ export const HeaderClient: React.FC<HeaderClientProps> = ({ data }) => {
   return (
     <header className="container relative z-20   " {...(theme ? { 'data-theme': theme } : {})}>
       <div className="py-8 flex justify-between">
-        <Link href="/">
+        <Link href={localeHref('/')}>
           <Logo loading="eager" priority="high" className="invert dark:invert-0" />
         </Link>
         <HeaderNav data={data} />

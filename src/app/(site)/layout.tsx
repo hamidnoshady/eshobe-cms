@@ -6,6 +6,10 @@ import React from 'react'
 import { AdminBar } from '@/components/AdminBar'
 import { Footer } from '@/Footer/Component'
 import { Header } from '@/Header/Component'
+import { getSiteContext } from '@/lib/site-context'
+import { defaultLocale } from '@/lib/locales'
+import { findGlobalForSite } from '@/lib/site-query'
+import { themeCss } from '@/lib/theme'
 import { Providers } from '@/providers'
 import { InitTheme } from '@/providers/Theme/InitTheme'
 import { mergeOpenGraph } from '@/utilities/mergeOpenGraph'
@@ -24,18 +28,24 @@ const vazirmatn = Vazirmatn({
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const { isEnabled } = await draftMode()
+  const { dir, locale, site } = await getSiteContext()
+
+  // Inline, not a stylesheet: the tokens are per-site data, so a linked file would be
+  // a second round trip on every first paint and a cache entry per tenant.
+  const theme = site
+    ? themeCss(await findGlobalForSite('theme', String(site.id), { depth: 0, locale }))
+    : ''
 
   return (
-    // ponytail: fa/rtl fixed here because there is no locale system yet. Wave 1
-    // resolves both per request from the active locale's `rtl` flag (PLAN §3.3).
-    <html className={vazirmatn.variable} dir="rtl" lang="fa" suppressHydrationWarning>
+    <html className={vazirmatn.variable} dir={dir} lang={locale} suppressHydrationWarning>
       <head>
         <InitTheme />
         <link href="/favicon.ico" rel="icon" sizes="32x32" />
         <link href="/favicon.svg" rel="icon" type="image/svg+xml" />
+        {theme ? <style>{theme}</style> : null}
       </head>
       <body>
-        <Providers>
+        <Providers locale={locale} siteDefault={site?.defaultLocale ?? defaultLocale}>
           <AdminBar
             adminBarProps={{
               preview: isEnabled,
