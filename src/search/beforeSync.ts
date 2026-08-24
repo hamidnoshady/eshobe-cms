@@ -5,11 +5,16 @@ export const beforeSyncWithSearch: BeforeSync = async ({ req, originalDoc, searc
     doc: { relationTo: collection },
   } = searchDoc
 
-  const { slug, id, categories, title, meta } = originalDoc
+  const { slug, id, categories, title, meta, site } = originalDoc
 
   const modifiedDoc: DocToSync = {
     ...searchDoc,
     slug,
+    // The search doc is written by the plugin outside the admin, so the tenant
+    // field's cookie-based default finds nothing. Without this the sync fails
+    // validation — and if it ever succeeded, one site's search index would list
+    // another site's posts.
+    site: typeof site === 'object' && site !== null ? site.id : site,
     meta: {
       ...meta,
       title: meta?.title || title,

@@ -2,14 +2,13 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
-import { Archive } from '../../blocks/ArchiveBlock/config'
-import { CallToAction } from '../../blocks/CallToAction/config'
-import { Content } from '../../blocks/Content/config'
-import { FormBlock } from '../../blocks/Form/config'
-import { MediaBlock } from '../../blocks/MediaBlock/config'
+import { writeUnlessPublishing } from '../../access/publish'
+import { allowedBlocks, siteBlocks } from '../../blocks'
 import { hero } from '@/heros/config'
+import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { populatePublishedAt } from '../../hooks/populatePublishedAt'
+import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
 import { revalidateDelete, revalidatePage } from './hooks/revalidatePage'
 
@@ -24,10 +23,10 @@ import {
 export const Pages: CollectionConfig<'pages'> = {
   slug: 'pages',
   access: {
-    create: authenticated,
+    create: writeUnlessPublishing('pages'),
     delete: authenticated,
     read: authenticatedOrPublished,
-    update: authenticated,
+    update: writeUnlessPublishing('pages'),
   },
   // This config controls what's populated by default when a page is referenced
   // https://payloadcms.com/docs/queries/select#defaultpopulate-collection-config-property
@@ -40,25 +39,23 @@ export const Pages: CollectionConfig<'pages'> = {
     defaultColumns: ['title', 'slug', 'updatedAt'],
     livePreview: {
       url: ({ data, req }) =>
-        generatePreviewPath({
-          slug: data?.slug,
-          collection: 'pages',
-          req,
-        }),
+        generatePreviewPath({ collection: 'pages', data, req, slug: data?.slug }),
     },
     preview: (data, { req }) =>
-      generatePreviewPath({
-        slug: data?.slug as string,
-        collection: 'pages',
-        req,
-      }),
+      generatePreviewPath({ collection: 'pages', data, req, slug: data?.slug as string }),
     useAsTitle: 'title',
+  },
+  labels: {
+    singular: 'برگه',
+    plural: 'برگه‌ها',
   },
   fields: [
     {
       name: 'title',
       type: 'text',
+      label: 'عنوان',
       required: true,
+      localized: true,
     },
     {
       type: 'tabs',
@@ -72,7 +69,11 @@ export const Pages: CollectionConfig<'pages'> = {
             {
               name: 'layout',
               type: 'blocks',
-              blocks: [CallToAction, Content, MediaBlock, Archive, FormBlock],
+              blocks: siteBlocks,
+              // Not localized: a localized container gives every locale its own list
+              // of blocks, so editors would rebuild the page per language. The text
+              // fields *inside* each block carry `localized: true` instead.
+              filterOptions: allowedBlocks,
               required: true,
               admin: {
                 initCollapsed: true,
@@ -92,12 +93,13 @@ export const Pages: CollectionConfig<'pages'> = {
             }),
             MetaTitleField({
               hasGenerateFn: true,
+              overrides: { localized: true },
             }),
             MetaImageField({
               relationTo: 'media',
             }),
 
-            MetaDescriptionField({}),
+            MetaDescriptionField({ overrides: { localized: true } }),
             PreviewField({
               // if the `generateUrl` function is configured
               hasGenerateFn: true,
@@ -117,11 +119,14 @@ export const Pages: CollectionConfig<'pages'> = {
         position: 'sidebar',
       },
     },
-    slugField(),
+    // `disableUnique` because a slug is only unique per `{ site, locale }` — see
+    // `uniqueSlugPerSite`, which does the enforcing a DB index cannot.
+    slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
   ],
   hooks: {
     afterChange: [revalidatePage],
     beforeChange: [populatePublishedAt],
+    beforeValidate: [uniqueSlugPerSite],
     afterDelete: [revalidateDelete],
   },
   versions: {

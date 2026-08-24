@@ -26,6 +26,7 @@ export async function login({
 
   await page.waitForURL(`${serverURL}/admin`)
 
-  const dashboardArtifact = page.locator('span[title="Dashboard"]')
-  await expect(dashboardArtifact).toBeVisible()
+  // Persian, not "Dashboard": `fallbackLanguage: 'fa'` means a fresh account gets
+  // the Persian admin, so an English selector here would only ever match by accident.
+  await expect(page.locator('span[title="داشبورد"]')).toBeVisible()
 }

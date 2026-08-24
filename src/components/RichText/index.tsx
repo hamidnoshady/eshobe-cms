@@ -2,14 +2,9 @@ import { MediaBlock } from '@/blocks/MediaBlock/Component'
 import {
   DefaultNodeTypes,
   SerializedBlockNode,
-  SerializedLinkNode,
   type DefaultTypedEditorState,
 } from '@payloadcms/richtext-lexical'
-import {
-  JSXConvertersFunction,
-  LinkJSXConverter,
-  RichText as ConvertRichText,
-} from '@payloadcms/richtext-lexical/react'
+import { JSXConvertersFunction, RichText as ConvertRichText } from '@payloadcms/richtext-lexical/react'
 
 import { CodeBlock, CodeBlockProps } from '@/blocks/Code/Component'
 
@@ -20,24 +15,31 @@ import type {
 } from '@/payload-types'
 import { BannerBlock } from '@/blocks/Banner/Component'
 import { CallToActionBlock } from '@/blocks/CallToAction/Component'
+import { CMSLink } from '@/components/Link'
 import { cn } from '@/utilities/ui'
 
 type NodeTypes =
   | DefaultNodeTypes
   | SerializedBlockNode<CTABlockProps | MediaBlockProps | BannerBlockProps | CodeBlockProps>
 
-const internalDocToHref = ({ linkNode }: { linkNode: SerializedLinkNode }) => {
-  const { value, relationTo } = linkNode.fields.doc!
-  if (typeof value !== 'object') {
-    throw new Error('Expected value to be an object')
-  }
-  const slug = value.slug
-  return relationTo === 'posts' ? `/posts/${slug}` : `/${slug}`
-}
-
 const jsxConverters: JSXConvertersFunction<NodeTypes> = ({ defaultConverters }) => ({
   ...defaultConverters,
-  ...LinkJSXConverter({ internalDocToHref }),
+  /**
+   * Replaces the default link converter, which builds `<a href={'/' + slug}>` by
+   * hand: that gives the home page a second URL (`/home`) and drops the locale
+   * segment, so prose on `/en/about` links back into Persian. `CMSLink` is the one
+   * place that knows both rules — this is a delegation, not a second copy.
+   */
+  link: ({ node, nodesToJSX }) => (
+    <CMSLink
+      newTab={node.fields.newTab}
+      reference={node.fields.doc as React.ComponentProps<typeof CMSLink>['reference']}
+      type={node.fields.linkType === 'internal' ? 'reference' : 'custom'}
+      url={node.fields.url}
+    >
+      {nodesToJSX({ nodes: node.children })}
+    </CMSLink>
+  ),
   blocks: {
     banner: ({ node }) => <BannerBlock className="col-start-2 mb-4" {...node.fields} />,
     mediaBlock: ({ node }) => (
@@ -61,11 +63,21 @@ type Props = {
   enableProse?: boolean
 } & React.HTMLAttributes<HTMLDivElement>
 
-export default function RichText(props: Props) {
-  const { className, enableProse = true, enableGutter = true, ...rest } = props
+export default function RichText({ className, data, enableGutter = true, enableProse = true, ...rest }: Props) {
   return (
-    <ConvertRichText
-      converters={jsxConverters}
+    /**
+     * Our own wrapper, with `disableContainer` on the converter: `ConvertRichText`
+     * destructures seven named props and silently drops the rest, so neither `dir`
+     * nor anything in `React.HTMLAttributes` reaches the DOM when passed to it.
+     *
+     * `dir` is the field's own direction, not the page's. Lexical records `direction`
+     * per node and the JSX converters discard it, so an English pull-quote inside a
+     * Persian article — or a Persian field falling back on an `/en` page — would
+     * inherit `rtl` from `<html>` and put its punctuation and list markers on the
+     * wrong side. `@tailwindcss/typography` is fully logical (`padding-inline-start`),
+     * so `dir` is all it takes to place them.
+     */
+    <div
       className={cn(
         'payload-richtext',
         {
@@ -75,7 +87,10 @@ export default function RichText(props: Props) {
         },
         className,
       )}
+      dir={data?.root?.direction ?? undefined}
       {...rest}
-    />
+    >
+      <ConvertRichText converters={jsxConverters} data={data} disableContainer />
+    </div>
   )
 }

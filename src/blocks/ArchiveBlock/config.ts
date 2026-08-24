@@ -25,6 +25,7 @@ export const Archive: Block = {
         },
       }),
       label: 'Intro Content',
+      localized: true,
     },
     {
       name: 'populateBy',

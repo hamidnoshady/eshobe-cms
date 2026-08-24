@@ -1,22 +1,11 @@
 import type { Metadata } from 'next'
-import { getServerSideURL } from './getURL'
 
-const defaultOpenGraph: Metadata['openGraph'] = {
+/**
+ * No vendor defaults: every value here would otherwise leak "Payload Website
+ * Template" and its OG image onto a customer's social cards. Anything the caller
+ * does not supply is simply absent.
+ */
+export const mergeOpenGraph = (og?: Metadata['openGraph']): Metadata['openGraph'] => ({
   type: 'website',
-  description: 'An open-source website built with Payload and Next.js.',
-  images: [
-    {
-      url: `${getServerSideURL()}/website-template-OG.webp`,
-    },
-  ],
-  siteName: 'Payload Website Template',
-  title: 'Payload Website Template',
-}
-
-export const mergeOpenGraph = (og?: Metadata['openGraph']): Metadata['openGraph'] => {
-  return {
-    ...defaultOpenGraph,
-    ...og,
-    images: og?.images ? og.images : defaultOpenGraph.images,
-  }
-}
+  ...og,
+})

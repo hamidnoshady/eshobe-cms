@@ -85,6 +85,8 @@ export const link: LinkType = ({ appearances, disableLabel = false, overrides = 
         condition: (_, siblingData) => siblingData?.type === 'custom',
       },
       label: 'Custom URL',
+      // An external link often points at a different page per language.
+      localized: true,
       required: true,
     },
   ]
@@ -109,6 +111,7 @@ export const link: LinkType = ({ appearances, disableLabel = false, overrides = 
             width: '50%',
           },
           label: 'Label',
+          localized: true,
           required: true,
         },
       ],

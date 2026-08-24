@@ -22,10 +22,10 @@ export async function seedTestUser(): Promise<void> {
     },
   })
 
-  // Create fresh test user
+  // Create fresh test user. Platform admin so admin e2e tests see every site.
   await payload.create({
     collection: 'users',
-    data: testUser,
+    data: { ...testUser, role: 'platformAdmin' },
   })
 }
 

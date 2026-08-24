@@ -36,6 +36,11 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev',
     reuseExistingServer: true,
-    url: 'http://localhost:3000',
+    // A cold Next 16 + Payload dev boot compiles `/admin` on demand and blows
+    // straight through Playwright's 60s default.
+    timeout: 180_000,
+    // `/admin`, not `/`: plain `localhost` belongs to no site and 404s by design, and
+    // Playwright's readiness check does not accept a 404.
+    url: 'http://localhost:3000/admin/login',
   },
 })

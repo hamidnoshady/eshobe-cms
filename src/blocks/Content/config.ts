@@ -47,6 +47,7 @@ const columnFields: Field[] = [
       },
     }),
     label: false,
+    localized: true,
   },
   {
     name: 'enableLink',

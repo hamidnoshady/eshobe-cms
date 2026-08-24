@@ -1,11 +1,11 @@
 import type { Post, ArchiveBlock as ArchiveBlockProps } from '@/payload-types'
 
-import configPromise from '@payload-config'
-import { getPayload } from 'payload'
 import React from 'react'
 import RichText from '@/components/RichText'
 
 import { CollectionArchive } from '@/components/CollectionArchive'
+import { getSiteContext } from '@/lib/site-context'
+import { findForSite } from '@/lib/site-query'
 
 export const ArchiveBlock: React.FC<
   ArchiveBlockProps & {
@@ -19,27 +19,25 @@ export const ArchiveBlock: React.FC<
   let posts: Post[] = []
 
   if (populateBy === 'collection') {
-    const payload = await getPayload({ config: configPromise })
+    const { locale, site } = await getSiteContext()
 
     const flattenedCategories = categories?.map((category) => {
       if (typeof category === 'object') return category.id
       else return category
     })
 
-    const fetchedPosts = await payload.find({
-      collection: 'posts',
-      depth: 1,
-      limit,
-      ...(flattenedCategories && flattenedCategories.length > 0
-        ? {
-            where: {
-              categories: {
-                in: flattenedCategories,
-              },
-            },
-          }
-        : {}),
-    })
+    // Scoped: this block renders on a public page, so an unscoped `payload.find`
+    // here would list every customer's posts on every customer's site.
+    const fetchedPosts = site
+      ? await findForSite('posts', site.id, {
+          depth: 1,
+          limit,
+          locale,
+          ...(flattenedCategories?.length
+            ? { where: { categories: { in: flattenedCategories } } }
+            : {}),
+        })
+      : { docs: [] }
 
     posts = fetchedPosts.docs
   } else {

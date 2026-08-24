@@ -1,37 +1,134 @@
-import type { CollectionSlug, GlobalSlug, Payload, PayloadRequest, File } from 'payload'
+import type { CollectionSlug, Payload, PayloadRequest } from 'payload'
 
-import { contactForm as contactFormData } from './contact-form'
-import { contact as contactPageData } from './contact-page'
-import { home } from './home'
-import { image1 } from './image-1'
-import { image2 } from './image-2'
-import { imageHero1 } from './image-hero-1'
-import { post1 } from './post-1'
-import { post2 } from './post-2'
-import { post3 } from './post-3'
+import type { Page } from '@/payload-types'
 
-const collections: CollectionSlug[] = [
+import { HOME_SLUG } from '@/lib/slug'
+import { richText } from './richText'
+
+/**
+ * Two customers, three shapes of content, two locales — the minimum that can
+ * actually prove tenant isolation. `acme` is bilingual, `studio` is Persian-only,
+ * so a locale that one site serves and the other does not is testable.
+ *
+ * Every site gets a published page, a draft page and a post: the draft is what
+ * the public-render tests assert is *not* visible.
+ */
+const sites = [
+  {
+    domain: 'acme.localhost',
+    en: { tagline: 'Industrial supply, since 1974.', title: 'Acme' },
+    locales: ['fa', 'en'],
+    name: 'آکمه',
+    slug: 'acme',
+    tagline: 'تأمین قطعات صنعتی از سال ۱۳۵۳.',
+    theme: { accent: '#f59e0b', lineHeight: 1.8, primary: '#0f766e', radius: 'sm' as const },
+    type: 'business' as const,
+  },
+  {
+    domain: 'studio.localhost',
+    en: null,
+    locales: ['fa'],
+    name: 'استودیو نقش',
+    slug: 'studio-naghsh',
+    tagline: 'طراحی گرافیک و هویت بصری.',
+    theme: { accent: '#0ea5e9', lineHeight: 1.9, primary: '#7c3aed', radius: 'lg' as const },
+    type: 'portfolio' as const,
+  },
+]
+
+/** Collections the seed owns end to end, cleared before it writes. */
+const owned: CollectionSlug[] = [
   'categories',
+  'form-submissions',
+  'forms',
   'media',
   'pages',
   'posts',
-  'forms',
-  'form-submissions',
+  'redirects',
   'search',
+  'header',
+  'footer',
+  'theme',
 ]
 
-const globals: GlobalSlug[] = ['header', 'footer']
-
-const categories = ['Technology', 'News', 'Finance', 'Design', 'Software', 'Engineering']
+/**
+ * The blocks a site of this type is allowed to use, with enough content to see
+ * whether they render — the price and the phone numbers are what prove digits go
+ * through `src/lib/format.ts`.
+ */
+const siteBlocks = (type: 'business' | 'portfolio' | 'store'): Page['layout'] => [
+  {
+    blockType: 'features',
+    columns: '3',
+    heading: 'چرا ما',
+    items: [
+      { description: 'سفارش‌ها را در همان روز کاری می‌فرستیم.', title: 'ارسال سریع' },
+      { description: 'هر قطعه با ضمانت کتبی تحویل داده می‌شود.', title: 'ضمانت اصالت' },
+      { description: 'پاسخ تلفنی و پیام‌رسان، هر روز هفته.', title: 'پشتیبانی همیشگی' },
+    ],
+  },
+  {
+    blockType: 'testimonials',
+    heading: 'مشتری‌ها چه می‌گویند',
+    items: [
+      {
+        author: 'رضا کریمی',
+        quote: 'سه سال است قطعات خط تولید را از همین‌جا می‌گیریم و یک بار هم دیر نرسیده.',
+        role: 'مدیر خرید',
+      },
+    ],
+  },
+  {
+    blockType: 'team',
+    columns: '3',
+    heading: 'تیم ما',
+    members: [
+      { name: 'سارا موسوی', bio: 'ده سال سابقهٔ طراحی سامانه‌های صنعتی.', role: 'مدیر فنی' },
+      { name: 'امیر رضایی', role: 'کارشناس فروش' },
+    ],
+  },
+  ...((type === 'portfolio'
+    ? []
+    : [
+        {
+          blockType: 'pricing',
+          heading: 'تعرفه‌ها',
+          plans: [
+            {
+              name: 'پایه',
+              features: ['۱۰ کاربر', 'پشتیبانی ایمیلی'],
+              period: 'ماهانه',
+              price: 29000,
+              unit: 'تومان',
+            },
+            {
+              name: 'حرفه‌ای',
+              featured: true,
+              features: ['کاربر نامحدود', 'پشتیبانی تلفنی', 'گزارش ماهانه'],
+              period: 'ماهانه',
+              price: 79000,
+              unit: 'تومان',
+            },
+          ],
+        },
+      ]) as Page['layout']),
+  {
+    blockType: 'faq',
+    heading: 'پرسش‌های پرتکرار',
+    items: [
+      {
+        answer: 'سفارش‌های تهران یک روز کاری و شهرستان‌ها دو تا سه روز کاری.',
+        question: 'ارسال چقدر طول می‌کشد؟',
+      },
+      { answer: 'بله، تا هفت روز پس از تحویل.', question: 'امکان مرجوع کردن هست؟' },
+    ],
+  },
+]
 
 // `revalidatePath`/`revalidateTag` throw outside a Next request scope, so every
 // write with a revalidate hook must opt out — `pnpm seed` runs from the CLI.
 const noRevalidate = { disableRevalidate: true }
 
-// Next.js revalidation errors are normal when seeding the database without a server running
-// i.e. running `yarn seed` locally instead of using the admin UI within an active app
-// The app is not running to revalidate the pages and so the API routes are not available
-// These error messages can be ignored: `Error hitting revalidate route for...`
 export const seed = async ({
   payload,
   req,
@@ -41,269 +138,282 @@ export const seed = async ({
 }): Promise<void> => {
   payload.logger.info('Seeding database...')
 
-  // we need to clear the media directory before seeding
-  // as well as the collections and globals
-  // this is because while `yarn seed` drops the database
-  // the custom `/api/seed` endpoint does not
-  payload.logger.info(`— Clearing collections and globals...`)
+  payload.logger.info('— Clearing seeded collections...')
 
-  // clear the database
-  await Promise.all(
-    globals.map((global) =>
-      payload.updateGlobal({
-        slug: global,
-        data: {
-          navItems: [],
-        },
-        depth: 0,
-        context: {
-          disableRevalidate: true,
-        },
-      }),
-    ),
-  )
+  for (const collection of owned) {
+    await payload.db.deleteMany({ collection, req, where: {} })
 
-  await Promise.all(
-    collections.map((collection) => payload.db.deleteMany({ collection, req, where: {} })),
-  )
+    if (payload.collections[collection]?.config.versions) {
+      await payload.db.deleteVersions({ collection, req, where: {} })
+    }
+  }
 
-  await Promise.all(
-    collections
-      .filter((collection) => Boolean(payload.collections[collection].config.versions))
-      .map((collection) => payload.db.deleteVersions({ collection, req, where: {} })),
-  )
-
-  payload.logger.info(`— Seeding demo author and user...`)
-
+  // Seeded users and sites are matched by name so a hand-made platform admin
+  // account survives re-seeding.
   await payload.delete({
     collection: 'users',
+    context: noRevalidate,
     depth: 0,
-    where: {
-      email: {
-        equals: 'demo-author@example.com',
-      },
-    },
+    req,
+    where: { email: { like: '@eshobe.test' } },
   })
 
-  payload.logger.info(`— Seeding media...`)
+  await payload.db.deleteMany({
+    collection: 'sites',
+    req,
+    where: { domain: { in: sites.map(({ domain }) => domain) } },
+  })
 
-  const [image1Buffer, image2Buffer, image3Buffer, hero1Buffer] = await Promise.all([
-    fetchFileByURL(
-      'https://raw.githubusercontent.com/payloadcms/payload/refs/heads/3.x/templates/website/src/endpoints/seed/image-post1.webp',
-    ),
-    fetchFileByURL(
-      'https://raw.githubusercontent.com/payloadcms/payload/refs/heads/3.x/templates/website/src/endpoints/seed/image-post2.webp',
-    ),
-    fetchFileByURL(
-      'https://raw.githubusercontent.com/payloadcms/payload/refs/heads/3.x/templates/website/src/endpoints/seed/image-post3.webp',
-    ),
-    fetchFileByURL(
-      'https://raw.githubusercontent.com/payloadcms/payload/refs/heads/3.x/templates/website/src/endpoints/seed/image-hero1.webp',
-    ),
-  ])
+  // Created before the site owners on purpose: `Users.beforeChange` promotes the
+  // first account on a database with no platform admin, so seeding an owner first
+  // would hand one customer access to every site.
+  await payload.create({
+    collection: 'users',
+    data: {
+      name: 'مدیر پلتفرم',
+      email: 'admin@eshobe.test',
+      password: 'test1234',
+      role: 'platformAdmin',
+    },
+    depth: 0,
+    req,
+  })
 
-  const [demoAuthor, image1Doc, image2Doc, image3Doc, imageHomeDoc] = await Promise.all([
-    payload.create({
-      collection: 'users',
+  for (const site of sites) {
+    payload.logger.info(`— Seeding ${site.domain}...`)
+
+    const siteDoc = await payload.create({
+      collection: 'sites',
       data: {
-        name: 'Demo Author',
-        email: 'demo-author@example.com',
-        password: 'password',
+        name: site.name,
+        availableLocales: site.locales as ('en' | 'fa')[],
+        defaultLocale: 'fa',
+        domain: site.domain,
+        slug: site.slug,
+        status: 'active',
+        type: site.type,
       },
-    }),
-    payload.create({
-      collection: 'media',
-      data: image1,
-      file: image1Buffer,
-    }),
-    payload.create({
-      collection: 'media',
-      data: image2,
-      file: image2Buffer,
-    }),
-    payload.create({
-      collection: 'media',
-      data: image2,
-      file: image3Buffer,
-    }),
-    payload.create({
-      collection: 'media',
-      data: imageHero1,
-      file: hero1Buffer,
-    }),
-    categories.map((category) =>
-      payload.create({
-        collection: 'categories',
+      depth: 0,
+      req,
+    })
+
+    // One owner and one editor per site, with access to nothing else. The
+    // cross-tenant tests log in as these; the editor is what proves the publish gate.
+    for (const role of ['owner', 'editor'] as const) {
+      await payload.create({
+        collection: 'users',
         data: {
-          title: category,
-          slug: category,
+          name: `${role === 'owner' ? 'مدیر' : 'ویرایشگر'} ${site.name}`,
+          email: `${role === 'owner' ? site.slug : `${site.slug}-editor`}@eshobe.test`,
+          password: 'test1234',
+          role: 'user',
+          tenants: [{ role, tenant: siteDoc.id }],
         },
-      }),
-    ),
-  ])
+        depth: 0,
+        req,
+      })
+    }
 
-  payload.logger.info(`— Seeding posts...`)
-
-  // Do not create posts with `Promise.all` because we want the posts to be created in order
-  // This way we can sort them by `createdAt` or `publishedAt` and they will be in the expected order
-  const post1Doc = await payload.create({
-    collection: 'posts',
-    depth: 0,
-    context: {
-      disableRevalidate: true,
-    },
-    data: post1({ heroImage: image1Doc, blockImage: image2Doc, author: demoAuthor }),
-  })
-
-  const post2Doc = await payload.create({
-    collection: 'posts',
-    depth: 0,
-    context: {
-      disableRevalidate: true,
-    },
-    data: post2({ heroImage: image2Doc, blockImage: image3Doc, author: demoAuthor }),
-  })
-
-  const post3Doc = await payload.create({
-    collection: 'posts',
-    depth: 0,
-    context: {
-      disableRevalidate: true,
-    },
-    data: post3({ heroImage: image3Doc, blockImage: image1Doc, author: demoAuthor }),
-  })
-
-  // update each post with related posts
-  await payload.update({
-    id: post1Doc.id,
-    collection: 'posts',
-    context: noRevalidate,
-    data: {
-      relatedPosts: [post2Doc.id, post3Doc.id],
-    },
-  })
-  await payload.update({
-    id: post2Doc.id,
-    collection: 'posts',
-    context: noRevalidate,
-    data: {
-      relatedPosts: [post1Doc.id, post3Doc.id],
-    },
-  })
-  await payload.update({
-    id: post3Doc.id,
-    collection: 'posts',
-    context: noRevalidate,
-    data: {
-      relatedPosts: [post1Doc.id, post2Doc.id],
-    },
-  })
-
-  payload.logger.info(`— Seeding contact form...`)
-
-  const contactForm = await payload.create({
-    collection: 'forms',
-    depth: 0,
-    data: contactFormData,
-  })
-
-  payload.logger.info(`— Seeding pages...`)
-
-  const [_, contactPage] = await Promise.all([
-    payload.create({
-      collection: 'pages',
+    await payload.create({
+      collection: 'theme',
       context: noRevalidate,
+      data: { ...site.theme, site: siteDoc.id },
       depth: 0,
-      data: home({ heroImage: imageHomeDoc, metaImage: image2Doc }),
-    }),
-    payload.create({
-      collection: 'pages',
+      req,
+    })
+
+    const page = async (
+      slug: string,
+      title: string,
+      body: string,
+      status: 'draft' | 'published',
+      extra: Page['layout'] = [],
+    ) =>
+      payload.create({
+        collection: 'pages',
+        context: noRevalidate,
+        data: {
+          _status: status,
+          hero: { type: 'lowImpact', richText: richText([{ text: title, type: 'heading' }]) },
+          layout: [
+            {
+              blockType: 'content',
+              columns: [
+                { size: 'full', richText: richText([{ text: body, type: 'paragraph' }]) },
+              ],
+            },
+            ...extra,
+          ],
+          meta: { description: body.slice(0, 150), title },
+          site: siteDoc.id,
+          slug,
+          title,
+        },
+        depth: 0,
+        locale: 'fa',
+        req,
+      })
+
+    const home = await page(HOME_SLUG, site.name, site.tagline, 'published')
+
+    // Contact sits on the translated page on purpose: its fields are flat, so the
+    // English pass can rewrite them by row id without the nested-array problem the
+    // blocks on `services` would have.
+    const about = await page('about', 'درباره ما', `${site.name} — ${site.tagline}`, 'published', [
+      {
+        blockType: 'contact',
+        address: 'تهران، خیابان ولیعصر، پلاک ۱۲',
+        email: `info@${site.slug}.test`,
+        heading: 'تماس با ما',
+        hours: 'شنبه تا چهارشنبه، ۹ تا ۱۷',
+        // ASCII in the data: the block renders Persian digits and keeps the raw
+        // number for `tel:`, which does not dial with Persian-Indic digits.
+        phones: ['02112345678', '09121234567'],
+      },
+    ])
+
+    await page('coming-soon', 'به‌زودی', 'این صفحه هنوز منتشر نشده است.', 'draft')
+
+    // Persian-only, and not translated: these blocks nest arrays inside arrays, and
+    // a second-locale write would have to carry every inner row id to avoid wiping
+    // the Persian copy. The `about` page is what exercises translation.
+    //
+    // ponytail: no `gallery` or `logos` — both need uploaded media, which arrives
+    // with the storage adapter in Wave 6.
+    await page(
+      'services',
+      site.type === 'portfolio' ? 'خدمات ما' : 'خدمات و تعرفه‌ها',
+      'هر آنچه ارائه می‌دهیم، یک‌جا.',
+      'published',
+      siteBlocks(site.type),
+    )
+
+    const post = await payload.create({
+      collection: 'posts',
       context: noRevalidate,
+      data: {
+        _status: 'published',
+        content: richText([
+          { text: 'اولین یادداشت', type: 'heading' },
+          { text: 'این نوشته با داده‌های آزمایشی ساخته شده است.', type: 'paragraph' },
+        ]),
+        publishedAt: new Date().toISOString(),
+        site: siteDoc.id,
+        slug: 'first-post',
+        title: 'اولین یادداشت',
+      },
       depth: 0,
-      data: contactPageData({ contactForm: contactForm }),
-    }),
-  ])
+      locale: 'fa',
+      req,
+    })
 
-  payload.logger.info(`— Seeding globals...`)
-
-  await Promise.all([
-    payload.updateGlobal({
-      slug: 'header',
+    await payload.create({
+      collection: 'header',
       context: noRevalidate,
       data: {
         navItems: [
-          {
-            link: {
-              type: 'custom',
-              label: 'Posts',
-              url: '/posts',
-            },
-          },
+          // No `/posts` item: Wave 5 builds that route, and a 404 in the header of
+          // every seeded site is worse than a shorter nav.
           {
             link: {
               type: 'reference',
-              label: 'Contact',
-              reference: {
-                relationTo: 'pages',
-                value: contactPage.id,
-              },
+              label: 'درباره ما',
+              reference: { relationTo: 'pages', value: about.id },
             },
           },
         ],
+        site: siteDoc.id,
       },
-    }),
-    payload.updateGlobal({
-      slug: 'footer',
+      depth: 0,
+      locale: 'fa',
+      req,
+    })
+
+    await payload.create({
+      collection: 'footer',
       context: noRevalidate,
       data: {
-        navItems: [
-          {
-            link: {
-              type: 'custom',
-              label: 'Admin',
-              url: '/admin',
-            },
-          },
-          {
-            link: {
-              type: 'custom',
-              label: 'Source Code',
-              newTab: true,
-              url: 'https://github.com/payloadcms/payload/tree/3.x/templates/website',
-            },
-          },
-          {
-            link: {
-              type: 'custom',
-              label: 'Payload',
-              newTab: true,
-              url: 'https://payloadcms.com/',
-            },
-          },
-        ],
+        navItems: [{ link: { type: 'custom', label: 'تماس با ما', url: '/about' } }],
+        site: siteDoc.id,
       },
-    }),
-  ])
+      depth: 0,
+      locale: 'fa',
+      req,
+    })
+
+    if (!site.en) continue
+
+    // Written as a second pass, not a second document: a localized field is one row
+    // per locale on the same document.
+    const translate = (doc: Page, slug: string, title: string, body: string) =>
+      payload.update({
+        id: doc.id,
+        collection: 'pages',
+        context: noRevalidate,
+        data: {
+          hero: { type: 'lowImpact', richText: richText([{ text: title, type: 'heading' }], 'ltr') },
+          /**
+           * Built from the document's own rows, keeping every `id`. `layout` is not
+           * localized (§3.7), so a freshly built array does not translate the page —
+           * it *replaces* the rows and takes the Persian copy with them. The row id
+           * is the whole difference between a translation and a rewrite.
+           */
+          layout: doc.layout.map((row) => {
+            if (row.blockType === 'content') {
+              return {
+                ...row,
+                columns: row.columns?.map((column) => ({
+                  ...column,
+                  richText: richText([{ text: body, type: 'paragraph' }], 'ltr'),
+                })),
+              }
+            }
+
+            if (row.blockType === 'contact') {
+              return {
+                ...row,
+                address: 'No. 12, Valiasr St., Tehran',
+                heading: 'Contact us',
+                hours: 'Sat–Wed, 9 to 17',
+              }
+            }
+
+            return row
+          }),
+          // `meta` too, not just `title`: localized fields fall back, so an untranslated
+          // `meta.title` would put the Persian SEO title on the English page.
+          meta: { description: body.slice(0, 150), title },
+          // `slug` is localized, so the English route is set explicitly rather than
+          // left to auto-generate off the title.
+          slug,
+          title,
+        },
+        depth: 0,
+        locale: 'en',
+        req,
+      })
+
+    // `home` in both locales, deliberately: bare `/` and `/en` resolve by looking up
+    // the reserved slug, so a per-locale home slug would make `/en` unreachable.
+    await translate(home, HOME_SLUG, site.en.title, site.en.tagline)
+    // Translated too, not left Persian-only: a `where` on a localized slug does not
+    // fall back, so an untranslated page 404s — and the nav links to it in every locale.
+    await translate(about, 'about', 'About us', `${site.en.title} — ${site.en.tagline}`)
+
+    await payload.update({
+      id: post.id,
+      collection: 'posts',
+      context: noRevalidate,
+      data: {
+        content: richText([{ text: 'First note', type: 'paragraph' }], 'ltr'),
+        slug: 'first-post-en',
+        title: 'First note',
+      },
+      depth: 0,
+      locale: 'en',
+      req,
+    })
+  }
 
   payload.logger.info('Seeded database successfully!')
-}
-
-async function fetchFileByURL(url: string): Promise<File> {
-  const res = await fetch(url, {
-    credentials: 'include',
-    method: 'GET',
-  })
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch file from ${url}, status: ${res.status}`)
-  }
-
-  const data = await res.arrayBuffer()
-
-  return {
-    name: url.split('/').pop() || `file-${Date.now()}`,
-    data: Buffer.from(data),
-    mimetype: `image/${url.split('.').pop()}`,
-    size: data.byteLength,
-  }
 }

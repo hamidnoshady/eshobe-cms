@@ -1,4 +1,8 @@
+'use client'
+
 import { Button, type ButtonProps } from '@/components/ui/button'
+import { useLocaleHref } from '@/providers/Locale'
+import { pagePath } from '@/lib/slug'
 import { cn } from '@/utilities/ui'
 import Link from 'next/link'
 import React from 'react'
@@ -33,12 +37,20 @@ export const CMSLink: React.FC<CMSLinkType> = (props) => {
     url,
   } = props
 
-  const href =
+  const localeHref = useLocaleHref()
+
+  const target =
     type === 'reference' && typeof reference?.value === 'object' && reference.value.slug
-      ? `${reference?.relationTo !== 'pages' ? `/${reference?.relationTo}` : ''}/${
-          reference.value.slug
-        }`
+      ? reference.relationTo === 'pages'
+        ? // `pagePath`, not `/${slug}`: a nav item pointing at the home page has to
+          // render `/`, or the site grows a second URL for its own front page.
+          pagePath(reference.value.slug)
+        : `/${reference.relationTo}/${reference.value.slug}`
       : url
+
+  // Site-relative links carry the active locale, or an English visitor clicking
+  // through the nav lands back on the Persian page.
+  const href = target ? localeHref(target) : target
 
   if (!href) return null
 
