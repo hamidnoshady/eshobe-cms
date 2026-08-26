@@ -28,7 +28,7 @@ export const Sites: CollectionConfig = {
     update: authenticated,
   },
   admin: {
-    defaultColumns: ['name', 'domain', 'type', 'status'],
+    defaultColumns: ['name', 'domain', 'domainVerified', 'type', 'status'],
     useAsTitle: 'name',
   },
   labels: {

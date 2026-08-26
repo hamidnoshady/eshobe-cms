@@ -7,9 +7,15 @@ const __filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(__filename)
 import { redirects } from './redirects'
 
-const NEXT_PUBLIC_SERVER_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL
-  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-  : process.env.__NEXT_PRIVATE_ORIGIN || 'http://localhost:3000'
+// NEXT_PUBLIC_SERVER_URL first: this value is inlined at BUILD time into the
+// CSP `frame-ancestors` header and `images.remotePatterns`, so the production
+// image build must receive it (see the Dockerfile's ARG) or live preview is
+// framed from an origin the CSP does not allow.
+const NEXT_PUBLIC_SERVER_URL =
+  process.env.NEXT_PUBLIC_SERVER_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.__NEXT_PRIVATE_ORIGIN || 'http://localhost:3000')
 
 const nextConfig: NextConfig = {
   // The production Dockerfile copies `.next/standalone` and runs `node server.js`;

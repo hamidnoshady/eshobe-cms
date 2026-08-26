@@ -19,7 +19,13 @@ ACME_EMAIL=ops@example.com
 DATABASE_URL=postgres://eshobe:password@db:5432/eshobe
 PAYLOAD_SECRET=long-random-secret
 POSTGRES_PASSWORD=another-long-random-secret
+CRON_SECRET=long-random-secret-2
+PREVIEW_SECRET=long-random-secret-3
 ```
+
+`NEXT_PUBLIC_SERVER_URL` is derived from `CONTROL_PLANE_HOST` and passed as a **build arg** — it is inlined into client bundles and the CSP `frame-ancestors` header at build time, so changing the control-plane host requires an image rebuild, not just a restart.
+
+Customer uploads live in the `media_uploads` volume (mounted at `/app/media`, `MEDIA_DIR`); include it in the backup policy alongside `pgdata` and `caddy_data`.
 
 The control-plane hostname is the only host allowed to access `/admin*` and `/api*`. Customer hosts are routed to the public site and those paths return 404, with two carve-outs the public site itself depends on: `POST /api/form-submissions` (the Wave 3 contact form posts from the customer's own origin) and `GET /api/media/file/*` (locally stored uploads). Port 80 redirects every host to HTTPS. Caddy stores certificates in the `caddy_data` volume; back it up as part of the deployment backup policy.
 
