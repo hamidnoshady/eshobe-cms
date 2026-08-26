@@ -96,7 +96,7 @@ export const Posts: CollectionConfig<'posts'> = {
               localized: true,
             },
           ],
-          label: 'Content',
+          label: 'محتوا',
         },
         {
           fields: [
@@ -126,11 +126,11 @@ export const Posts: CollectionConfig<'posts'> = {
               relationTo: 'categories',
             },
           ],
-          label: 'Meta',
+          label: 'اطلاعات نوشته',
         },
         {
           name: 'meta',
-          label: 'SEO',
+          label: 'سئو',
           fields: [
             OverviewField({
               titlePath: 'meta.title',
@@ -161,7 +161,12 @@ export const Posts: CollectionConfig<'posts'> = {
     {
       name: 'publishedAt',
       type: 'date',
+      label: 'تاریخ انتشار',
       admin: {
+        components: {
+          // Payload's picker is Gregorian; this echoes the Shamsi equivalent under it.
+          Description: '@/fields/ShamsiDateHint#ShamsiDateHint',
+        },
         date: {
           pickerAppearance: 'dayAndTime',
         },
@@ -221,8 +226,9 @@ export const Posts: CollectionConfig<'posts'> = {
   },
   versions: {
     drafts: {
+      // Same interval as `pages` — see the note there on why not the template's 100ms.
       autosave: {
-        interval: 100, // We set this interval for optimal live preview
+        interval: 375,
       },
       schedulePublish: true,
     },

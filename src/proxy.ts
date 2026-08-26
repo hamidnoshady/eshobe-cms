@@ -69,7 +69,10 @@ export function proxy(req: NextRequest): NextResponse {
   const locale = isLocale(segments[0]) ? segments[0]! : ''
 
   const headers = new Headers(req.headers)
-  if (locale) headers.set('x-locale', locale)
+  // Unconditionally, not `if (locale)`: the header is copied from the incoming
+  // request, so leaving it alone on an unprefixed path let a client send its own
+  // `x-locale` and pick the rendered locale behind the URL's back.
+  headers.set('x-locale', locale)
 
   const url = req.nextUrl.clone()
   url.pathname = `/${host}${req.nextUrl.pathname}`

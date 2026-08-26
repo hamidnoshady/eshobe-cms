@@ -38,11 +38,9 @@ export const Pages: CollectionConfig<'pages'> = {
   admin: {
     defaultColumns: ['title', 'slug', 'updatedAt'],
     livePreview: {
-      url: ({ data, req }) =>
-        generatePreviewPath({ collection: 'pages', data, req, slug: data?.slug }),
+      url: ({ data, req }) => generatePreviewPath({ data, req }),
     },
-    preview: (data, { req }) =>
-      generatePreviewPath({ collection: 'pages', data, req, slug: data?.slug as string }),
+    preview: (data, { req }) => generatePreviewPath({ data, req }),
     useAsTitle: 'title',
   },
   labels: {
@@ -62,7 +60,7 @@ export const Pages: CollectionConfig<'pages'> = {
       tabs: [
         {
           fields: [hero],
-          label: 'Hero',
+          label: 'بخش نخست',
         },
         {
           fields: [
@@ -80,11 +78,11 @@ export const Pages: CollectionConfig<'pages'> = {
               },
             },
           ],
-          label: 'Content',
+          label: 'محتوا',
         },
         {
           name: 'meta',
-          label: 'SEO',
+          label: 'سئو',
           fields: [
             OverviewField({
               titlePath: 'meta.title',
@@ -115,7 +113,12 @@ export const Pages: CollectionConfig<'pages'> = {
     {
       name: 'publishedAt',
       type: 'date',
+      label: 'تاریخ انتشار',
       admin: {
+        components: {
+          // Payload's picker is Gregorian; this echoes the Shamsi equivalent under it.
+          Description: '@/fields/ShamsiDateHint#ShamsiDateHint',
+        },
         position: 'sidebar',
       },
     },
@@ -132,7 +135,15 @@ export const Pages: CollectionConfig<'pages'> = {
   versions: {
     drafts: {
       autosave: {
-        interval: 100, // We set this interval for optimal live preview
+        /**
+         * Live preview is server-rendered here: the admin posts a bare
+         * `payload-document-event` and the page re-fetches, so the pane only updates
+         * as often as the document is *saved*. 375ms is the plan's figure — long
+         * enough that a burst of typing is one write, short enough to read as live.
+         * The template's 100ms writes a row and a version per keystroke-pause, which
+         * on Postgres is four times the version churn for no visible gain.
+         */
+        interval: 375,
       },
       schedulePublish: true,
     },

@@ -256,6 +256,32 @@ export const seed = async ({
 
     const home = await page(HOME_SLUG, site.name, site.tagline, 'published')
 
+    /**
+     * A real form per site, so a submission can be posted and read back. Two sites
+     * with two forms is also what proves a submission lands on the *form's* site
+     * rather than whichever one the request claimed.
+     */
+    const form = await payload.create({
+      collection: 'forms',
+      context: noRevalidate,
+      data: {
+        confirmationMessage: richText([
+          { text: 'پیام شما رسید. به‌زودی تماس می‌گیریم.', type: 'paragraph' },
+        ]),
+        confirmationType: 'message',
+        fields: [
+          { name: 'name', blockType: 'text', label: 'نام', required: true, width: 50 },
+          { name: 'email', blockType: 'email', label: 'ایمیل', required: true, width: 50 },
+          { name: 'message', blockType: 'textarea', label: 'پیام', required: true, width: 100 },
+        ],
+        site: siteDoc.id,
+        submitButtonLabel: 'ارسال پیام',
+        title: `فرم تماس ${site.name}`,
+      },
+      depth: 0,
+      req,
+    })
+
     // Contact sits on the translated page on purpose: its fields are flat, so the
     // English pass can rewrite them by row id without the nested-array problem the
     // blocks on `services` would have.
@@ -269,6 +295,12 @@ export const seed = async ({
         // ASCII in the data: the block renders Persian digits and keeps the raw
         // number for `tel:`, which does not dial with Persian-Indic digits.
         phones: ['02112345678', '09121234567'],
+      },
+      {
+        blockType: 'formBlock',
+        enableIntro: true,
+        form: form.id,
+        introContent: richText([{ text: 'برای ما پیام بگذارید', type: 'heading' }]),
       },
     ])
 

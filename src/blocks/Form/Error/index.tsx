@@ -8,8 +8,11 @@ export const Error = ({ name }: { name: string }) => {
     formState: { errors },
   } = useFormContext()
   return (
-    <div className="mt-2 text-red-500 text-sm">
-      {(errors[name]?.message as string) || 'This field is required'}
+    // `text-destructive`, not `text-red-500`: the per-site theme owns the palette, so
+    // a hardcoded red is the one colour on the page that ignores it. `role="alert"`
+    // because the message appears only after a failed submit.
+    <div className="mt-2 text-destructive text-sm" role="alert">
+      {(errors[name]?.message as string) || 'این فیلد الزامی است'}
     </div>
   )
 }

@@ -35,6 +35,31 @@ const nextConfig: NextConfig = {
       }),
     ],
   },
+  /**
+   * Live preview renders a customer domain inside an iframe on the admin origin —
+   * a cross-origin frame, which browsers block by default. Without this the preview
+   * pane is blank with only a console message, and the failure looks like a broken
+   * URL rather than a policy.
+   *
+   * `frame-ancestors` and not `X-Frame-Options`: the latter has no origin list, only
+   * `SAMEORIGIN`, which is exactly what this is not. Naming the admin origin rather
+   * than allowing any parent is the whole point — a customer page must not be
+   * frameable by a third party for clickjacking.
+   */
+  async headers() {
+    return [
+      {
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: `frame-ancestors 'self' ${NEXT_PUBLIC_SERVER_URL}`,
+          },
+        ],
+        // Payload's admin sets its own headers; this is for the rendered sites.
+        source: '/((?!admin|api).*)',
+      },
+    ]
+  },
   webpack: (webpackConfig) => {
     webpackConfig.resolve.extensionAlias = {
       '.cjs': ['.cts', '.cjs'],
