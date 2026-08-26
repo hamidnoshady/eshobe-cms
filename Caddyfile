@@ -1,23 +1,61 @@
 {
+    email {$ACME_EMAIL}
     # Caddy calls the ask endpoint before issuing an on-demand certificate.
     on_demand_tls {
         ask http://web:3000/api/domain-check
     }
 }
 
-# The control plane keeps Payload admin and API access on its own host.
-https://{$CONTROL_PLANE_HOST} {
-    reverse_proxy web:3000
+# Caddy's automatic HTTP->HTTPS redirect only covers hostnames it knows in
+# advance; on-demand customer domains need an explicit port-80 handler.
+http:// {
+    redir https://{host}{uri} permanent
 }
 
-# Every other host is a customer site. Never expose the control plane paths here.
+# The control plane keeps Payload admin and API access on its own host.
+https://{$CONTROL_PLANE_HOST} {
+    # The ask endpoint is Caddy-internal (reached as web:3000 over the Docker
+    # network); never expose it publicly, or anyone can enumerate customer domains.
+    @domain_check path /api/domain-check*
+    handle @domain_check {
+        respond 404
+    }
+    handle {
+        reverse_proxy web:3000
+    }
+}
+
+# Every other host is a customer site. Never expose the control plane paths
+# here — but the public site itself depends on two API routes: the Wave 3
+# contact form posts to /api/form-submissions from the customer domain, and
+# locally-stored uploads are served from /api/media/file/*.
 https:// {
+    tls {
+        on_demand
+    }
+
+    @form_submissions {
+        method POST
+        path /api/form-submissions
+    }
+    handle @form_submissions {
+        reverse_proxy web:3000
+    }
+
+    @media_files {
+        method GET HEAD
+        path /api/media/file/*
+    }
+    handle @media_files {
+        reverse_proxy web:3000
+    }
+
     @control_plane_paths path /admin* /api*
     handle @control_plane_paths {
         respond 404
     }
-    tls {
-        on_demand
+
+    handle {
+        reverse_proxy web:3000
     }
-    reverse_proxy web:3000
 }

@@ -245,9 +245,13 @@ export interface Site {
   id: string;
   name: string;
   /**
-   * میزبان کامل بدون پروتکل — مثلاً acme.localhost یا acme.ir
+   * میزبان کامل بدون پروتکل — مثلاً acme.ir. DNS: یک رکورد A به IP سرور یا CNAME به نام میزبان سرور بسازید؛ سپس دامنه را تأیید کنید.
    */
   domain: string;
+  /**
+   * فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. دامنهٔ تأییدنشده گواهی TLS نمی‌گیرد.
+   */
+  domainVerified?: boolean | null;
   type: 'business' | 'portfolio' | 'store';
   /**
    * چرخهٔ عمر سایت از این فیلد می‌آید، نه از حذف کردن آن.
@@ -1842,6 +1846,7 @@ export interface UsersSelect<T extends boolean = true> {
 export interface SitesSelect<T extends boolean = true> {
   name?: T;
   domain?: T;
+  domainVerified?: T;
   type?: T;
   status?: T;
   availableLocales?: T;

@@ -21,7 +21,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -30,6 +34,7 @@ services:
       - "443:443"
     environment:
       CONTROL_PLANE_HOST: ${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

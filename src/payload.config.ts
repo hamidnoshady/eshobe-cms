@@ -17,6 +17,7 @@ import { Users } from './collections/Users'
 import { Footer } from './Footer/config'
 import { Header } from './Header/config'
 import { defaultLocale, locales } from './lib/locales'
+import { migrations } from './migrations'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
@@ -66,6 +67,9 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URL,
     },
+    // The production image runs `node server.js` with no Payload CLI, so
+    // pending migrations run on init (production only — dev keeps push mode).
+    prodMigrations: migrations,
   }),
   collections: [Pages, Posts, Media, Categories, Users, Sites, Theme, Header, Footer],
   cors: [getServerSideURL()].filter(Boolean),
