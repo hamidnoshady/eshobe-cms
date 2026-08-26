@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 /**
  * PLAN §8.2, §8.3 and §8.5 at the HTTP level — which domain serves which content,
@@ -154,5 +154,80 @@ test.describe('block library', () => {
 
     await page.getByText('ارسال چقدر طول می‌کشد؟').click()
     await expect(answer).toBeVisible()
+  })
+})
+
+test.describe('contact form', () => {
+  /**
+   * Waits until React owns the form.
+   *
+   * `page.goto` resolves on `load`, which is *before* hydration, and a submit click in
+   * that window falls through to the browser's own handler: a native GET that puts the
+   * visitor's message in the query string and navigates away. The test then looks for a
+   * confirmation on a freshly re-rendered empty form and times out — a failure that
+   * reads like a rejected POST.
+   *
+   * React attaches its props to the DOM node under a `__react*` key when it hydrates,
+   * so that key appearing is the boundary itself. An internal detail, but the only
+   * honest signal: hydration changes nothing else observable.
+   */
+  const formIsInteractive = (page: Page) =>
+    page.waitForFunction(() => {
+      const form = document.querySelector('form')
+      return !!form && Object.keys(form).some((key) => key.startsWith('__react'))
+    })
+
+  test('takes a visitor’s message and confirms it in Persian', async ({ page }) => {
+    // The other half of the Wave 3 criterion: a client can build a contact form and
+    // receive a submission. The confirmation only renders on a 2xx, so this failing
+    // means the POST was rejected — which it was, before `beforeValidate` supplied
+    // the site an anonymous request cannot know.
+    await page.goto(`${acme}/about`)
+    await formIsInteractive(page)
+
+    await page.locator('#name').fill('حمید نوشادی')
+    await page.locator('#email').fill('hamid@example.test')
+    await page.locator('#message').fill('یک پیام آزمایشی از تست.')
+    await page.getByRole('button', { name: 'ارسال پیام' }).click()
+
+    // 30s, not the 5s default: this is the run's first POST to the API route, so the
+    // dev server compiles it while the form sits on «در حال ارسال…».
+    await expect(page.getByText('پیام شما رسید')).toBeVisible({ timeout: 30_000 })
+  })
+
+  test('names a missing field in Persian rather than failing silently', async ({ page }) => {
+    await page.goto(`${acme}/about`)
+    await formIsInteractive(page)
+
+    await page.getByRole('button', { name: 'ارسال پیام' }).click()
+
+    // Client-side, so nothing is posted — but the visitor has to be told *something*,
+    // and an English validation message on a Persian form is a bug of its own.
+    await expect(page.locator('form')).toContainText('این فیلد الزامی است')
+  })
+})
+
+test.describe('live preview', () => {
+  test('lets the admin origin frame a customer page, and names only it', async ({ page }) => {
+    /**
+     * Without this header the preview pane is blank with nothing but a console
+     * message, and the failure reads as a broken URL rather than a policy.
+     * `frame-ancestors` and not `X-Frame-Options` because the latter cannot name an
+     * origin — only `SAMEORIGIN`, which a cross-domain preview is precisely not.
+     * Naming the admin rather than allowing any parent is the point: a customer page
+     * must not be frameable by a stranger.
+     */
+    const csp = (await page.goto(`${acme}/about`))?.headers()['content-security-policy']
+
+    expect(csp).toBe("frame-ancestors 'self' http://localhost:3000")
+  })
+
+  test('refuses to turn on draft mode without the preview secret', async ({ page }) => {
+    // The token in the URL is the editor's session; the secret is the second half.
+    // Both are checked before `draftMode().enable()`, and a 403 here is what keeps
+    // `/next/preview` from being an open draft reader.
+    const res = await page.goto(`${acme}/next/preview?path=%2Fabout&previewSecret=wrong`)
+
+    expect(res?.status()).toBe(403)
   })
 })

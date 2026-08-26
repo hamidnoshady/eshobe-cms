@@ -43,7 +43,7 @@ export const FormBlock: React.FC<
 
   const [isLoading, setIsLoading] = useState(false)
   const [hasSubmitted, setHasSubmitted] = useState<boolean>()
-  const [error, setError] = useState<{ message: string; status?: string } | undefined>()
+  const [error, setError] = useState<{ message: string } | undefined>()
   const router = useRouter()
 
   const onSubmit = useCallback(
@@ -82,8 +82,7 @@ export const FormBlock: React.FC<
             setIsLoading(false)
 
             setError({
-              message: res.errors?.[0]?.message || 'Internal Server Error',
-              status: res.status,
+              message: res.errors?.[0]?.message || 'ارسال پیام ناموفق بود. دوباره تلاش کنید.',
             })
 
             return
@@ -103,7 +102,7 @@ export const FormBlock: React.FC<
           console.warn(err)
           setIsLoading(false)
           setError({
-            message: 'Something went wrong.',
+            message: 'ارتباط با سرور برقرار نشد. اتصال خود را بررسی کنید.',
           })
         }
       }
@@ -123,8 +122,18 @@ export const FormBlock: React.FC<
           {!isLoading && hasSubmitted && confirmationType === 'message' && (
             <RichText data={confirmationMessage} />
           )}
-          {isLoading && !hasSubmitted && <p>Loading, please wait...</p>}
-          {error && <div>{`${error.status || '500'}: ${error.message || ''}`}</div>}
+          {isLoading && !hasSubmitted && <p>در حال ارسال…</p>}
+          {error && (
+            /**
+             * `role="alert"` so a screen reader announces a failed submission — the
+             * visual change is below the button and easy to miss. The status code is
+             * gone from the copy: it told a visitor nothing and the message now says
+             * what to do instead.
+             */
+            <div className="mb-4 text-destructive" role="alert">
+              {error.message}
+            </div>
+          )}
           {!hasSubmitted && (
             <form id={formID} onSubmit={handleSubmit(onSubmit)}>
               <div className="mb-4 last:mb-0">

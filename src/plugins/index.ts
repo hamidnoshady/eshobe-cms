@@ -14,14 +14,29 @@ import { beforeSyncWithSearch } from '@/search/beforeSync'
 import type { Config, Page, Post } from '@/payload-types'
 
 import { isPlatformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
 
 const generateTitle: GenerateTitle<Post | Page> = ({ doc }) => doc?.title ?? ''
 
-const generateURL: GenerateURL<Post | Page> = ({ doc }) => {
-  const url = getServerSideURL()
+/**
+ * The URL the SEO tab previews as the search result.
+ *
+ * The template returned `${getServerSideURL()}/${slug}` — the admin's own origin,
+ * no locale segment, and `/home` for the front page. Every one of those is wrong on
+ * a platform where each site has its own domain, and it is the string the editor
+ * checks their SEO against, so a wrong one teaches them the wrong URL.
+ *
+ * `req.locale` is whichever locale the tab is being edited in, so an English page
+ * previews as `/en/about`.
+ */
+const generateURL: GenerateURL<Post | Page> = async ({ doc, req }) => {
+  const target = await siteUrlForDoc({ doc, req })
 
-  return doc?.slug ? `${url}/${doc.slug}` : url
+  // Falls back to the deployment origin, not a guessed customer domain: this string
+  // is shown to an editor, and a plausible-looking wrong domain is worse than an
+  // obviously-internal one.
+  return target ? target.origin + target.path : getServerSideURL()
 }
 
 export const plugins: Plugin[] = [
@@ -71,11 +86,22 @@ export const plugins: Plugin[] = [
       hooks: {
         beforeValidate: [
           async ({ data, req }) => {
-            if (!data || data.site) return data
+            if (!data) return data
 
-            // The tenant field is required and normally defaults from the admin's
-            // tenant cookie — a public form POST has no cookie, so without this
-            // every submission fails validation. The form itself knows its site.
+            /**
+             * The submission's site always comes from the form, never from the
+             * request.
+             *
+             * `create` access on this collection is `() => true` — it has to be, a
+             * contact form is submitted by anonymous visitors — and the plugin only
+             * ANDs its tenant constraint on when `req.user` exists. So for an
+             * anonymous POST there is nothing between the request body and the
+             * database: sending `{ form: <acme form>, site: <studio site> }` filed
+             * acme's enquiry under studio. Deriving it from the form closes that,
+             * and also supplies the required field that an admin's tenant cookie
+             * would have (a public POST has no cookie, so without this every real
+             * submission failed validation).
+             */
             const formId = typeof data.form === 'object' ? data.form?.id : data.form
             if (!formId) return data
 
@@ -84,8 +110,11 @@ export const plugins: Plugin[] = [
               collection: 'forms',
               depth: 0,
               disableErrors: true,
+              // Reading the form only answers "which site owns this?" — the visitor
+              // is anonymous by design and cannot be asked to have read access to it.
               overrideAccess: true,
               req,
+              select: { site: true },
             })
 
             return { ...data, site: (form as { site?: unknown } | null)?.site }

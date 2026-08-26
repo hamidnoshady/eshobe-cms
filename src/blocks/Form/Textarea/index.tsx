@@ -22,7 +22,7 @@ export const Textarea: React.FC<
 
         {required && (
           <span className="required">
-            * <span className="sr-only">(required)</span>
+            * <span className="sr-only">(الزامی)</span>
           </span>
         )}
       </Label>
