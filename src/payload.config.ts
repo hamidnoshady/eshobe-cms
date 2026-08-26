@@ -20,11 +20,13 @@ import { defaultLocale, locales } from './lib/locales'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
+import { domainCheck } from './endpoints/domainCheck'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
+  endpoints: [domainCheck],
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],

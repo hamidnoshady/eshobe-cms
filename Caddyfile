@@ -1,0 +1,23 @@
+{
+    # Caddy calls the ask endpoint before issuing an on-demand certificate.
+    on_demand_tls {
+        ask http://web:3000/api/domain-check
+    }
+}
+
+# The control plane keeps Payload admin and API access on its own host.
+https://{$CONTROL_PLANE_HOST} {
+    reverse_proxy web:3000
+}
+
+# Every other host is a customer site. Never expose the control plane paths here.
+https:// {
+    @control_plane_paths path /admin* /api*
+    handle @control_plane_paths {
+        respond 404
+    }
+    tls {
+        on_demand
+    }
+    reverse_proxy web:3000
+}
