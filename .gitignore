@@ -15,8 +15,6 @@ dist/
 
 media/
 public/media/
-public/robots.txt
-public/sitemap*.xml
 
 *.log
 npm-debug.log*

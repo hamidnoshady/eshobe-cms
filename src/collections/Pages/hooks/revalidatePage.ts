@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 
 import type { Page } from '../../../payload-types'
 
+import { tryRevalidate } from '@/hooks/revalidate'
 import { defaultLocale } from '@/lib/locales'
 import { HOME_SLUG } from '@/lib/slug'
 
@@ -51,7 +52,9 @@ const revalidate = async (doc: Page, req: PayloadRequest, slug?: string | null):
 
   for (const path of pathsFor(domain, locale, defaultLocale, slug)) {
     req.payload.logger.info(`Revalidating ${path}`)
-    revalidatePath(path)
+    // Guarded: a scheduled publish runs this from the jobs queue, where there is no
+    // request context for `revalidatePath` to find — see `tryRevalidate`.
+    tryRevalidate(req.payload, path, () => revalidatePath(path))
   }
 }
 

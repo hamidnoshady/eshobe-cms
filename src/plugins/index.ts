@@ -14,6 +14,7 @@ import { beforeSyncWithSearch } from '@/search/beforeSync'
 import type { Config, Page, Post } from '@/payload-types'
 
 import { isPlatformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { storage } from './storage'
 import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
 
@@ -40,6 +41,9 @@ const generateURL: GenerateURL<Post | Page> = async ({ doc, req }) => {
 }
 
 export const plugins: Plugin[] = [
+  // First, and before the multi-tenant plugin in particular: it rewrites `media`'s
+  // fields and upload handlers, and it must not race the `site` field being added.
+  storage,
   redirectsPlugin({
     collections: ['pages', 'posts'],
     overrides: {

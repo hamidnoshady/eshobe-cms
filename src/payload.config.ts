@@ -16,6 +16,7 @@ import { Theme } from './collections/Theme'
 import { Users } from './collections/Users'
 import { Footer } from './Footer/config'
 import { Header } from './Header/config'
+import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
 import { defaultLocale, locales } from './lib/locales'
 import { migrations } from './migrations'
 import { plugins } from './plugins'
@@ -137,6 +138,20 @@ export default buildConfig({
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },
+  /**
+   * Runs the queue inside this container, once a minute.
+   *
+   * Scheduled publishing (`versions.drafts.schedulePublish` on pages and posts) is
+   * the only producer today: the admin queues a `schedulePublish` job with a
+   * `waitUntil`, and nothing publishes it unless something runs the queue. On this
+   * deployment that something is the web container itself — a VPS process that
+   * outlives a request, which is what makes `autoRun` usable at all.
+   *
+   * Two constraints ride on that, both of which fail silently rather than loudly:
+   * `autoRun` must never be used on serverless, and every extra web replica runs the
+   * same cron against the same queue. `jobsAutoRunEnabled` keeps the switch in one
+   * place; the upgrade path is a separate `payload jobs:run` container.
+   */
   jobs: {
     access: {
       run: ({ req }: { req: PayloadRequest }): boolean => {
@@ -153,6 +168,31 @@ export default buildConfig({
         return authHeader === `Bearer ${secret}`
       },
     },
+    // Empty, not merely gated by `shouldAutoRun`: an entry here schedules a cron on
+    // every boot, and a cron that immediately decides to do nothing is still a timer
+    // in every dev server and every test process.
+    autoRun: jobsAutoRunEnabled()
+      ? [
+          {
+            cron: '* * * * *',
+            // The queue the admin's schedule drawer posts to. It does not name one,
+            // and Payload's default is 'default'.
+            queue: 'default',
+            limit: 10,
+          },
+        ]
+      : [],
+    // Belt and braces: `autoRun` is resolved once at startup, this is consulted on
+    // every tick, so flipping the env var and restarting is always enough.
+    shouldAutoRun: () => jobsAutoRunEnabled(),
     tasks: [],
+  },
+  /**
+   * Last line of defence for the values that only bite in production. Deliberately
+   * in `onInit`: it runs on a real boot (and on `payload migrate`), never during
+   * `next build`, which the Dockerfile deliberately runs with placeholder secrets.
+   */
+  onInit: () => {
+    assertProductionEnv()
   },
 })
