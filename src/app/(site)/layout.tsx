@@ -28,13 +28,15 @@ const vazirmatn = Vazirmatn({
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const { isEnabled } = await draftMode()
-  const { dir, locale, site } = await getSiteContext()
+  const { dir, locale, serving, site } = await getSiteContext()
 
-  // Inline, not a stylesheet: the tokens are per-site data, so a linked file would be
-  // a second round trip on every first paint and a cache entry per tenant.
-  const theme = site
-    ? themeCss(await findGlobalForSite('theme', String(site.id), { depth: 0, locale }))
-    : ''
+  // The site's own tokens and chrome render only while it serves: a suspended or
+  // archived site shows the holding page, and a suspension that still paints the
+  // site's nav, footer and colours is not a suspension.
+  const theme =
+    site && serving
+      ? themeCss(await findGlobalForSite('theme', String(site.id), { depth: 0, locale }))
+      : ''
 
   return (
     <html className={vazirmatn.variable} dir={dir} lang={locale} suppressHydrationWarning>
@@ -52,9 +54,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             }}
           />
 
-          <Header />
+          {serving && <Header />}
           {children}
-          <Footer />
+          {serving && <Footer />}
         </Providers>
       </body>
     </html>

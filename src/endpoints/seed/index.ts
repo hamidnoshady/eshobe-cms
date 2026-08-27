@@ -3,7 +3,7 @@ import type { CollectionSlug, Payload, PayloadRequest } from 'payload'
 import type { Page } from '@/payload-types'
 
 import { HOME_SLUG } from '@/lib/slug'
-import { richText } from './richText'
+import { richText } from '@/provisioning/richText'
 
 /**
  * Two customers, three shapes of content, two locales — the minimum that can

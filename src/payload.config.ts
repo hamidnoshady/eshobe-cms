@@ -22,12 +22,13 @@ import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
 import { domainCheck } from './endpoints/domainCheck'
+import { provisionSiteEndpoint } from './endpoints/provisionSite'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
-  endpoints: [domainCheck],
+  endpoints: [domainCheck, provisionSiteEndpoint],
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],
