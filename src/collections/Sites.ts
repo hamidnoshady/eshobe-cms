@@ -50,7 +50,7 @@ export const Sites: CollectionConfig = {
       unique: true,
       index: true,
       admin: {
-        description: 'میزبان کامل بدون پروتکل — مثلاً acme.localhost یا acme.ir',
+        description: 'میزبان کامل بدون پروتکل — مثلاً acme.ir. DNS: یک رکورد A به IP سرور یا CNAME به نام میزبان سرور بسازید؛ سپس دامنه را تأیید کنید.',
       },
       // Host matching is an exact string compare, so a protocol, port or path
       // here would simply never match and the site would 404 with no clue why.
@@ -58,6 +58,18 @@ export const Sites: CollectionConfig = {
         !value || /^[a-z0-9.-]+$/.test(value)
           ? true
           : 'دامنه باید فقط میزبان باشد: بدون //:http، بدون پورت و بدون مسیر.',
+    },
+    {
+      name: 'domainVerified',
+      type: 'checkbox',
+      label: 'دامنه تأیید شده',
+      defaultValue: false,
+      admin: {
+        description: 'فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. دامنهٔ تأییدنشده گواهی TLS نمی‌گیرد.',
+      },
+      access: {
+        update: platformAdmin,
+      },
     },
     {
       name: 'type',
