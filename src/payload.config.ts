@@ -31,6 +31,11 @@ export default buildConfig({
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],
+      views: {
+        account: {
+          Component: '@/components/admin/AccountView',
+        },
+      },
     },
     importMap: {
       baseDir: path.resolve(dirname),
