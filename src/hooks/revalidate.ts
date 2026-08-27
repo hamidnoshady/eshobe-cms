@@ -25,9 +25,13 @@ export const tryRevalidate = (payload: Payload, what: string, revalidate: () => 
   try {
     revalidate()
   } catch (error) {
+    // The message, not the error object: a scheduled publish revalidates two paths
+    // and this runs every minute, so logging a stack per path buries the log the
+    // moment scheduling is used at all.
+    const reason = error instanceof Error ? error.message : String(error)
+
     payload.logger.warn(
-      { err: error },
-      `Revalidation of ${what} skipped — no request context (jobs queue, CLI or worker).`,
+      `Revalidation of ${what} skipped — no request context (jobs queue, CLI or worker): ${reason}`,
     )
   }
 }
