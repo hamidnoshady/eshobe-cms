@@ -49,8 +49,11 @@ export const Media: CollectionConfig = {
     },
   ],
   upload: {
-    // Upload to the public/media directory in Next.js making them publicly accessible even outside of Payload
-    staticDir: path.resolve(dirname, '../../public/media'),
+    // Dev: public/media in the repo. Production: MEDIA_DIR, an absolute path the
+    // compose file mounts as a volume — inside the standalone bundle a relative
+    // resolve lands in .next/, which is wiped on every image rebuild. Files are
+    // always *served* through /api/media/file/*, so the location is private.
+    staticDir: process.env.MEDIA_DIR || path.resolve(dirname, '../../public/media'),
     adminThumbnail: 'thumbnail',
     focalPoint: true,
     imageSizes: [

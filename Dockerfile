@@ -1,7 +1,9 @@
 # To use this Dockerfile, you have to set `output: 'standalone'` in your next.config.js file.
 # From https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 
-FROM node:22.17.0-alpine AS base
+# 24, not 22: package.json `engines` requires node >=24, and pnpm warns (or
+# fails under engine-strict) on the mismatch.
+FROM node:24-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -9,8 +11,10 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Install dependencies based on the preferred package manager
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+# Install dependencies based on the preferred package manager.
+# pnpm-workspace.yaml carries pnpm 11's build-script approvals (allowBuilds);
+# without it native postinstalls (sharp, esbuild) are silently skipped.
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
 RUN \
   if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
   elif [ -f package-lock.json ]; then npm ci; \
@@ -24,6 +28,16 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+# NEXT_PUBLIC_* values are inlined into client bundles and next.config headers
+# at build time — runtime env cannot fix them afterwards. Compose passes this
+# through `build.args`.
+ARG NEXT_PUBLIC_SERVER_URL
+ENV NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL
+# `next build` loads payload.config.ts, which needs these to exist. No page is
+# prerendered from the database, so dummy values are safe at build time.
+ENV DATABASE_URL="postgres://build:build@localhost:5432/build"
+ENV PAYLOAD_SECRET="build-time-placeholder"
 
 # Next.js collects completely anonymous telemetry data about general usage.
 # Learn more here: https://nextjs.org/telemetry
@@ -50,6 +64,12 @@ RUN adduser --system --uid 1001 nextjs
 
 # Remove this line if you do not have this folder
 COPY --from=builder /app/public ./public
+
+# Upload target for the media collection; compose mounts a volume here so
+# customer uploads survive redeploys. Must exist and be writable by `nextjs`
+# BEFORE the volume is first created, or Docker seeds it root-owned.
+RUN mkdir -p /app/media && chown nextjs:nodejs /app/media
+ENV MEDIA_DIR=/app/media
 
 # Set the correct permission for prerender cache
 RUN mkdir .next

@@ -3,7 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { slugField } from 'payload'
 
 import { authenticated } from '../access/authenticated'
-import { platformAdmin } from '../access/platformAdmin'
+import { platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
 import { locales } from '../lib/locales'
 import { slugifyField } from '../lib/slug'
 
@@ -28,7 +28,7 @@ export const Sites: CollectionConfig = {
     update: authenticated,
   },
   admin: {
-    defaultColumns: ['name', 'domain', 'type', 'status'],
+    defaultColumns: ['name', 'domain', 'domainVerified', 'type', 'status'],
     useAsTitle: 'name',
   },
   labels: {
@@ -68,7 +68,7 @@ export const Sites: CollectionConfig = {
         description: 'فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. دامنهٔ تأییدنشده گواهی TLS نمی‌گیرد.',
       },
       access: {
-        update: platformAdmin,
+        update: platformAdminFieldAccess,
       },
     },
     {

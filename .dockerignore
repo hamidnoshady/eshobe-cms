@@ -1,0 +1,38 @@
+# Keep the build context small and — critically — keep local secrets and
+# host-platform binaries out of the image. Without this file, `COPY . .` ships
+# .env (secrets), node_modules (wrong platform) and .git into the builder.
+.git
+.gitignore
+node_modules
+.pnpm-store
+.next
+out
+build
+dist
+
+# Secrets — never in an image layer. The container gets env at runtime.
+.env
+.env.*
+!.env.example
+test.env
+
+# Uploaded media lives in a volume, not the image.
+public/media
+media
+
+# Tests, tooling and docs the build does not need.
+tests
+test-results
+playwright-report
+blob-report
+playwright
+*.log
+.DS_Store
+.idea
+.vscode
+README.md
+CLAUDE.md
+PLAN.md
+WAVE-4.md
+docker-compose*.yml
+Caddyfile

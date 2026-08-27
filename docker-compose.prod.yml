@@ -1,13 +1,33 @@
 services:
   web:
-    build: .
+    build:
+      context: .
+      args:
+        # Inlined into client bundles and the CSP frame-ancestors header at
+        # build time — runtime env alone cannot set NEXT_PUBLIC_* values.
+        NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET}
+      PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
       NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
     expose:
       - "3000"
+    volumes:
+      # Customer uploads (Media.staticDir = MEDIA_DIR = /app/media). Without a
+      # volume every redeploy deletes every uploaded file.
+      - media_uploads:/app/media
+    healthcheck:
+      # Any HTTP response counts: the ask endpoint 404s without a domain param,
+      # which still proves the server is up and able to answer Caddy.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/domain-check').then(() => process.exit(0), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # First boot runs every migration before listening; give it room.
+      start_period: 60s
     depends_on:
       db:
         condition: service_healthy
@@ -21,7 +41,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -30,13 +54,18 @@ services:
       - "443:443"
     environment:
       CONTROL_PLANE_HOST: ${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
+      web:
+        # Not just ordering: Caddy's on-demand `ask` needs web answering, or the
+        # first TLS handshakes after a deploy are refused certificates.
+        condition: service_healthy
 volumes:
   pgdata:
+  media_uploads:
   caddy_data:
   caddy_config:
