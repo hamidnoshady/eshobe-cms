@@ -207,9 +207,13 @@ report — an owner reconciles against the PSP's own panel using `payment.refere
   client can fill — is the hole Wave 3 closed for form submissions. The endpoint
   resolves the tenant from `Host`, prices from the product row, and refuses a draft or
   foreign product with the *same* answer, so it is not a probe.
-- **No rate limiting on checkout.** A buyer with a script can create unlimited
-  `pending` orders; the honeypot stops lazy bots and nothing else. Before a store site
-  is public, this is the line item.
+- **Checkout abuse guards, added after the first review.** A fixed-window throttle per
+  `site + client IP` (`CHECKOUT_RATE_LIMIT`, default 20/10min, `429` + `Retry-After`) and
+  a duplicate refusal per `site + phone + product` while a `pending` order is young
+  (`CHECKOUT_DUPLICATE_WINDOW_MINUTES`, default 15). Both counters are **in-process**, so
+  behind more than one web replica each replica gets its own budget — the plan runs one
+  container, and `src/lib/rate-limit.ts` says so where someone would otherwise "fix" the
+  number instead of the topology. A shared bucket (Redis) is the real upgrade.
 - **Rotating `PAYLOAD_SECRET` invalidates every receipt link in every inbox** —
   they are signed with it. Noted in `.env.example`.
 - **`/api/checkout*` is a Caddy carve-out on customer domains** (`Caddyfile`, Wave 4).
@@ -219,6 +223,15 @@ report — an owner reconciles against the PSP's own panel using `payment.refere
   `src/migrations/20260827_*_wave7_store.ts`): `DROP TABLE … CASCADE` already removes
   the `*_rels` constraints the generated `DROP CONSTRAINT` lines then fail to find.
   `up`/`down`/`up` was run against Postgres to prove both directions.
+
+- **The buyer gets an email only when a transport is configured.** `src/lib/order-email.ts`
+  sends the receipt through `payload.sendEmail` after the status write; with no adapter
+  Payload logs it, so a store owner sees nothing in production until `EMAIL_*`/`EMAIL_FROM`
+  are set. Deliberately not a dependency added here: the template ships no adapter, and
+  the choice between an SMTP relay and an API provider belongs to the deployment.
+- **Deferred on purpose, unchanged from the plan:** cart, variants, product pages,
+  discounts, shipping/tax, settlement reporting. See `WAVE-9.md` §5 for what Wave 9 still
+  owes.
 
 ## 9. Reproducing the spike
 

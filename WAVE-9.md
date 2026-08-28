@@ -144,14 +144,27 @@ to be designed, not discovered:
    feature. `CLAUDE.md` already says to assert a fixture's `role` before trusting an
    isolation test; same rule for endpoints.
 
+## 4b. Shipped in the same branch (second commit)
+
+| Item | What it fixed |
+|---|---|
+| **Unified site routes** (`src/lib/site-route.ts`) | The blog's URLs made the structural problem unmistakable: a static folder under `[domain]` cannot sit behind a locale segment, so `[domain]/checkout/[order]` answered `/checkout/…` and 404'd **`/en/checkout/…`** — an English-default store's confirmation link was broken while the Persian one worked. Every site route now resolves inside `[domain]/[[...path]]` through one pure function, so `?locale` handling is shared and unit-testable (`/posts`, `/posts/<slug>`, `/search`, `/checkout/<order>`). The words those routes own are in `RESERVED_PAGE_SLUGS`, and `tests/int/tenancy.int.spec.ts` proves an editor is *told* rather than silently shadowed. |
+| **`/posts`, `/posts/<slug>`, `/search`** | Posts existed in the CMS with an archive block pointing at `/posts/<slug>` and nothing behind it: four code comments said "Wave 5 builds this route" and Wave 5 did not. Now built — index with pagination (`sort: -publishedAt`), detail with hero/rich-text/related, and site search over the plugin's index with `noindex`. Post preview and post revalidation were re-enabled in the same change (both were parked on this missing route), and `revalidateSiteDoc(POSTS_BASE)` replaces the per-collection copy of the path rules. |
+| **Persian-first fixes on template components** | `PageRange` was English prose with **raw interpolated numbers** (`Showing 1 - 4 of 12 Posts` on a Persian page — a §3.6 violation the moment it got a user), and `PostHero` hardcoded `formatDate(publishedAt, 'fa')` under a stale *"until Wave 1"* comment, with `Author`/`Date Published` in English. Both read the locale now; the Persian plural switch is gone because Farsi has none. `Card`/`CMSLink`/the search box build hrefs through `useLocaleHref`, so an English reader no longer navigates back into Persian. |
+| **Checkout abuse guards** | Fixed-window throttle per `site + client IP` (`CHECKOUT_RATE_LIMIT`, default 20/10min, `Retry-After` on 429) and a duplicate-pending-order refusal per `site + phone + product` (15 min). The refusal does **not** return the existing order's receipt URL: that link is the capability to read the order, so answering "you already have one — here it is" would turn checkout into an oracle for guessing phone numbers. |
+| **Buyer email on payment** | `src/lib/order-email.ts`, sent after the status write, best-effort: an SMTP outage is a support ticket, not a licence to lose a paid order. No template engine and no adapter dependency — Payload's default adapter logs, and a real transport is a deployment step (`EMAIL_FROM`). |
+| **Renderer webhook** (9.2) | `src/lib/renderer-webhook.ts`, fired from the same shared hook as `revalidatePath`, so pages and posts notify identically. HMAC over the raw body keyed by `PAYLOAD_SECRET`, env-gated, 3s timeout, at-most-once by design. |
+| **`search` + `redirects` scoped** (9.5) | Both plugin collections had unscoped public reads; the search index is a copy of every indexed doc's title and SEO description, so it was the side door around `siteRead.ts`. Wrapped via the plugins' `overrides.access`. |
+| **CI** | `.github/workflows/ci.yml`: lint → typecheck → `payload migrate` on an empty Postgres 16 (same image and port as `docker-compose.yml`) → seed → `pnpm test:int`, with the Playwright suite as a second job. PLAN §8.8 asked for this in Wave 1; the platform's rules were conventions until now. |
+
 ## 5. Remaining slices, with sizes
 
 | Slice | Work | Size |
 |---|---|---|
-| 9.2 | **Revalidation webhook.** `revalidatePage`/`revalidateSiteGlobal` invalidate *this* app's router cache. An external renderer needs the same signal: one outbound `POST` on publish with `{siteId, paths[], token}`, HMAC-signed, retries via the jobs queue. | S |
+| ~~9.2~~ | Revalidation webhook — **shipped** (§4b). Retry-via-jobs-queue is the upgrade if at-most-once ever stops being enough. | done |
 | ~~9.3~~ | ~~Media on R2~~ — **in flight in #15** (Wave 6), which also replaces `next-sitemap` with per-site `sitemap.xml`/`robots.txt` route handlers, `hreflang` and OG images. After it lands: drop `media.basePath` from `/api/site` and re-check this file's §3.3 | — |
 | 9.4 | **Close the fail-open**: deny anonymous `/api/*` reads on the control-plane host at Caddy, then per-site read API keys so a builder can call from a non-customer origin (webhooks, previews from a CMS-hosted editor). | S–M |
-| 9.5 | **`search` and `redirects`** are plugin collections with public reads and are **not** yet wrapped — a builder using site search today gets cross-tenant hits. Needs the override shape of each plugin rather than a collection file. | S |
+| ~~9.5~~ | `search` and `redirects` wrapped through the plugins' `overrides.access` — **shipped** (§4b). | done |
 | 9.6 | **Preview handoff** (§4.2) + the builder-side `/next/preview` contract written as a test fixture. | M |
 | 9.7 | **Contract hygiene**: `ETag`/`Last-Modified` on `/api/site`, a `contractVersion` field, and publishing `@eshobe/site-runtime` (format/money/theme/blocks) from the existing `pnpm-workspace.yaml` — which has no `packages:` key yet. | S |
 | — | Carried from Wave 7, still open: **no rate limiting on `POST /api/checkout`**, email receipts, product pages. | M |
@@ -184,7 +197,14 @@ depend on either, while the starter-content follow-up depends on #14's shape.
 
 ## 7. Verification
 
-`tests/int/headless.int.spec.ts` (11) · full integration suite **105 passing** ·
+`tests/int/headless.int.spec.ts` (12) · `tests/int/site-route.int.spec.ts` (12, the resolver + both guards + the webhook signature against a real receiver) · full integration suite **121 passing** ·
 `tsc --noEmit` clean · `eslint` 0 errors. The scoping tests were checked for vacuity:
 un-wrapping `pages` makes *"see only that host's pages"* and *"cannot be redirected to
 another tenant"* fail, and restoring them turns the suite green again.
+and the routes were driven over HTTP against the dev server: `/posts` and
+`/posts/first-post` in Persian, `/en/posts/first-post-en` with `lang="en" dir="ltr"`,
+English labels and a canonical of `…/en/posts/first-post-en`; `/search?q=یادداشت`
+returning «نمایش ۱ تا ۱ از ۱ نوشته» with `noindex`, an unmatched term returning
+«چیزی پیدا نشد», `/en/search` 200, `shop.localhost/en/posts` **404** (that site serves
+`fa` only — the locale guard applies to the new routes exactly as it does to pages), and
+an unknown post 404.

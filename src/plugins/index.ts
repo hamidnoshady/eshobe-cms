@@ -14,6 +14,9 @@ import { beforeSyncWithSearch } from '@/search/beforeSync'
 import type { Config, Page, Post } from '@/payload-types'
 
 import { isPlatformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { anyone } from '@/access/anyone'
+import { authenticated } from '@/access/authenticated'
+import { scopedPublicRead } from '@/access/siteRead'
 import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
 
@@ -43,6 +46,12 @@ export const plugins: Plugin[] = [
   redirectsPlugin({
     collections: ['pages', 'posts'],
     overrides: {
+      access: {
+        // A redirect table is site config: `acme.ir/* → studio.ir/*` is not information
+        // one customer should be able to read off another's domain, and a headless
+        // renderer resolving a path must not be able to walk the platform's redirects.
+        read: scopedPublicRead(authenticated),
+      },
       labels: {
         singular: 'تغییر مسیر',
         plural: 'تغییر مسیرها',
@@ -152,6 +161,13 @@ export const plugins: Plugin[] = [
     collections: ['posts'],
     beforeSync: beforeSyncWithSearch,
     searchOverrides: {
+      access: {
+        // The index is a copy of published content, but a *copy* — and it carries the
+        // SEO descriptions of every indexed doc. Public and host-scoped, exactly like
+        // the pages it mirrors, so search cannot become the side door around
+        // `src/access/siteRead.ts`.
+        read: scopedPublicRead(anyone),
+      },
       labels: {
         singular: 'نتیجه جست‌وجو',
         plural: 'نتایج جست‌وجو',

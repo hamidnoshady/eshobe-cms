@@ -5,11 +5,20 @@ import type { Post } from '@/payload-types'
 import { Media } from '@/components/Media'
 import { formatAuthors } from '@/utilities/formatAuthors'
 import { formatDate } from '@/lib/format'
+import { getSiteContext } from '@/lib/site-context'
+import { uiString } from '@/lib/ui-strings'
 
+/**
+ * Async for the same reason every other hero and block is: the date has to be Shamsi
+ * with Persian digits on `fa` and Gregorian on `en`, and it arrived here with `'fa'`
+ * hardcoded — a stale "until Wave 1" note under a comment that outlived the wave.
+ * The labels were English too, on a Persian-first platform.
+ */
 export const PostHero: React.FC<{
   post: Post
-}> = ({ post }) => {
+}> = async ({ post }) => {
   const { categories, heroImage, populatedAuthors, publishedAt, title } = post
+  const { locale } = await getSiteContext()
 
   const hasAuthors =
     populatedAuthors && populatedAuthors.length > 0 && formatAuthors(populatedAuthors) !== ''
@@ -23,7 +32,7 @@ export const PostHero: React.FC<{
               if (typeof category === 'object' && category !== null) {
                 const { title: categoryTitle } = category
 
-                const titleToUse = categoryTitle || 'Untitled category'
+                const titleToUse = categoryTitle || uiString('untitled', locale)
 
                 const isLast = index === categories.length - 1
 
@@ -46,7 +55,7 @@ export const PostHero: React.FC<{
             {hasAuthors && (
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
-                  <p className="text-sm">Author</p>
+                  <p className="text-sm">{uiString('author', locale)}</p>
 
                   <p>{formatAuthors(populatedAuthors)}</p>
                 </div>
@@ -54,10 +63,9 @@ export const PostHero: React.FC<{
             )}
             {publishedAt && (
               <div className="flex flex-col gap-1">
-                <p className="text-sm">Date Published</p>
+                <p className="text-sm">{uiString('datePublished', locale)}</p>
 
-                {/* ponytail: 'fa' fixed until Wave 1 resolves the active locale */}
-                <time dateTime={publishedAt}>{formatDate(publishedAt, 'fa')}</time>
+                <time dateTime={publishedAt}>{formatDate(publishedAt, locale)}</time>
               </div>
             )}
           </div>

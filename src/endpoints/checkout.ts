@@ -7,11 +7,14 @@ import type { Order, Product, Site } from '@/payload-types'
 
 import { newOrderReference } from '@/collections/hooks/snapshotOrder'
 import { toAsciiDigits } from '@/lib/digits'
+import { clientKey, consume } from '@/lib/rate-limit'
 import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
 import { isUuid } from '@/lib/ids'
 import { localeHref } from '@/lib/locales'
+import { CHECKOUT_BASE } from '@/lib/slug'
 import { readOrderDocs, signOrderReceipt } from '@/lib/order-receipt'
 import { findForSite, siteFromRequest } from '@/lib/site-query'
+import { sendOrderReceipt } from '@/lib/order-email'
 import { storeSettingsForSite } from '@/lib/store'
 import { PaymentGatewayNotConfigured, resolvePaymentProvider } from '@/payments'
 
@@ -38,6 +41,35 @@ import { PaymentGatewayNotConfigured, resolvePaymentProvider } from '@/payments'
  * carve-outs; `/api/checkout*` is one of them (`Caddyfile`), because the buyer's
  * browser posts it from their own domain.
  */
+
+/**
+ * Purchases per IP per window, per site. Env-tunable because the honest number for a
+ * shop with 40 customers an hour and a bot with a script are different, and a limit that
+ * cannot be raised without a deploy is a limit that gets removed under pressure.
+ */
+const rateLimit = () => ({
+  limit: Number(process.env.CHECKOUT_RATE_LIMIT ?? 20),
+  windowMs: Number(process.env.CHECKOUT_RATE_LIMIT_WINDOW_MS ?? 10 * 60_000),
+})
+
+/**
+ * How long one phone number may hold a second identical order at bay.
+ *
+ * The rate limit above is per IP and an attacker rotates IPs; this one is keyed on the
+ * only buyer identifier a store can rely on (Iranian storefronts rarely require an
+ * account, see WAVE-9.md §4) and it is what actually stops a script from filling the
+ * orders table with `pending` rows. It is a duplicate *refusal*, not a duplicate
+ * redirect: handing back the existing order's receipt URL would make this endpoint an
+ * oracle for anyone who can guess a phone number, and a receipt link is the capability
+ * that reveals an order.
+ */
+/**
+ * Read per call, not at module load: these numbers have to be movable without a
+ * restart for the tests that exercise the guards, and an env var captured at import
+ * time is a silently frozen one.
+ */
+const duplicateWindowMs = () =>
+  Number(process.env.CHECKOUT_DUPLICATE_WINDOW_MINUTES ?? 15) * 60_000
 
 const noStore = { 'cache-control': 'no-store' }
 
@@ -106,7 +138,7 @@ const confirmationUrl = ({
   site: Site
   siteId: string
 }) =>
-  `${localeHref(`/checkout/${orderId}`, locale, site.defaultLocale)}?r=${encodeURIComponent(
+  `${localeHref(`${CHECKOUT_BASE}/${orderId}`, locale, site.defaultLocale)}?r=${encodeURIComponent(
     signOrderReceipt({ orderId, siteId }),
   )}`
 
@@ -141,6 +173,25 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
   const site = await siteFromRequest(req)
 
   if (!site) return badRequest('unknown host')
+
+  // Before any database work: the point of the throttle is to make a spray cheap to
+  // refuse, and a check after the reads has spent the money it was meant to save.
+  const limit = consume({
+    key: `checkout:${site.id}:${clientKey(req.headers)}`,
+    ...rateLimit(),
+  })
+
+  if (!limit.allowed) {
+    req.payload.logger.warn({ msg: `checkout: rate limited on ${site.domain}` })
+
+    return Response.json(
+      { message: 'چند لحظه صبر کنید و دوباره تلاش کنید.', ok: false },
+      {
+        headers: { ...noStore, 'retry-after': String(limit.retryAfterSeconds) },
+        status: 429,
+      },
+    )
+  }
 
   const productId = typeof data.product === 'string' ? data.product : null
 
@@ -201,6 +252,36 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
 
   if (!Number.isInteger(unitPrice) || unitPrice < 1) {
     return refused(req, `product ${productId} has no usable price`)
+  }
+
+  const duplicateWindow = duplicateWindowMs()
+
+  if (duplicateWindow > 0) {
+    const { totalDocs: alreadyPending } = await req.payload.count({
+      collection: 'orders',
+      overrideAccess: true,
+      req,
+      where: {
+        and: [
+          { createdAt: { greater_than: new Date(Date.now() - duplicateWindow).toISOString() } },
+          { 'buyer.phone': { equals: phone } },
+          { product: { equals: product.id } },
+          { site: { equals: site.id } },
+          { status: { equals: 'pending' } },
+        ],
+      },
+    })
+
+    if (alreadyPending > 0) {
+      return Response.json(
+        {
+          message:
+            'شما همین حالا یک سفارش در انتظار پرداخت دارید. اگر لینک تأیید را ندارید، با فروشگاه تماس بگیرید.',
+          ok: false,
+        },
+        { headers: noStore, status: 409 },
+      )
+    }
   }
 
   const { currency, paymentProvider } = await storeSettingsForSite(String(site.id), {
@@ -364,6 +445,16 @@ export const completeCheckout: Endpoint['handler'] = async (req) => {
     // read above. A gateway callback has no user to authorise against.
     overrideAccess: true,
     req,
+  })
+
+  // After the write, not before: the receipt must not promise a payment the status
+  // does not yet record. And never allowed to fail the response — see
+  // `src/lib/order-email.ts`.
+  await sendOrderReceipt({ locale, order: paid, req, site }).catch((error: unknown) => {
+    req.payload.logger.error({
+      err: error as Error,
+      msg: `order receipt email failed for order ${order.id}`,
+    })
   })
 
   return isBrowser

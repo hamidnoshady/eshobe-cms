@@ -1,0 +1,25 @@
+/**
+ * Payload's admin ships no project-level overrides; this file is loaded by the admin
+ * layout, and everything here is a fix for something the panel gets wrong for this
+ * platform — not theming.
+ */
+
+/**
+ * The document header fades its action row with a pseudo-element gradient that is
+ * anchored to the physical left (`linear-gradient(to right, …)`), because Payload built
+ * it for LTR. On an RTL page the fade therefore lands *over* Save and Cancel — the
+ * labels go translucent, and because the gradient is `pointer-events: none` the buttons
+ * still work: the fix looks cosmetic and reads as "the save button is broken".
+ *
+ * Removing the fade in RTL is the whole change. It is a scroll affordance in a row that
+ * does not scroll at Persian label widths, so losing it costs nothing, whereas
+ * re-deriving Payload's geometry (left/right, mask width, sticky offsets) from outside
+ * the package would be a rule to maintain forever against a component nobody here owns.
+ *
+ * `dir` is matched case-insensitively on purpose: the admin layout writes `dir="RTL"`
+ * while the site writes `dir="rtl"` (CLAUDE.md notes the same asymmetry in tests).
+ */
+[dir='rtl'] .doc-controls__controls::after,
+[dir='RTL'] .doc-controls__controls::after {
+  display: none;
+}

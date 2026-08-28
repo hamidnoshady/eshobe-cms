@@ -13,6 +13,7 @@ import type { Order, Product, Site } from '@/payload-types'
 
 import config from '@/payload.config'
 import { completeCheckout, startCheckout } from '@/endpoints/checkout'
+import { resetRateLimits } from '@/lib/rate-limit'
 import { findForSite } from '@/lib/site-query'
 import { readOrderDocs, signOrderReceipt, verifyOrderReceipt } from '@/lib/order-receipt'
 
@@ -217,6 +218,11 @@ describe('store', () => {
   }, 180_000)
 
   afterAll(async () => {
+    delete process.env.CHECKOUT_RATE_LIMIT
+    delete process.env.CHECKOUT_DUPLICATE_WINDOW_MINUTES
+
+    resetRateLimits()
+
     for (const id of cleanup) {
       await payload.delete({ collection: 'products', context: { disableRevalidate: true }, id })
     }
@@ -243,6 +249,15 @@ describe('store', () => {
   })
 
   beforeEach(async () => {
+    // Neutralise the two abuse guards unless the test asks for them: left at production
+    // values they throttle this suite mid-run, and a 429 in a tenancy assertion is the
+    // worst possible shape for a failure. In `beforeEach` rather than `beforeAll` so a
+    // test that flips them and then fails cannot leave the rest of the file switched on.
+    process.env.CHECKOUT_RATE_LIMIT = '10000'
+    process.env.CHECKOUT_DUPLICATE_WINDOW_MINUTES = '0'
+
+    resetRateLimits()
+
     // Every test starts from a known stock count and a `bank` site.
     await payload.update({
       collection: 'products',
@@ -483,6 +498,55 @@ describe('store', () => {
       })
 
       expect(docs).toHaveLength(0)
+    })
+
+    it('throttles repeated purchases from one client', async () => {
+      process.env.CHECKOUT_RATE_LIMIT = '2'
+
+      resetRateLimits()
+
+      const body = { name: 'سارا', phone: '09121234567', product: tracked.id }
+
+      const first = await post({ body, host: 'shop.localhost' })
+      const second = await post({ body, host: 'shop.localhost' })
+      const third = await post({ body, host: 'shop.localhost' })
+
+      expect(first.status).toBeLessThan(400)
+      expect(second.status).toBeLessThan(400)
+      expect(third.status).toBe(429)
+      expect(third.headers.get('retry-after')).toBeTruthy()
+    })
+
+    it('refuses a second identical pending order from the same phone', async () => {
+      process.env.CHECKOUT_DUPLICATE_WINDOW_MINUTES = '15'
+
+      // A phone of its own per run, so a previous run's still-pending order cannot make
+      // this one pass by accident. `afterAll` deletes them by buyer name.
+      const body = {
+        name: 'سارا',
+        phone: `0912${String(Date.now()).slice(-7)}`,
+        product: tracked.id,
+      }
+
+      const first = await post({ body, host: 'shop.localhost' })
+      const second = await post({ body, host: 'shop.localhost' })
+      const refusal = await second.json()
+
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(409)
+      expect(refusal).toMatchObject({ ok: false })
+
+      // …and the refusal is not a leak: no receipt URL for the existing order comes
+      // back, because the link *is* the capability to read that order.
+      expect(JSON.stringify(refusal)).not.toContain('checkout/')
+
+      // A different product on the same phone is a different order, not a duplicate.
+      const other = await post({
+        body: { ...body, product: (await product({ title: { equals: 'زعفران سرگل' } })).id },
+        host: 'shop.localhost',
+      })
+
+      expect(other.status).toBe(200)
     })
 
     it('refuses a host that belongs to no site', async () => {

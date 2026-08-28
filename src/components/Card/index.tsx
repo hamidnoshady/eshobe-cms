@@ -1,4 +1,6 @@
 'use client'
+import { useLocaleHref } from '@/providers/Locale'
+import { postPath } from '@/lib/slug'
 import { cn } from '@/utilities/ui'
 import useClickableCard from '@/utilities/useClickableCard'
 import Link from 'next/link'
@@ -27,7 +29,11 @@ export const Card: React.FC<{
   const hasCategories = categories && Array.isArray(categories) && categories.length > 0
   const titleToUse = titleFromProps || title
   const sanitizedDescription = description?.replace(/\s/g, ' ') // replace non-breaking space with white space
-  const href = `/${relationTo}/${slug}`
+  // `postPath` because a post's route is `/posts/<slug>`, and `useLocaleHref` because
+  // a bare `/posts/x` on `/en/about` drops the segment and drops the reader back into
+  // Persian. Both belong to the routing rules, not to this card.
+  const localeHref = useLocaleHref()
+  const href = localeHref(relationTo === 'posts' ? postPath(slug) : `/${relationTo}/${slug}`)
 
   return (
     <article

@@ -10,8 +10,9 @@ import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { populatePublishedAt } from '../../hooks/populatePublishedAt'
 import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
+import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalidateSiteDoc'
+import { reservedPageSlug } from '../../hooks/reservedPageSlug'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
-import { revalidateDelete, revalidatePage } from './hooks/revalidatePage'
 
 import {
   MetaDescriptionField,
@@ -130,10 +131,10 @@ export const Pages: CollectionConfig<'pages'> = {
     slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
   ],
   hooks: {
-    afterChange: [revalidatePage],
+    afterChange: [revalidateSiteDoc()],
     beforeChange: [populatePublishedAt],
-    beforeValidate: [uniqueSlugPerSite],
-    afterDelete: [revalidateDelete],
+    beforeValidate: [uniqueSlugPerSite, reservedPageSlug],
+    afterDelete: [revalidateSiteDocDelete()],
   },
   versions: {
     drafts: {

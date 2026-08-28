@@ -13,21 +13,24 @@ import { uiString } from '@/lib/ui-strings'
  * logged-in user, and it does so only through a signed link
  * (`src/lib/order-receipt.ts`).
  *
- * Static segment under `[domain]`, ahead of the site's `[[...path]]` catch-all, so
- * `shop.ir/checkout/…` is a real route and not a request for a CMS page named
- * "checkout". An editor who creates that page still gets their page: the more
- * specific segment wins, and this one only answers when the signature is valid.
+ * Rendered *through* the `[domain]/[[...path]]` catch-all (`src/lib/site-route.ts`)
+ * rather than as its own folder, because the locale segment sits between the domain and
+ * the route: a static `[domain]/checkout/[order]` folder would answer `/checkout/…` and
+ * 404 on `/en/checkout/…`. `checkout` is in `RESERVED_PAGE_SLUGS`, so no CMS page can
+ * claim the word and be silently shadowed by it.
  */
-type Args = {
-  params: Promise<{ domain: string; order: string }>
-  searchParams: Promise<{ m?: string; r?: string }>
+type Props = {
+  /** `?m=failed` from the gateway's return, when verification refused. */
+  outcome?: string
+  order: null | string
+  /** The HMAC over `order + site`; without a valid one this page does not exist. */
+  receipt?: string
 }
 
-export default async function CheckoutReceiptPage({ params, searchParams }: Args) {
-  const [{ order: orderId }, { m: outcome, r: receipt }] = await Promise.all([params, searchParams])
+export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome, receipt }) => {
   const { locale, site } = await getSiteContext()
 
-  if (!site) notFound()
+  if (!site || !orderId) notFound()
 
   const found = await readOrderForReceipt({
     locale,
@@ -109,11 +112,9 @@ const Row: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value
   </div>
 )
 
-export async function generateMetadata(): Promise<Metadata> {
-  return {
+export const checkoutMetadata: Metadata = {
     // A receipt is not content: no index, no OG card, and never a canonical back to
     // the site's own pages.
-    robots: 'noindex, nofollow',
-    title: 'سفارش',
-  }
+  robots: 'noindex, nofollow',
+  title: 'سفارش',
 }

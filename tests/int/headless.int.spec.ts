@@ -126,6 +126,20 @@ describe('public reads on a customer host', () => {
     }
   })
 
+  it('scope the search index like the content it mirrors', async () => {
+    /**
+     * The index is a copy of published content, so it needs the same scope or it becomes
+     * the side door around `src/access/siteRead.ts`: `?where` on `/api/search` would list
+     * another tenant's titles and SEO descriptions.
+     */
+    const onAcme = await read({ collection: 'search', host: 'acme.localhost' })
+    const onStudio = await read({ collection: 'search', host: 'studio.localhost' })
+
+    expect(onAcme.length).toBeGreaterThan(0)
+    expect(new Set(onAcme.map((doc) => idOf(doc.site)))).toEqual(new Set([acmeId.value]))
+    expect(new Set(onStudio.map((doc) => idOf(doc.site)))).toEqual(new Set([studioId.value]))
+  })
+
   it('give a renderer only the one theme that belongs to the host', async () => {
     const acmeTheme = await read<Record<string, unknown>>({
       collection: 'theme',
