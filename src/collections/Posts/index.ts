@@ -11,6 +11,7 @@ import {
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
 import { Code } from '../../blocks/Code/config'
@@ -33,7 +34,7 @@ export const Posts: CollectionConfig<'posts'> = {
   access: {
     create: writeUnlessPublishing('posts'),
     delete: authenticated,
-    read: authenticatedOrPublished,
+    read: scopedPublishedRead(authenticatedOrPublished),
     update: writeUnlessPublishing('posts'),
   },
   // This config controls what's populated by default when a post is referenced

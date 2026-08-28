@@ -3,6 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { link } from '@/fields/link'
 import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
 import { authenticated } from '../access/authenticated'
+import { scopedPublicRead } from '@/access/siteRead'
 
 /**
  * Was a Payload global. Globals are single documents platform-wide and cannot be
@@ -14,8 +15,8 @@ export const Header: CollectionConfig = {
   access: {
     create: authenticated,
     delete: authenticated,
-    // Public: every page renders the nav. Scoped by `findForSite`.
-    read: () => true,
+    // Public and host-scoped: every page renders the nav (`src/access/siteRead.ts`).
+    read: scopedPublicRead(),
     update: authenticated,
   },
   labels: {

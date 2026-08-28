@@ -12,7 +12,8 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 
 - `defaultLocale: 'fa'`. New user-facing strings are written in Persian first.
 - **Every** rendered date goes through `formatDate()` in `src/lib/format.ts` — Shamsi (Jalali) on `fa`, Gregorian on `en`. Never render a raw `Date`, ISO string, or `toLocaleDateString()` directly.
-- **Every** rendered number goes through `formatNumber()` — Persian-Indic digits on `fa`. Same for prices and phone numbers.
+- **Every** rendered number goes through `formatNumber()` — Persian-Indic digits on `fa`. Same for prices and phone numbers; prices specifically through `formatPrice(minor, siteCurrency, locale)`.
+- **Money is integer minor units of the *site's* currency** (`src/lib/money.ts`), never a float and never a Rial amount. Toman is the default (`IRT`); `1 تومان = 10 ریال` appears exactly once, in that module. A stored price carries no unit string — the unit comes from the site's `store` document, and an order snapshots both price *and* currency.
 - Both are `Intl`-based (`calendar: 'persian'`). Do not add a date library.
 - Vazirmatn is the only font family. Never introduce a second face for Persian text, and never a Latin-only font on a page that can render Persian.
 - Body `line-height: 1.8`. Persian needs more vertical room than Latin.
@@ -32,14 +33,19 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 ## Multi-tenancy — the leak rules
 
 - **Never call `payload.find` / `findByID` in front-end code.** Use `findForSite()` in `src/lib/site-query.ts`, which always sets `overrideAccess: false` and scopes by site. The Local API skips access control by default, so a direct call serves one customer's content on another's domain.
+- **Every public `read` is wrapped in `scopedPublicRead`/`scopedPublishedRead`** (`src/access/siteRead.ts`). `findForSite` is a convention *inside this app*; a separately deployed renderer uses the REST/GraphQL API and never touches it, so the tenant scope has to live in the collection. A client's `where` may narrow a public read and must never widen it — that is the property, and `tests/int/headless.int.spec.ts` pins it. When a new public collection appears, `GET /api/site`'s `blocks` and the scoping test are the two places to update.
+- **The tenant comes from the socket, never from a parameter.** No endpoint accepts a site id: `POST /api/checkout`, `GET /api/site` and `domainCheck` all resolve from `Host`. A public route that can obtain a logged-in `users` session is a bug — `userHasAccessToAllTenants` short-circuits every constraint for `platformAdmin`.
+- **Any new public API route needs a Caddy carve-out.** `/api/*` 404s on customer domains by design, so a route that works in dev and fails in production is that list being forgotten (`Caddyfile`; carve-outs today: form-submissions, checkout, site, media files).
 - **Every new collection must be registered in the multi-tenant plugin's `collections` map.** An unregistered collection is shared across all tenants — a silent leak, not an error.
 - Per-site singletons are collections marked `isGlobal: true`. Never Payload globals; they cannot be tenant-scoped.
 - Public `read` access returns a `Where` constraint (`{ _status: { equals: 'published' } }`), never a boolean. `draft: true` on a read does not filter drafts.
 - `cleanupAfterTenantDelete` stays `false`. It cascade-deletes every document a site owns.
 - Slug uniqueness is enforced per `{ site, locale }` by hook — the plugin does not do it.
+- **A public write takes its tenant from `Host`, never from the body.** `POST /api/checkout` and the form-builder's submissions both resolve the site server-side; `site` in a request body is ignored. Public `create` access plus a settable tenant field is the leak, not an oversight.
 - A `platformAdmin` skips every tenant constraint (`userHasAccessToAllTenants` short-circuits the plugin's access wrapper). An isolation test whose fixture user is accidentally an admin passes vacuously — assert the fixture's `role` before anything else.
 - `Users.beforeChange` promotes an account to `platformAdmin` when the database has none. Create the admin before any tenant user, or the first customer owner gets the platform.
 - `revalidatePath` calls include domain and locale: `/{domain}/{locale}/{slug}`.
+- `@payloadcms/plugin-ecommerce` is not used, and `customers`-as-`users` cannot work here at all: an account with no tenant is denied its own cart, and a tenant member reads the site's drafts. The reasoning and the measurements are in `WAVE-7.md` — re-read it before re-proposing the plugin.
 
 ## Payload
 
@@ -47,6 +53,7 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 - Localize the text fields *inside* blocks, never the `layout` array itself.
 - An unlocalized array field (`layout`) updated via the Local API on a second locale is *replaced*, not merged — a freshly built array destroys the default-locale text inside every row. Preserve each row's `id` (map over the existing doc's rows) — that is the whole difference between a translation and a rewrite. Admin writes send the ids, so this only bites Local-API/seed code.
 - `push` is dev-only. Never mix it with `migrate` against the same database. Commit every migration file.
+- A generated `down` that drops a relationship is broken on arrival: `DROP TABLE … CASCADE` already removed the `*_rels` constraint, so the explicit `DROP CONSTRAINT` throws. Patch the generated file to `DROP CONSTRAINT IF EXISTS` and prove `up → down → up` against a real database before committing (`20260827_*_wave7_store.ts`).
 - Env var is `DATABASE_URL`, not `DATABASE_URI`.
 - Keep `i18n.supportedLanguages` to `fa` and `en`. Each one adds to the admin bundle.
 - There is no publish permission. `getDocumentPermissions` probes `update` access twice — once with `data._status: 'draft'`, once with `'published'` — and hides the Publish button on the second answer. So `writeUnlessPublishing()` in `src/access/publish.ts` gates the button *and* the REST/Local API in one function; a custom admin component would be dead code.
@@ -66,7 +73,7 @@ docker compose up -d db      # local Postgres
 
 - Windows does not resolve `*.localhost`. Add hosts entries (`scripts/dev-hosts.ps1`) or multi-domain dev silently fails — Chromium resolves it itself, so Playwright needs no entry but `curl` and Node do.
 - Host rewriting and `x-locale` live in `src/proxy.ts`, not `middleware.ts`: Next 16 deprecated that filename and warns on every boot. Same contract, same `config.matcher`, exported as `proxy`.
-- Live preview iframe stays blank unless `frame-ancestors` allows the admin origin.
+- Live preview iframe stays blank unless `frame-ancestors` allows the admin origin. A second renderer needs the same three pieces as this app: the `/next/preview` secret check, `draftMode` + `payload-token` as `SameSite=None`, and `RefreshRouteOnSave` (WAVE-9.md §3.6).
 - Payload's admin date picker is Gregorian. A Jalali picker needs a custom field component — not yet built.
 - `filterAvailableLocales` resolves once at the app root and goes stale on tenant switch; `router.refresh()` on change.
 - A collection field named `locales` creates `<collection>_locales` — the table Payload reserves for that collection's localized fields. The clash breaks drizzle's relation builder with `Cannot read properties of undefined (reading 'referencedTable')`. `sites.availableLocales` is named that way for this reason.

@@ -70,7 +70,8 @@ LTR-assuming styles, and single-tenant access control and revalidation paths.
 | 2 | Hosting | **VPS + Docker Compose** | Caddy on-demand TLS for customer domains; jobs run in-process; no serverless constraints |
 | 3 | Operator | **Agency — we create sites, clients edit content** | Wave 5 is an internal action, not a signup funnel. Billing (Wave 8) leaves the critical path. Per-site roles matter more (§4.3) |
 | 4 | Editor freedom | Fixed block library + theme tokens | Predictable output, no freeform drag-drop |
-| 5 | Store depth | Catalog + Stripe Checkout first, cart later | Wave 7 is deliberately last and starts with a spike |
+| 5 | Store depth | Catalog + a gateway-agnostic checkout first, cart later | Wave 7 spike rejected the ecommerce plugin; `WAVE-7.md` |
+| 6 | Identity | **The site-builder app owns accounts; the CMS keeps shadow users** | The multi-tenant plugin needs an auth collection carrying `tenants[].role`, and its admin panel needs to authenticate — but no customer-facing login, signup or reset here. Provisioning is one service-token path; billing (Wave 8) leaves this repo. `WAVE-9.md` §4 |
 
 Because we operate the sites, the admin panel is the product surface for clients.
 That raises the value of per-site roles and lowers the value of self-serve
@@ -468,17 +469,40 @@ replica); `prodMigrations` passed to the adapter so migrations run at container
 boot without CI database access; official multi-stage Dockerfile with
 `output: 'standalone'`.
 
-**Wave 7 — Store.** `@payloadcms/plugin-ecommerce` for products, variants, carts,
-orders, Stripe payment adapter. **Timebox a spike first:** the plugin is Beta and
-its interaction with the multi-tenant plugin is undocumented. If its collections
-resist tenant scoping, fall back to a `products` collection plus Stripe Checkout —
-catalog-and-buy-button covers most small stores and needs no cart. Shipping, tax
-and subscriptions are not in the plugin either way.
+**Wave 7 — Store.** *Spike ran; the fallback shipped — see
+[`WAVE-7.md`](./WAVE-7.md).* `@payloadcms/plugin-ecommerce` composes with the
+multi-tenant plugin cleanly for the **back office** (its collections take the `site`
+field, and cross-tenant relationship writes are rejected by the tenant filter). It
+fails the two things this platform needs: the **storefront** is unscoped for anonymous
+reads and takes `site` from the request body, and `customers` is the staff `users`
+collection — an unassigned account is denied its own cart, and assigning it grants the
+whole site including drafts. Its `products` collection carries no title, no copy, no
+media and nothing localized, and currencies are one platform-global config rather
+than per-site. So: our own `products` + `orders` + per-site `store` settings, a
+catalogue block with a buy button, and payment behind a provider seam (`bank` and a
+generic HTTP PSP contract; Stripe is a future adapter, not the acceptance criterion —
+Iran is not a supported country and `IRR` is not a supported currency). Shipping, tax
+and subscriptions are out either way, as are variants and carts.
 
-**Wave 8 — Billing (deferred).** Stripe plugin, plan + entitlements on `sites`,
-feature gates read from the site doc, suspended sites serve a holding page. Not on
-the critical path while we operate the sites ourselves; build it when clients
-self-serve or invoicing becomes the bottleneck.
+**Wave 8 — Billing (moved out of this repo).** Was: Stripe plugin, plans +
+entitlements on `sites`, feature gates from the site doc. Decision #6 puts accounts —
+and therefore subscription state — in the site-builder app; the CMS keeps only
+`sites.status`, which already stops a suspended site from serving.
+
+**Wave 9 — The headless contract.** The site builder is developed separately, so the
+CMS must be attachable by API as well as by mounting. Slice 1 shipped: public reads are
+scoped by `Host` at the collection's access layer (`src/access/siteRead.ts`), so a
+caller's `where` may narrow a query and cannot widen it; `GET /api/site` returns the
+per-host bootstrap (locales, default locale, the block table, theme tokens, store
+currency, media origin); `API_CORS_ORIGINS` lists the extra credentialed origins;
+`/api/site` joins Caddy's customer-domain carve-outs. Remaining slices, sized in
+[`WAVE-9.md`](./WAVE-9.md): revalidation webhook, R2 media (also a Wave 6 item),
+closing the control-plane fail-open + per-site API keys, scoping the `search` and
+`redirects` plugin collections, the preview/auth handoff, and publishing
+`@eshobe/site-runtime` (format/money/theme/blocks) from the existing pnpm workspace so
+the Persian-first rules are shared instead of re-implemented. **Done when:** the builder
+renders a site's home page, an unserved locale 404s, a `where[site]` for another
+tenant returns nothing, and a publish invalidates the builder's cache.
 
 ---
 
@@ -487,7 +511,11 @@ self-serve or invoicing becomes the bottleneck.
 | Risk | Handling |
 |---|---|
 | Cross-tenant data leak via Local API (§4.2) | Single query funnel + tests in Wave 1, before any breadth |
-| Ecommerce plugin (Beta) won't tenant-scope | Spike before committing; documented fallback |
+| A second renderer bypasses the query funnel | Wave 9.1: the tenant scope moved into the collections' `read` access, derived from `Host`; a client filter may narrow, never widen. Anonymous reads on the control-plane host are still unscoped — close it at the proxy (WAVE-9 §1, §5) |
+| Two sources of truth for users | Decision #6: the builder owns accounts; the CMS has one service-token provisioning path and no auth surface (no signup, reset, or role editing) |
+| Ecommerce plugin (Beta) won't tenant-scope | Spike done — it scopes the admin, not the storefront, and its customer model cannot exist here. Fallback shipped; see `WAVE-7.md` |
+| Public checkout endpoint writes with `overrideAccess` | Tenant from `Host` only, prices from the product row only, one refusal message for draft/foreign/missing; orders are staff-readable and buyer-visible only through an HMAC receipt. Rate limiting is the open item |
+| Toman quoted where Rial stored (10× on every price) | One unit per site, integer minor units, `src/lib/money.ts` the only place the 10× step exists |
 | Postgres table sprawl (blocks × locales × versions) | Localizing inner block fields rather than `layout` keeps this bounded; `blocksAsJSON` available if block tables get heavy |
 | One deploy = one blast radius | Accepted. Read replicas and per-plan rate limits are the upgrade path |
 | Migration drift | `push` in dev only, never mixed with `migrate`; commit every migration file |
@@ -516,8 +544,13 @@ Wave 1 (the one that matters):
 7. Log in as an `acme` editor → no Publish button; API publish attempt rejected.
 8. Automated: one test per assertion in 2–7, run in CI.
 
+Wave 9 (the headless contract): an anonymous read on a customer host returns that
+host's rows only; `?where[site][equals]=<other tenant>` returns nothing; `GET /api/site`
+on an unknown host is a 404 rather than a list of customers. `tests/int/headless.int.spec.ts`
+
 Later waves: no block renders with a physical-direction utility (lint gate); a
-Persian page's dates render Jalali and its numbers in Persian digits; live preview
+Persian page's dates render Jalali and its numbers in Persian digits — prices
+included, and in the site's own unit (`formatPrice`, `tests/int/format.int.spec.ts`); live preview
 reflects an unsaved edit on the right domain and locale; a real domain gets a
 certificate on first request and an unknown domain is refused;
 `payload migrate:status` clean after a container restart.
@@ -531,13 +564,19 @@ certificate on first request and an unknown domain is refused;
 @payloadcms/plugin-seo            @payloadcms/storage-s3
 @payloadcms/plugin-redirects      @payloadcms/live-preview-react
 @payloadcms/plugin-form-builder   @payloadcms/plugin-stripe
-@payloadcms/plugin-search         @payloadcms/plugin-ecommerce (Beta)
-@payloadcms/translations          stripe
+@payloadcms/plugin-search         @payloadcms/translations
+
+Dropped after the Wave 7 spike: @payloadcms/plugin-ecommerce (Beta) and `stripe` —
+see WAVE-7.md. Payment goes through src/payments/ instead.
 ```
 
 Notes:
 
 - Payload's deployment docs use `DATABASE_URL`, not `DATABASE_URI`.
 - The website template ships `@payloadcms/db-mongodb`; remove it in Wave 0.
-- `stripe` (the SDK) is not installed automatically by the ecommerce plugin.
+- ~~`stripe` (the SDK) is not installed automatically by the ecommerce plugin.~~ The
+  plugin is not used at all (Wave 7); no payment SDK is installed.
+- PLAN decision #5 said "catalog + Stripe Checkout first". Stripe cannot settle for
+  an Iranian merchant, so the shipped criterion is "catalog + a real gateway round
+  trip", with the gateway behind an adapter (`WAVE-7.md` §5).
 - Vazirmatn needs no package — `next/font/google` fetches and self-hosts it.

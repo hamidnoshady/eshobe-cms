@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { allowedBlocks, siteBlocks } from '../../blocks'
 import { hero } from '@/heros/config'
@@ -25,7 +26,9 @@ export const Pages: CollectionConfig<'pages'> = {
   access: {
     create: writeUnlessPublishing('pages'),
     delete: authenticated,
-    read: authenticatedOrPublished,
+    // Host-scoped as well as publish-gated: this collection is readable over the
+    // public REST/GraphQL API by a second renderer (`src/access/siteRead.ts`).
+    read: scopedPublishedRead(authenticatedOrPublished),
     update: writeUnlessPublishing('pages'),
   },
   // This config controls what's populated by default when a page is referenced

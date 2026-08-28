@@ -180,12 +180,15 @@ describe('multi-tenancy', () => {
 
   describe('slugs', () => {
     it('are shareable across sites', async () => {
+      // One per seeded site — three since Wave 7 added the `shop.localhost` store
+      // fixture. The number is the point: the same slug existing *n* times is legal,
+      // and `uniqueSlugPerSite` is what keeps it to once per site.
       const { totalDocs } = await payload.count({
         collection: 'pages',
         where: { slug: { equals: 'about' } },
       })
 
-      expect(totalDocs).toBe(2)
+      expect(totalDocs).toBe(3)
     })
 
     it('collide within one site and locale', async () => {

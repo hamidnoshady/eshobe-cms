@@ -5,15 +5,43 @@ import type { Page } from '@/payload-types'
 import { HOME_SLUG } from '@/lib/slug'
 import { richText } from './richText'
 
+/** One seeded customer, and everything the wave that owns a feature hung off it. */
+type SeedSite = {
+  domain: string
+  en: null | { tagline: string; title: string }
+  locales: string[]
+  name: string
+  /** Store sites only — the catalogue the block and the checkout then have to point at. */
+  products?: {
+    compareAtPrice?: number
+    /** One draft product per store, so "the storefront never shows it" is testable. */
+    draft?: boolean
+    inventory?: number
+    price: number
+    summary?: string
+    title: string
+    trackInventory?: boolean
+  }[]
+  slug: string
+  store?: {
+    currency: 'IRT'
+    paymentInstructions?: string
+    paymentProvider: 'bank' | 'http'
+  }
+  tagline: string
+  theme: { accent: string; lineHeight: number; primary: string; radius: 'lg' | 'md' | 'sm' }
+  type: 'business' | 'portfolio' | 'store'
+}
+
 /**
- * Two customers, three shapes of content, two locales — the minimum that can
- * actually prove tenant isolation. `acme` is bilingual, `studio` is Persian-only,
+ * Three customers, three site types, two locales — the minimum that can actually
+ * prove tenant isolation. `acme` is bilingual, `studio` and `shop` are Persian-only,
  * so a locale that one site serves and the other does not is testable.
  *
  * Every site gets a published page, a draft page and a post: the draft is what
  * the public-render tests assert is *not* visible.
  */
-const sites = [
+const sites: SeedSite[] = [
   {
     domain: 'acme.localhost',
     en: { tagline: 'Industrial supply, since 1974.', title: 'Acme' },
@@ -23,6 +51,44 @@ const sites = [
     tagline: 'تأمین قطعات صنعتی از سال ۱۳۵۳.',
     theme: { accent: '#f59e0b', lineHeight: 1.8, primary: '#0f766e', radius: 'sm' as const },
     type: 'business' as const,
+  },
+  {
+    // The Wave 7 fixture: a `store` site, so the catalogue block, the price
+    // formatting and the checkout all have something real to point at. Persian-only —
+    // a second locale would double the product rows for no new coverage.
+    domain: 'shop.localhost',
+    en: null,
+    locales: ['fa'],
+    name: 'فروشگاه پارسه',
+    products: [
+      {
+        inventory: 2,
+        price: 480_000,
+        summary: 'شیرینی خشک هل، در قوطی فلزی ۷۵۰ گرمی.',
+        title: 'سوهان هل',
+        trackInventory: true,
+      },
+      {
+        compareAtPrice: 260_000,
+        price: 198_000,
+        summary: 'زعفران سرگل، بستهٔ ۴ گرمی.',
+        title: 'زعفران سرگل',
+        trackInventory: false,
+      },
+      {
+        draft: true,
+        price: 90_000,
+        summary: 'گلاب دوآتیشه، بطری ۵۰۰ سی‌سی.',
+        title: 'گلاب دوآتیشه',
+        trackInventory: true,
+        inventory: 40,
+      },
+    ],
+    slug: 'shop',
+    store: { currency: 'IRT', paymentInstructions: 'کارت ۶۰۳۷-۹۹۱۵-۰۰۰۰-۰۰۰۱ به نام فروشگاه پارسه.', paymentProvider: 'bank' },
+    tagline: 'سوغات و ادویه، مستقیم از مبدأ.',
+    theme: { accent: '#b45309', lineHeight: 1.8, primary: '#166534', radius: 'md' as const },
+    type: 'store' as const,
   },
   {
     domain: 'studio.localhost',
@@ -39,6 +105,8 @@ const sites = [
 /** Collections the seed owns end to end, cleared before it writes. */
 const owned: CollectionSlug[] = [
   'categories',
+  'orders',
+  'products',
   'form-submissions',
   'forms',
   'media',
@@ -49,6 +117,11 @@ const owned: CollectionSlug[] = [
   'header',
   'footer',
   'theme',
+  // A store site's commerce settings are as much the seed's to own as its theme.
+  // Without this the second `pnpm seed` leaves the previous `store` row behind: the
+  // sites are re-created with new ids, the old row's `site` is set null by the FK, and
+  // the next `findGlobalForSite` no longer knows which document is the site's.
+  'store',
 ]
 
 /**
@@ -222,6 +295,40 @@ export const seed = async ({
       req,
     })
 
+    /**
+     * A store site also gets its commerce settings and its catalogue. Written before
+     * any page so the block below has something to list, and deliberately *without*
+     * media: `products.image` is optional and the storage adapter is Wave 6, which is
+     * exactly the state a fresh customer arrives in.
+     */
+    if (site.store) {
+      await payload.create({
+        collection: 'store',
+        context: noRevalidate,
+        data: { ...site.store, site: siteDoc.id },
+        depth: 0,
+        // Explicit, like every other localized write here: `paymentInstructions` is
+        // localized, and a Local-API create with no locale does not reliably land in
+        // the site's default one — the value then reads back as null on the Persian
+        // page that needs it.
+        locale: 'fa',
+        req,
+      })
+    }
+
+    for (const product of site.products ?? []) {
+      const { draft, ...rest } = product
+
+      await payload.create({
+        collection: 'products',
+        context: noRevalidate,
+        data: { ...rest, _status: draft ? 'draft' : 'published', site: siteDoc.id },
+        depth: 0,
+        locale: 'fa',
+        req,
+      })
+    }
+
     const page = async (
       slug: string,
       title: string,
@@ -303,6 +410,21 @@ export const seed = async ({
         introContent: richText([{ text: 'برای ما پیام بگذارید', type: 'heading' }]),
       },
     ])
+
+    // The store's own shelf: `populateBy: 'collection'` so no product ids are
+    // written into the page — which is also what makes the draft product above
+    // testable, since a selection would have had to name it.
+    if (site.products?.length) {
+      await page('products', 'محصولات', 'چیزی که می‌فروشیم، با قیمت و دکمهٔ خرید.', 'published', [
+        {
+          blockType: 'productGrid',
+          columns: '3',
+          limit: 6,
+          populateBy: 'collection',
+          showBuyButton: true,
+        },
+      ])
+    }
 
     await page('coming-soon', 'به‌زودی', 'این صفحه هنوز منتشر نشده است.', 'draft')
 

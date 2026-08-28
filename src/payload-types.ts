@@ -76,6 +76,9 @@ export interface Config {
     theme: Theme;
     header: Header;
     footer: Footer;
+    products: Product;
+    orders: Order;
+    store: Store;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -102,6 +105,9 @@ export interface Config {
     theme: ThemeSelect<false> | ThemeSelect<true>;
     header: HeaderSelect<false> | HeaderSelect<true>;
     footer: FooterSelect<false> | FooterSelect<true>;
+    products: ProductsSelect<false> | ProductsSelect<true>;
+    orders: OrdersSelect<false> | OrdersSelect<true>;
+    store: StoreSelect<false> | StoreSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -213,6 +219,7 @@ export interface Page {
     | FAQBlock
     | ContactBlock
     | FormBlock
+    | ProductGridBlock
     | GalleryBlock
     | TeamBlock
     | PricingBlock
@@ -881,6 +888,70 @@ export interface Form {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ProductGridBlock".
+ */
+export interface ProductGridBlock {
+  heading?: string | null;
+  intro?: string | null;
+  populateBy?: ('collection' | 'selection') | null;
+  /**
+   * تازه‌ترین‌ها اول.
+   */
+  limit?: number | null;
+  /**
+   * فقط محصولات همین سایت در فهرست انتخاب دیده می‌شود.
+   */
+  products?: (string | Product)[] | null;
+  columns?: ('2' | '3' | '4') | null;
+  /**
+   * خاموش یعنی «فقط کاتالوگ» — قیمت می‌ماند، فرم خرید برداشته می‌شود.
+   */
+  showBuyButton?: boolean | null;
+  id?: string | null;
+  blockName?: string | null;
+  blockType: 'productGrid';
+}
+/**
+ * قیمت‌ها بر حسب واحد پولِ خودِ این سایت نوشته می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "products".
+ */
+export interface Product {
+  id: string;
+  site?: (string | null) | Site;
+  title: string;
+  /**
+   * زیر عنوان در کارت محصول نمایش داده می‌شود.
+   */
+  summary?: string | null;
+  image?: (string | null) | Media;
+  /**
+   * عدد صحیح، بر حسب واحد پول این سایت (پیش‌فرض: تومان).
+   */
+  price: number;
+  /**
+   * اختیاری؛ با خط‌خوردگی کنار قیمت نمایش داده می‌شود.
+   */
+  compareAtPrice?: number | null;
+  /**
+   * برای خودتان؛ روی سایت نمایش داده نمی‌شود.
+   */
+  sku?: string | null;
+  /**
+   * خاموش یعنی «همیشه موجود».
+   */
+  trackInventory?: boolean | null;
+  /**
+   * با پرداخت موفق هر سفارش به اندازهٔ تعدادش کم می‌شود.
+   */
+  inventory?: number | null;
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "GalleryBlock".
  */
 export interface GalleryBlock {
@@ -1079,6 +1150,71 @@ export interface Footer {
         id?: string | null;
       }[]
     | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * فقط کارکنان سایت می‌توانند سفارش را ببینند. نشانی تأیید خرید با امضای یک‌بارمصرف باز می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "orders".
+ */
+export interface Order {
+  id: string;
+  site?: (string | null) | Site;
+  reference: string;
+  status: 'pending' | 'paid' | 'cancelled' | 'refunded';
+  product: string | Product;
+  /**
+   * کپیِ عنوان لحظهٔ ثبت سفارش.
+   */
+  productTitle?: string | null;
+  quantity: number;
+  /**
+   * کپیِ قیمت لحظهٔ خرید، نه خودِ قیمت.
+   */
+  unitPrice: number;
+  total: number;
+  currency: 'EUR' | 'IRR' | 'IRT' | 'USD';
+  buyer: {
+    name: string;
+    /**
+     * برای هماهنگی ارسال. فقط رقم.
+     */
+    phone: string;
+    email?: string | null;
+    note?: string | null;
+  };
+  /**
+   * پر کردنش کارِ درگاه است، نه کاربر.
+   */
+  payment: {
+    provider: 'bank' | 'http';
+    reference?: string | null;
+    paidAt?: string | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "store".
+ */
+export interface Store {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * همهٔ قیمت‌های همین سایت بر حسب همین واحد نوشته و محاسبه می‌شوند. تبدیل تومان به ریال در کد انجام نمی‌شود: واحد را یک‌بار انتخاب کنید.
+   */
+  currency: 'EUR' | 'IRR' | 'IRT' | 'USD';
+  /**
+   * «کارت به کارت» به شمارهٔ کارت پایین نیاز دارد؛ «درگاه HTTP» به متغیرهای محیطی PAYMENT_HTTP_* — بدون آن‌ها، پرداخت با خطای «پیکربندی نشده» رد می‌شود.
+   */
+  paymentProvider: 'bank' | 'http';
+  /**
+   * شمارهٔ کارت یا هر متنی که خریدار باید ببیند تا پول را بفرستد. در API عمومی و در جست‌وجو نمایش داده نمی‌شود.
+   */
+  paymentInstructions?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1312,6 +1448,18 @@ export interface PayloadLockedDocument {
         value: string | Footer;
       } | null)
     | ({
+        relationTo: 'products';
+        value: string | Product;
+      } | null)
+    | ({
+        relationTo: 'orders';
+        value: string | Order;
+      } | null)
+    | ({
+        relationTo: 'store';
+        value: string | Store;
+      } | null)
+    | ({
         relationTo: 'redirects';
         value: string | Redirect;
       } | null)
@@ -1413,6 +1561,7 @@ export interface PagesSelect<T extends boolean = true> {
         faq?: T | FAQBlockSelect<T>;
         contact?: T | ContactBlockSelect<T>;
         formBlock?: T | FormBlockSelect<T>;
+        productGrid?: T | ProductGridBlockSelect<T>;
         gallery?: T | GalleryBlockSelect<T>;
         team?: T | TeamBlockSelect<T>;
         pricing?: T | PricingBlockSelect<T>;
@@ -1569,6 +1718,21 @@ export interface FormBlockSelect<T extends boolean = true> {
   form?: T;
   enableIntro?: T;
   introContent?: T;
+  id?: T;
+  blockName?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "ProductGridBlock_select".
+ */
+export interface ProductGridBlockSelect<T extends boolean = true> {
+  heading?: T;
+  intro?: T;
+  populateBy?: T;
+  limit?: T;
+  products?: T;
+  columns?: T;
+  showBuyButton?: T;
   id?: T;
   blockName?: T;
 }
@@ -1914,6 +2078,68 @@ export interface FooterSelect<T extends boolean = true> {
             };
         id?: T;
       };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "products_select".
+ */
+export interface ProductsSelect<T extends boolean = true> {
+  site?: T;
+  title?: T;
+  summary?: T;
+  image?: T;
+  price?: T;
+  compareAtPrice?: T;
+  sku?: T;
+  trackInventory?: T;
+  inventory?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  _status?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "orders_select".
+ */
+export interface OrdersSelect<T extends boolean = true> {
+  site?: T;
+  reference?: T;
+  status?: T;
+  product?: T;
+  productTitle?: T;
+  quantity?: T;
+  unitPrice?: T;
+  total?: T;
+  currency?: T;
+  buyer?:
+    | T
+    | {
+        name?: T;
+        phone?: T;
+        email?: T;
+        note?: T;
+      };
+  payment?:
+    | T
+    | {
+        provider?: T;
+        reference?: T;
+        paidAt?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "store_select".
+ */
+export interface StoreSelect<T extends boolean = true> {
+  site?: T;
+  currency?: T;
+  paymentProvider?: T;
+  paymentInstructions?: T;
   updatedAt?: T;
   createdAt?: T;
 }

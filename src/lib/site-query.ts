@@ -1,5 +1,7 @@
 import type {
   CollectionSlug,
+  Payload,
+  PayloadRequest,
   DataFromCollectionSlug,
   PaginatedDocs,
   TypedLocale,
@@ -49,13 +51,13 @@ const normalizeHost = (host: string): string => host.split(':')[0]!.toLowerCase(
  * anonymous visitor must be able to resolve the site they are asking for, and
  * this lookup is what *establishes* the tenant that everything else is scoped to,
  * so it cannot itself be tenant-scoped.
- *
- * `cache` dedupes it per request — the layout and the page both need the site.
  */
-export const getSiteByHost = cache(async (host: string | null): Promise<Site | null> => {
+const findSiteByHost = async (
+  payload: Payload,
+  host: null | string,
+  req?: PayloadRequest,
+): Promise<Site | null> => {
   if (!host) return null
-
-  const payload = await getPayload({ config: configPromise })
 
   const { docs } = await payload.find({
     collection: 'sites',
@@ -63,6 +65,7 @@ export const getSiteByHost = cache(async (host: string | null): Promise<Site | n
     limit: 1,
     overrideAccess: true,
     pagination: false,
+    req,
     where: {
       // Suspended and archived sites stop serving; lifecycle is a status, not a delete.
       and: [{ domain: { equals: normalizeHost(host) } }, { status: { equals: 'active' } }],
@@ -70,7 +73,25 @@ export const getSiteByHost = cache(async (host: string | null): Promise<Site | n
   })
 
   return docs[0] ?? null
-})
+}
+
+/**
+ * `cache` dedupes it per request — the layout and the page both need the site.
+ */
+export const getSiteByHost = cache(async (host: string | null): Promise<Site | null> =>
+  findSiteByHost(await getPayload({ config: configPromise }), host),
+)
+
+/**
+ * The same lookup for a Payload endpoint, which already holds a request and must not
+ * reach for `next/headers` — `getSiteContext()` is a server-component API.
+ *
+ * This is how the checkout flow decides which site money is being paid to: from the
+ * `Host` header, never from the request body. A tenant id a caller can choose is a
+ * tenant id a caller can choose.
+ */
+export const siteFromRequest = (req: PayloadRequest): Promise<Site | null> =>
+  findSiteByHost(req.payload, req.headers.get('host'), req)
 
 /**
  * Every front-end read. Always access-controlled, always scoped to one site.

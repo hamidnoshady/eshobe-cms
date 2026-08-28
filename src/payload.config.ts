@@ -9,9 +9,12 @@ import { fileURLToPath } from 'url'
 
 import { Categories } from './collections/Categories'
 import { Media } from './collections/Media'
+import { Orders } from './collections/Orders'
+import { Products } from './collections/Products'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
 import { Sites } from './collections/Sites'
+import { Store } from './collections/Store'
 import { Theme } from './collections/Theme'
 import { Users } from './collections/Users'
 import { Footer } from './Footer/config'
@@ -21,13 +24,15 @@ import { migrations } from './migrations'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
+import { checkoutEndpoints } from './endpoints/checkout'
 import { domainCheck } from './endpoints/domainCheck'
+import { siteDescriptor } from './endpoints/siteDescriptor'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
-  endpoints: [domainCheck],
+  endpoints: [domainCheck, siteDescriptor, ...checkoutEndpoints],
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],
@@ -71,8 +76,40 @@ export default buildConfig({
     // pending migrations run on init (production only — dev keeps push mode).
     prodMigrations: migrations,
   }),
-  collections: [Pages, Posts, Media, Categories, Users, Sites, Theme, Header, Footer],
-  cors: [getServerSideURL()].filter(Boolean),
+  collections: [
+    Pages,
+    Posts,
+    Media,
+    Categories,
+    Users,
+    Sites,
+    Theme,
+    Header,
+    Footer,
+    // Wave 7 — the store. `products` and `orders` are ordinary tenant-scoped
+    // collections; `store` is a per-site singleton. All three are in the multi-tenant
+    // plugin's `collections` map (src/plugins/index.ts) — see the rule in CLAUDE.md.
+    Products,
+    Orders,
+    Store,
+  ],
+  /**
+   * Origins allowed to call the API with credentials. The deployment origin is the
+   * admin; `API_CORS_ORIGINS` is for *separate* frontends attaching to this CMS (a
+   * site builder on its own host), because Payload's cookie auth will not cross an
+   * origin without an explicit allowance.
+   *
+   * A list rather than `true`: `cors: true` reflects any origin with credentials,
+   * which on a platform holding every customer's content is a CSRF-shaped hole
+   * wearing a convenience.
+   */
+  cors: [
+    getServerSideURL(),
+    ...(process.env.API_CORS_ORIGINS ?? '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  ].filter(Boolean),
   // Persian first: `fa` is the fallback for both content and admin chrome.
   localization: {
     defaultLocale,

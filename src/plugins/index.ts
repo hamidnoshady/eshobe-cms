@@ -177,8 +177,12 @@ export const plugins: Plugin[] = [
       forms: {},
       'form-submissions': {},
       media: {},
+      // Wave 7. A product and an order are as much a site's rows as a page is; an
+      // unregistered collection is *shared* between every customer, silently.
+      orders: {},
       pages: {},
       posts: {},
+      products: {},
       redirects: {},
       search: {},
       // One document per site, edited like a global. Payload globals are
@@ -186,6 +190,7 @@ export const plugins: Plugin[] = [
       footer: { isGlobal: true },
       header: { isGlobal: true },
       theme: { isGlobal: true },
+      store: { isGlobal: true },
     },
     // Shows the `site` field in the admin UI, which is how you catch a document
     // that landed on the wrong tenant.
