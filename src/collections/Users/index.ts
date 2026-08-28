@@ -15,12 +15,6 @@ export const Users: CollectionConfig = {
     update: authenticated,
   },
   admin: {
-    components: {
-      edit: {
-        beforeDocumentControls: ['@/components/admin/CancelButton'],
-        SaveButton: '@/components/admin/AccountSaveButton',
-      },
-    },
     defaultColumns: ['name', 'email', 'role'],
     useAsTitle: 'name',
   },
