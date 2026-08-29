@@ -10,6 +10,9 @@ Vazirmatn is the only typeface, and every date renders in Shamsi (Jalali).
 - Architecture and phasing → [`PLAN.md`](./PLAN.md)
 - Production deployment → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS) and [`WAVE-6.md`](./WAVE-6.md) (R2, SEO, jobs, backups)
 - The rules that bind the code → [`CLAUDE.md`](./CLAUDE.md)
+- Per-wave operational notes → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS, migrations),
+  [`WAVE-7.md`](./WAVE-7.md) (the store: the ecommerce-plugin spike, its decision, and money),
+  [`WAVE-9.md`](./WAVE-9.md) (the headless contract for a separately deployed site builder)
 - Waves are tracked as GitHub issues #1–#9 under #10
 
 ## Getting started

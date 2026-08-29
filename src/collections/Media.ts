@@ -9,6 +9,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 import { anyone } from '../access/anyone'
+import { scopedPublicRead } from '../access/siteRead'
 import { authenticated } from '../access/authenticated'
 import { setMediaPrefix } from '../hooks/mediaPrefix'
 
@@ -21,7 +22,9 @@ export const Media: CollectionConfig = {
   access: {
     create: authenticated,
     delete: authenticated,
-    read: anyone,
+    // Public and host-scoped: a media library belongs to one customer, and its file
+    // route is served on their domain (`/api/media/file/*` is a Caddy carve-out).
+    read: scopedPublicRead(anyone),
     update: authenticated,
   },
   labels: {

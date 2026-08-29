@@ -1,5 +1,7 @@
 import type {
   CollectionSlug,
+  Payload,
+  PayloadRequest,
   DataFromCollectionSlug,
   PaginatedDocs,
   TypedLocale,
@@ -67,13 +69,13 @@ const normalizeHost = (host: string): string => host.split(':')[0]!.toLowerCase(
  * still owns its domain, and `getSiteContext` needs to know it exists to serve
  * the holding page. Every *content* read goes through `findForSite` with an
  * active site — `serving: false` means no content, no chrome, holding page.
- *
- * `cache` dedupes it per request — the layout and the page both need the site.
  */
-export const getSiteByHost = cache(async (host: string | null): Promise<Site | null> => {
+const findSiteByHost = async (
+  payload: Payload,
+  host: null | string,
+  req?: PayloadRequest,
+): Promise<Site | null> => {
   if (!host) return null
-
-  const payload = await getPayload({ config: configPromise })
 
   const { docs } = await payload.find({
     collection: 'sites',
@@ -81,11 +83,30 @@ export const getSiteByHost = cache(async (host: string | null): Promise<Site | n
     limit: 1,
     overrideAccess: true,
     pagination: false,
+    req,
     where: { domain: { equals: normalizeHost(host) } },
   })
 
   return docs[0] ?? null
-})
+}
+
+/**
+ * `cache` dedupes it per request — the layout and the page both need the site.
+ */
+export const getSiteByHost = cache(async (host: string | null): Promise<Site | null> =>
+  findSiteByHost(await getPayload({ config: configPromise }), host),
+)
+
+/**
+ * The same lookup for a Payload endpoint, which already holds a request and must not
+ * reach for `next/headers` — `getSiteContext()` is a server-component API.
+ *
+ * This is how the checkout flow decides which site money is being paid to: from the
+ * `Host` header, never from the request body. A tenant id a caller can choose is a
+ * tenant id a caller can choose.
+ */
+export const siteFromRequest = (req: PayloadRequest): Promise<Site | null> =>
+  findSiteByHost(req.payload, req.headers?.get?.('host') ?? null, req)
 
 /**
  * Every front-end read. Always access-controlled, always scoped to one site.

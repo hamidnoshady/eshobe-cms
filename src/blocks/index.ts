@@ -13,6 +13,7 @@ import { Gallery } from './Gallery/config'
 import { Logos } from './Logos/config'
 import { MediaBlock } from './MediaBlock/config'
 import { Pricing } from './Pricing/config'
+import { ProductGrid } from './ProductGrid/config'
 import { Team } from './Team/config'
 import { Testimonials } from './Testimonials/config'
 
@@ -36,8 +37,11 @@ const library: { block: Block; siteTypes: SiteType[] }[] = [
   { block: FAQ, siteTypes: ALL },
   { block: Contact, siteTypes: ALL },
   { block: FormBlock, siteTypes: ALL },
+  // The store itself: a catalogue whose cards buy. Store-only, because a business
+  // site selling one product has the pricing block, and a portfolio has the gallery.
+  { block: ProductGrid, siteTypes: ['store'] },
   // A gallery is the point of a portfolio and a plausible "our work" section on a
-  // business site; a store shows products, which Wave 7 owns.
+  // business site.
   { block: Gallery, siteTypes: ['portfolio', 'business'] },
   { block: Team, siteTypes: ['business', 'portfolio'] },
   { block: Pricing, siteTypes: ['business', 'store'] },

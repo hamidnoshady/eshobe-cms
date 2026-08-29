@@ -41,11 +41,14 @@ const generatedImageURL = (
  * Same for the fallback OG image: none at all beats another company's logo.
  */
 export const generateMeta = async (args: {
+  /** `POSTS_BASE` for a post: a post lives at `/posts/x`, and a canonical tag that
+   * says `/x` points at a page that does not exist. */
+  base?: string
   /** Which collection the document came from — hreflang re-reads it per locale. */
   collection?: 'pages' | 'posts'
   doc: Partial<Page> | Partial<Post> | null
 }): Promise<Metadata> => {
-  const { collection = 'pages', doc } = args
+  const { base, collection = base ? 'posts' : 'pages', doc } = args
   const { locale, site } = await getSiteContext()
 
   const name = site?.name
@@ -59,7 +62,7 @@ export const generateMeta = async (args: {
    * own, and the home page at `/home`. `siteUrl` is the same function the preview
    * button and the SEO tab use.
    */
-  const url = site ? siteUrl(site, { locale, slug: doc?.slug }) : undefined
+  const url = site ? siteUrl(site, { base, locale, slug: doc?.slug }) : undefined
 
   const ogImage =
     getImageURL(doc?.meta?.image) ??
@@ -73,7 +76,7 @@ export const generateMeta = async (args: {
    * nothing that the canonical has not already said.
    */
   const languages =
-    site && doc?.id ? alternateUrls(site, await localeSlugs(collection, site, doc.id)) : {}
+    site && doc?.id ? alternateUrls(site, await localeSlugs(collection, site, doc.id), base) : {}
 
   return {
     alternates: url

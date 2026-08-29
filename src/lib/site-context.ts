@@ -56,6 +56,26 @@ export const getSiteContext = cache(async (): Promise<SiteContext> => {
 })
 
 /**
+ * A locale segment the site does not serve is not a route.
+ *
+ * Without this, `getSiteContext()` quietly falls back to the site's default locale and
+ * `studio.localhost/en` serves studio's Persian home — duplicate content on a URL that
+ * should not exist. Shared by all four site routes (`[[...path]]`, `/posts`,
+ * `/posts/[slug]`, `/search`) because a guard copied four times is a guard skipped
+ * once.
+ */
+export const localeIsServed = async (path: string[] = []): Promise<boolean> => {
+  if (!isLocale(path[0])) return true
+
+  const { site } = await getSiteContext()
+
+  // Widened on purpose: the needle is an arbitrary URL segment, not a known locale.
+  const served: string[] = site?.availableLocales ?? []
+
+  return served.includes(path[0]!)
+}
+
+/**
  * Who is asking, from the `payload-token` cookie. Only draft reads need it: a
  * published read is anonymous by design, and `findForSite` passes the viewer to
  * `overrideAccess: false` so the *plugin* decides which sites they may see —

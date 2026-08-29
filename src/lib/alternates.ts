@@ -29,6 +29,7 @@ type AlternatesSite = Pick<Site, 'availableLocales' | 'defaultLocale' | 'domain'
 export const alternateUrls = (
   site: AlternatesSite,
   slugByLocale: Record<string, null | string | undefined>,
+  base?: string,
 ): Record<string, string> => {
   const served: string[] = site.availableLocales ?? []
 
@@ -36,7 +37,7 @@ export const alternateUrls = (
     .filter((locale) => typeof slugByLocale[locale] === 'string' && slugByLocale[locale])
     .map((locale): [string, string] => [
       locale,
-      siteUrl(site, { locale, slug: slugByLocale[locale] }),
+      siteUrl(site, { base, locale, slug: slugByLocale[locale] }),
     ])
 
   if (!entries.length) return {}

@@ -11,12 +11,16 @@ import {
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
 import { Code } from '../../blocks/Code/config'
 import { MediaBlock } from '../../blocks/MediaBlock/config'
+import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalidateSiteDoc'
 import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
+import { generatePreviewPath } from '../../utilities/generatePreviewPath'
 import { populateAuthors } from './hooks/populateAuthors'
+import { POSTS_BASE } from '@/lib/slug'
 
 import {
   MetaDescriptionField,
@@ -33,7 +37,7 @@ export const Posts: CollectionConfig<'posts'> = {
   access: {
     create: writeUnlessPublishing('posts'),
     delete: authenticated,
-    read: authenticatedOrPublished,
+    read: scopedPublishedRead(authenticatedOrPublished),
     update: writeUnlessPublishing('posts'),
   },
   // This config controls what's populated by default when a post is referenced
@@ -50,8 +54,15 @@ export const Posts: CollectionConfig<'posts'> = {
   },
   admin: {
     defaultColumns: ['title', 'slug', 'updatedAt'],
-    // No preview until Wave 5 builds the `/posts` route. A button that 404s reads
-    // as a broken CMS, so it is absent rather than wrong.
+    /**
+     * Same contract as pages: the preview opens on the *site's* domain at the URL a
+     * visitor would use (`/posts/hello`, `/en/posts/hello`), which is why `base` is
+     * passed — without it a post previews over the page's `/hello`, which 404s.
+     */
+    livePreview: {
+      url: ({ data, req }) => generatePreviewPath({ base: POSTS_BASE, data, req }),
+    },
+    preview: (data, { req }) => generatePreviewPath({ base: POSTS_BASE, data, req }),
     useAsTitle: 'title',
   },
   labels: {
@@ -219,8 +230,10 @@ export const Posts: CollectionConfig<'posts'> = {
     slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
   ],
   hooks: {
-    // No revalidation until Wave 5 builds the `/posts` route — there is no path to
-    // bust, and the template's `/{slug}` shape is wrong under `[domain]` anyway.
+    // `POSTS_BASE` is the whole difference between busting `/hello` (no such route
+    // for a post) and busting `/posts/hello`.
+    afterChange: [revalidateSiteDoc(POSTS_BASE)],
+    afterDelete: [revalidateSiteDocDelete(POSTS_BASE)],
     afterRead: [populateAuthors],
     beforeValidate: [uniqueSlugPerSite],
   },

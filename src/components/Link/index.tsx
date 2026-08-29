@@ -2,7 +2,7 @@
 
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { useLocaleHref } from '@/providers/Locale'
-import { pagePath } from '@/lib/slug'
+import { pagePath, postPath } from '@/lib/slug'
 import { cn } from '@/utilities/ui'
 import Link from 'next/link'
 import React from 'react'
@@ -45,7 +45,7 @@ export const CMSLink: React.FC<CMSLinkType> = (props) => {
         ? // `pagePath`, not `/${slug}`: a nav item pointing at the home page has to
           // render `/`, or the site grows a second URL for its own front page.
           pagePath(reference.value.slug)
-        : `/${reference.relationTo}/${reference.value.slug}`
+        : postPath(reference.value.slug)
       : url
 
   // Site-relative links carry the active locale, or an English visitor clicking

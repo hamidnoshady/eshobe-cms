@@ -180,12 +180,15 @@ describe('multi-tenancy', () => {
 
   describe('slugs', () => {
     it('are shareable across sites', async () => {
+      // One per seeded site — three since Wave 7 added the `shop.localhost` store
+      // fixture. The number is the point: the same slug existing *n* times is legal,
+      // and `uniqueSlugPerSite` is what keeps it to once per site.
       const { totalDocs } = await payload.count({
         collection: 'pages',
         where: { slug: { equals: 'about' } },
       })
 
-      expect(totalDocs).toBe(2)
+      expect(totalDocs).toBe(3)
     })
 
     it('collide within one site and locale', async () => {
@@ -210,6 +213,34 @@ describe('multi-tenancy', () => {
         message: expect.stringContaining('از قبل استفاده شده'),
         path: 'slug',
       })
+    })
+
+    it('refuse the words the site routes already own', async () => {
+      // `/posts`, `/search` and `/checkout/<id>` are Next routes under `[domain]`, and
+      // a static segment outranks the `[[...path]]` catch-all that resolves CMS pages.
+      // A page saved as `posts` is therefore unreachable and its URL renders the blog —
+      // silently, with a 200 and no error anywhere. The rejection is what makes it loud.
+      for (const slug of ['posts', 'search', 'checkout']) {
+        const error = await payload
+          .create({
+            collection: 'pages',
+            data: {
+              _status: 'draft',
+              hero: { type: 'none' },
+              layout: [{ blockType: 'content', columns: [] }],
+              site: acme.id,
+              slug,
+              title: `صفحه ${slug}`,
+            },
+          })
+          .then(() => null)
+          .catch((err: unknown) => err as ValidationError)
+
+        expect(error?.data?.errors?.[0]).toMatchObject({
+          message: expect.stringContaining('بخش دیگری از سایت'),
+          path: 'slug',
+        })
+      }
     })
 
     it('are generated from a Persian title, not stripped to nothing', async () => {
