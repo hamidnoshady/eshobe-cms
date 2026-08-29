@@ -7,6 +7,10 @@
  * `Date` — see CLAUDE.md.
  */
 
+import type { CurrencyCode } from './money'
+
+import { currencies, minorToMajor } from './money'
+
 // Payload locale codes are short forms; Intl wants a BCP 47 tag.
 const intlLocale = (locale: string) => (locale === 'fa' ? 'fa-IR' : locale)
 
@@ -36,11 +40,43 @@ export const formatNumber = (
   options?: Intl.NumberFormatOptions,
 ): string => new Intl.NumberFormat(intlLocale(locale), options).format(value)
 
-const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
-
 /**
  * Digit substitution for strings that only look numeric — phone numbers, postal
  * codes, anything with a leading zero that `formatNumber` would eat.
+ *
+ * Re-exported from `src/lib/digits.ts` so money parsing can share the mapping without
+ * importing this module; the rule that every rendered number goes through here stands.
  */
-export const toLocaleDigits = (value: string, locale: string): string =>
-  locale === 'fa' ? value.replace(/[0-9]/g, (d) => PERSIAN_DIGITS[Number(d)]!) : value
+export { toLocaleDigits } from './digits'
+
+/**
+ * A price, in the site's currency, in the active locale's digits.
+ *
+ * `minor` is the stored integer — see `src/lib/money.ts` for why prices are minor
+ * units of the *site's* currency and not of the product. The unit word is appended
+ * from the currency registry, because a bare number on an Iranian storefront is
+ * ambiguous by a factor of ten.
+ *
+ * Renders `۱٬۲۰۰٬۰۰۰ تومان` on `fa` and `1,200,000 Toman` on `en` for the same
+ * stored value.
+ */
+export const formatPrice = (
+  minor: null | number | undefined,
+  code: CurrencyCode,
+  locale: string,
+  options: { hideUnit?: boolean } = {},
+): string => {
+  if (typeof minor !== 'number' || !Number.isFinite(minor)) return ''
+
+  const currency = currencies[code]
+  const amount = formatNumber(minorToMajor(minor, code), locale, {
+    maximumFractionDigits: currency.minorDigits,
+    minimumFractionDigits: currency.minorDigits,
+  })
+
+  if (options.hideUnit) return amount
+
+  const unit = currency.unit[locale as 'en' | 'fa'] ?? currency.unit.en
+
+  return `${amount} ${unit}`
+}

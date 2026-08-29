@@ -23,3 +23,10 @@ export const useLocaleHref = (): ((path: string) => string) => {
 
   return (path) => localeHref(path, locale, siteDefault)
 }
+
+/**
+ * The active locale alone, for a client component that needs a *word* rather than a
+ * URL. Same provider, so a label and its href can never disagree about which language
+ * the page is in.
+ */
+export const useLocale = (): string => useContext(LocaleContext).locale

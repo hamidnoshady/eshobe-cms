@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { allowedBlocks, siteBlocks } from '../../blocks'
 import { hero } from '@/heros/config'
@@ -9,8 +10,9 @@ import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { populatePublishedAt } from '../../hooks/populatePublishedAt'
 import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
+import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalidateSiteDoc'
+import { reservedPageSlug } from '../../hooks/reservedPageSlug'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
-import { revalidateDelete, revalidatePage } from './hooks/revalidatePage'
 
 import {
   MetaDescriptionField,
@@ -25,7 +27,9 @@ export const Pages: CollectionConfig<'pages'> = {
   access: {
     create: writeUnlessPublishing('pages'),
     delete: authenticated,
-    read: authenticatedOrPublished,
+    // Host-scoped as well as publish-gated: this collection is readable over the
+    // public REST/GraphQL API by a second renderer (`src/access/siteRead.ts`).
+    read: scopedPublishedRead(authenticatedOrPublished),
     update: writeUnlessPublishing('pages'),
   },
   // This config controls what's populated by default when a page is referenced
@@ -127,10 +131,10 @@ export const Pages: CollectionConfig<'pages'> = {
     slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
   ],
   hooks: {
-    afterChange: [revalidatePage],
+    afterChange: [revalidateSiteDoc()],
     beforeChange: [populatePublishedAt],
-    beforeValidate: [uniqueSlugPerSite],
-    afterDelete: [revalidateDelete],
+    beforeValidate: [uniqueSlugPerSite, reservedPageSlug],
+    afterDelete: [revalidateSiteDocDelete()],
   },
   versions: {
     drafts: {

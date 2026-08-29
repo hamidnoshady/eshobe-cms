@@ -27,7 +27,7 @@ PREVIEW_SECRET=long-random-secret-3
 
 Customer uploads live in the `media_uploads` volume (mounted at `/app/media`, `MEDIA_DIR`); include it in the backup policy alongside `pgdata` and `caddy_data`.
 
-The control-plane hostname is the only host allowed to access `/admin*` and `/api*`. Customer hosts are routed to the public site and those paths return 404, with two carve-outs the public site itself depends on: `POST /api/form-submissions` (the Wave 3 contact form posts from the customer's own origin) and `GET /api/media/file/*` (locally stored uploads). Port 80 redirects every host to HTTPS. Caddy stores certificates in the `caddy_data` volume; back it up as part of the deployment backup policy.
+The control-plane hostname is the only host allowed to access `/admin*` and `/api*`. Customer hosts are routed to the public site and those paths return 404, with three carve-outs the public site itself depends on: `POST /api/form-submissions` (the Wave 3 contact form posts from the customer's own origin), `/api/checkout` and `/api/checkout/*` (the Wave 7 storefront's purchase POST, the buyer's return from the gateway and the gateway's callback — all on the customer's own origin, which is how the payment is attributed to the right site), and `GET /api/media/file/*` (locally stored uploads). Port 80 redirects every host to HTTPS. Caddy stores certificates in the `caddy_data` volume; back it up as part of the deployment backup policy.
 
 ```sh
 docker compose -f docker-compose.prod.yml up -d --build

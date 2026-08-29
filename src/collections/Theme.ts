@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { isHexColor } from '../lib/theme'
+import { scopedPublicRead } from '../access/siteRead'
 
 /**
  * A colour that will be interpolated into a `<style>` tag. Rejected in the admin as
@@ -25,8 +26,9 @@ export const Theme: CollectionConfig = {
   access: {
     create: authenticated,
     delete: authenticated,
-    // Public: the site shell needs the tokens to render. Scoped by `findForSite`.
-    read: () => true,
+    // Public and host-scoped: the site shell needs the tokens to render, and a
+    // renderer outside this app must get the same tenant's tokens, not all of them.
+    read: scopedPublicRead(),
     update: authenticated,
   },
   labels: {

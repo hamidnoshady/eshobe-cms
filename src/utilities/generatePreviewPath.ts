@@ -7,6 +7,8 @@ import type { PreviewSearchParams } from '@/app/(site)/next/preview/route'
 import { siteUrlForDoc } from '@/lib/site-url'
 
 type Props = {
+  /** The collection's route prefix — `POSTS_BASE` for posts, empty for pages. */
+  base?: string
   data?: Record<string, unknown> | null
   req: PayloadRequest
 }
@@ -19,8 +21,8 @@ type Props = {
  * The path is the canonical one (`/about` on the site's default locale, `/en/about`
  * otherwise), so the editor previews the URL a visitor will actually be on.
  */
-export const generatePreviewPath = async ({ data, req }: Props): Promise<string | null> => {
-  const target = await siteUrlForDoc({ doc: data, req })
+export const generatePreviewPath = async ({ base, data, req }: Props): Promise<string | null> => {
+  const target = await siteUrlForDoc({ base, doc: data, req })
 
   if (!target) return null
 

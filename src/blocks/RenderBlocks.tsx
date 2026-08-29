@@ -13,6 +13,7 @@ import { GalleryBlock } from '@/blocks/Gallery/Component'
 import { LogosBlock } from '@/blocks/Logos/Component'
 import { MediaBlock } from '@/blocks/MediaBlock/Component'
 import { PricingBlock } from '@/blocks/Pricing/Component'
+import { ProductGridBlock } from '@/blocks/ProductGrid/Component'
 import { TeamBlock } from '@/blocks/Team/Component'
 import { TestimonialsBlock } from '@/blocks/Testimonials/Component'
 
@@ -31,6 +32,7 @@ const blockComponents = {
   logos: LogosBlock,
   mediaBlock: MediaBlock,
   pricing: PricingBlock,
+  productGrid: ProductGridBlock,
   team: TeamBlock,
   testimonials: TestimonialsBlock,
 }

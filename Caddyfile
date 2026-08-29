@@ -26,8 +26,10 @@ https://{$CONTROL_PLANE_HOST} {
 }
 
 # Every other host is a customer site. Never expose the control plane paths
-# here — but the public site itself depends on two API routes: the Wave 3
-# contact form posts to /api/form-submissions from the customer domain, and
+# here — but the public site itself depends on four API routes: the Wave 3
+# contact form posts to /api/form-submissions from the customer domain, the Wave 7
+# storefront posts to /api/checkout and takes the payment gateway's callback on
+# /api/checkout/callback, a headless renderer reads /api/site (WAVE-9.md), and
 # locally-stored uploads are served from /api/media/file/*.
 https:// {
     tls {
@@ -39,6 +41,26 @@ https:// {
         path /api/form-submissions
     }
     handle @form_submissions {
+        reverse_proxy web:3000
+    }
+
+    # Checkout has no method filter: the buyer POSTs it, the browser GETs back to it
+    # from the gateway, and the gateway POSTs its callback. The site a payment belongs
+    # to is resolved from this Host header, which is why it must arrive here at all.
+    @checkout {
+        path /api/checkout /api/checkout/*
+    }
+    handle @checkout {
+        reverse_proxy web:3000
+    }
+
+    # A headless renderer bootstraps from this on the customer's own origin: which
+    # locales the site serves, its theme tokens, its currency, its block list.
+    @site_descriptor {
+        method GET HEAD
+        path /api/site
+    }
+    handle @site_descriptor {
         reverse_proxy web:3000
     }
 

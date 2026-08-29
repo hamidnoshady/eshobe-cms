@@ -1,57 +1,56 @@
 import React from 'react'
 
-const defaultLabels = {
-  plural: 'Docs',
-  singular: 'Doc',
-}
+import { formatNumber } from '@/lib/format'
+import { getSiteContext } from '@/lib/site-context'
+import { uiString } from '@/lib/ui-strings'
 
-const defaultCollectionLabels = {
-  posts: {
-    plural: 'Posts',
-    singular: 'Post',
-  },
-}
-
+/**
+ * "نمایش ۱ تا ۴ از ۱۲ نوشته" / "Showing 1 - 4 of 12 posts".
+ *
+ * Rewritten rather than reused as the template shipped it, for two reasons that are
+ * both platform rules rather than taste: the sentence was English-only, and the numbers
+ * were interpolated raw — Latin digits on a Persian page, which `CLAUDE.md` forbids for
+ * *every* rendered number. So both go through `formatNumber` and the site's locale, and
+ * the plural switch is dropped for Persian (Farsi has no two-form plural like English's
+ * `post`/`posts`; `itemLabel` is already the right shape for either count).
+ */
 export const PageRange: React.FC<{
   className?: string
-  collection?: keyof typeof defaultCollectionLabels
-  collectionLabels?: {
-    plural?: string
-    singular?: string
-  }
   currentPage?: number
+  /** Defaults to the site's "nothing found" line. */
+  emptyLabel?: string
+  itemLabel?: string
   limit?: number
   totalDocs?: number
-}> = (props) => {
-  const {
-    className,
-    collection,
-    collectionLabels: collectionLabelsFromProps,
-    currentPage,
-    limit,
-    totalDocs,
-  } = props
+}> = async ({ className, currentPage, emptyLabel, itemLabel, limit, totalDocs }) => {
+  const { locale } = await getSiteContext()
 
-  let indexStart = (currentPage ? currentPage - 1 : 1) * (limit || 1) + 1
-  if (totalDocs && indexStart > totalDocs) indexStart = 0
+  const indexStart = (currentPage ? currentPage - 1 : 1) * (limit || 1) + 1
+  const start = totalDocs && indexStart > totalDocs ? 0 : indexStart
+  const indexEnd = Math.min((currentPage || 1) * (limit || 1), totalDocs ?? Number.MAX_SAFE_INTEGER)
 
-  let indexEnd = (currentPage || 1) * (limit || 1)
-  if (totalDocs && indexEnd > totalDocs) indexEnd = totalDocs
+  // `!totalDocs`, not a range comparison: an absent total and a zero total are the same
+  // message, and computing "1 – 0 of 0" for an empty result set is the bug the original
+  // condition was fiddling around.
+  const isEmpty = !totalDocs
 
-  const { plural, singular } =
-    collectionLabelsFromProps ||
-    (collection ? defaultCollectionLabels[collection] : undefined) ||
-    defaultLabels ||
-    {}
+  const number = (value: number) => formatNumber(value, locale)
 
-  return (
-    <div className={[className, 'font-semibold'].filter(Boolean).join(' ')}>
-      {(typeof totalDocs === 'undefined' || totalDocs === 0) && 'Search produced no results.'}
-      {typeof totalDocs !== 'undefined' &&
-        totalDocs > 0 &&
-        `Showing ${indexStart}${indexStart > 0 ? ` - ${indexEnd}` : ''} of ${totalDocs} ${
-          totalDocs > 1 ? plural : singular
-        }`}
-    </div>
-  )
+  const sentence = isEmpty
+    ? (emptyLabel ?? uiString('noResults', locale))
+    : locale === 'fa'
+      ? [
+          uiString('showing', locale),
+          number(start),
+          uiString('to', locale),
+          number(indexEnd),
+          uiString('of', locale),
+          number(totalDocs ?? 0),
+          itemLabel ?? uiString('posts', locale),
+        ].join(' ')
+      : `Showing ${number(start)} - ${number(indexEnd)} of ${number(totalDocs ?? 0)} ${
+          itemLabel ?? 'posts'
+        }`
+
+  return <div className={[className, 'text-sm font-semibold'].filter(Boolean).join(' ')}>{sentence}</div>
 }
