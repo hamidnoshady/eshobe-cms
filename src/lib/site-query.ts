@@ -45,10 +45,16 @@ export const siteTag = (siteId: string, ...parts: string[]): string =>
 const normalizeHost = (host: string): string => host.split(':')[0]!.toLowerCase()
 
 /**
- * Host → site. The one deliberate `overrideAccess: true` in the codebase: an
- * anonymous visitor must be able to resolve the site they are asking for, and
- * this lookup is what *establishes* the tenant that everything else is scoped to,
- * so it cannot itself be tenant-scoped.
+ * Host → site, whatever its lifecycle state. The one deliberate
+ * `overrideAccess: true` in the codebase: an anonymous visitor must be able to
+ * resolve the site they are asking for, and this lookup is what *establishes*
+ * the tenant that everything else is scoped to, so it cannot itself be
+ * tenant-scoped.
+ *
+ * Lifecycle is deliberately *not* filtered here: a suspended or archived site
+ * still owns its domain, and `getSiteContext` needs to know it exists to serve
+ * the holding page. Every *content* read goes through `findForSite` with an
+ * active site — `serving: false` means no content, no chrome, holding page.
  *
  * `cache` dedupes it per request — the layout and the page both need the site.
  */
@@ -63,10 +69,7 @@ export const getSiteByHost = cache(async (host: string | null): Promise<Site | n
     limit: 1,
     overrideAccess: true,
     pagination: false,
-    where: {
-      // Suspended and archived sites stop serving; lifecycle is a status, not a delete.
-      and: [{ domain: { equals: normalizeHost(host) } }, { status: { equals: 'active' } }],
-    },
+    where: { domain: { equals: normalizeHost(host) } },
   })
 
   return docs[0] ?? null

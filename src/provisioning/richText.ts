@@ -6,8 +6,9 @@ type Block = { tag?: string; text: string; type: 'heading' | 'paragraph' }
 type RichTextValue = NonNullable<Page['hero']['richText']>
 
 /**
- * Minimal Lexical builder for seed content. Hand-writing the JSON for every
- * paragraph is unreadable, and a real editor is not available from a script.
+ * Minimal Lexical builder for content written outside the editor — seeding and
+ * provisioning. Hand-writing the JSON for every paragraph is unreadable, and a
+ * real editor is not available from a script.
  *
  * `direction` matters: Lexical stores it per node, and a Persian paragraph saved
  * as `ltr` renders with its punctuation on the wrong side.

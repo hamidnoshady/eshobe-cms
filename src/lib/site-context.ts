@@ -20,7 +20,14 @@ import { getSiteByHost } from '@/lib/site-query'
 export type SiteContext = {
   dir: 'ltr' | 'rtl'
   locale: TypedLocale
+  /** The site on this host, whatever its lifecycle state — null on an unknown host. */
   site: Site | null
+  /**
+   * False when the site is suspended or archived. The site still resolves (the
+   * holding page needs its name and locales) but serves no content: every
+   * content read requires `serving`, and the shell drops its chrome.
+   */
+  serving: boolean
 }
 
 /** The site's own default, unless the request asked for a locale the site serves. */
@@ -40,7 +47,12 @@ export const getSiteContext = cache(async (): Promise<SiteContext> => {
   // have not been through routing yet, and on an unknown host.
   const locale = resolveLocale(site, headerList.get('x-locale'))
 
-  return { dir: dirFor(locale), locale: locale as TypedLocale, site }
+  return {
+    dir: dirFor(locale),
+    locale: locale as TypedLocale,
+    site,
+    serving: site?.status === 'active',
+  }
 })
 
 /**

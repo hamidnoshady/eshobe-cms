@@ -30,6 +30,28 @@ export const Sites: CollectionConfig = {
   admin: {
     defaultColumns: ['name', 'domain', 'domainVerified', 'type', 'status'],
     useAsTitle: 'name',
+    components: {
+      views: {
+        /**
+         * The Wave 5 "New site" action, as a custom view on the sites collection:
+         * one form that creates the site, seeds it for its type and locales, and
+         * invites the client's users — reached from the list header's button.
+         */
+        provision: {
+          Component: '@/provisioning/AdminView',
+          meta: {
+            title: 'ساخت سایت جدید',
+          },
+          path: '/provision',
+        },
+        // The list header action that opens it. The component itself renders
+        // nothing for non-admins: a client's owner sees the list to *read* their
+        // site, and creating sites is the agency's job.
+        list: {
+          actions: ['@/provisioning/NewSiteButton'],
+        },
+      },
+    },
   },
   labels: {
     singular: 'سایت',

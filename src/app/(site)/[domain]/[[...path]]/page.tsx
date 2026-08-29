@@ -8,6 +8,7 @@ import type { Page } from '@/payload-types'
 
 import { RenderBlocks } from '@/blocks/RenderBlocks'
 import { LivePreviewListener } from '@/components/LivePreviewListener'
+import { SiteHolding } from '@/components/SiteHolding'
 import { RenderHero } from '@/heros/RenderHero'
 import { isLocale } from '@/lib/locales'
 import { HOME_SLUG } from '@/lib/slug'
@@ -37,9 +38,11 @@ const slugFromPath = (path: string[] = []): string => {
 
 const queryPage = cache(async (slug: string): Promise<Page | null> => {
   const { isEnabled: draft } = await draftMode()
-  const { locale, site } = await getSiteContext()
+  const { locale, serving, site } = await getSiteContext()
 
-  if (!site) return null
+  // `serving`, not `site`: a suspended or archived site resolves but must serve
+  // none of its content — not even to a draft preview.
+  if (!site || !serving) return null
 
   const { docs } = await findForSite('pages', site.id, {
     draft,
@@ -76,6 +79,17 @@ const localeIsServed = async (path: string[] = []): Promise<boolean> => {
 export default async function SitePage({ params }: Args) {
   const { isEnabled: draft } = await draftMode()
   const { path } = await params
+  const { serving, site } = await getSiteContext()
+
+  /**
+   * A suspended or archived site answers on *every* path — its lifecycle is a
+   * status, not a delete — but with a holding page, not its content. This branch
+   * precedes the locale check on purpose: a suspension is site-level, and
+   * `/en` on a suspended fa-only site should hold, not 404.
+   */
+  if (site && !serving) {
+    return <SiteHolding siteName={site.name} status={site.status === 'archived' ? 'archived' : 'suspended'} />
+  }
 
   if (!(await localeIsServed(path))) notFound()
 
@@ -95,6 +109,12 @@ export default async function SitePage({ params }: Args) {
 
 export async function generateMetadata({ params }: Args): Promise<Metadata> {
   const { path } = await params
+  const { serving, site } = await getSiteContext()
+
+  // A holding page must not rank or get cached as the site's answer.
+  if (site && !serving) {
+    return { robots: { follow: false, index: false }, title: site.name }
+  }
 
   if (!(await localeIsServed(path))) return {}
 

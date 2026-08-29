@@ -79,6 +79,16 @@ docker compose up -d db      # local Postgres
 - Vitest's default `hookTimeout` (10s) is too short for `getPayload()` in a `beforeAll` on a cold Postgres connection — it pulls the schema first. `vitest.config.mts` sets 120s; without it the int suite flakes whenever the dev server competes for connections.
 - Playwright's `reuseExistingServer: true` will attach to a *hung* dev server on port 3000 (accepts connections, never responds — `curl` returns `000`). Every e2e test then times out. Kill the stale PID (`netstat -ano | grep :3000`, `taskkill //PID <pid> //F`) before blaming a code change — the symptom is a wholesale failure including tests you did not touch.
 
+## Provisioning (Wave 5)
+
+- `provisionSite` in `src/provisioning/provisionSite.ts` is the one action: site doc + theme + pages + nav + form + translations + invites. It re-checks `platformAdmin` itself — the endpoint check is convenience, the function is the boundary.
+- Every write threads one `req` carrying `transactionID` from `payload.db.beginTransaction()`, so a mid-flow failure rolls the whole site back. Commit before sending invite emails — a rolled-back site must not have mailed anyone.
+- Deleting a site whose users still reference it fails *confusingly*: Payload swallows the per-doc FK failure inside `delete`, then the preferences cleanup dies with `current transaction is aborted` on `payload_preferences`. Delete or detach the users first — `cleanupAfterTenantDelete` stays `false` on purpose.
+- `payload.forgotPassword` **returns** the raw reset token, but `resetPasswordToken` is a hidden auth field: reads need `showHiddenFields: true` or the token comes back `undefined`. Never surface the token in an API response — the invite *is* the set-password email.
+- Local-API `login`/`resetPassword` (jose JWT signing) cannot run under vitest's jsdom environment: the sandbox splits realms and jose rejects the other realm's `TextEncoder` output (`payload must be an instance of Uint8Array`). DB-only specs that need auth flows get `// @vitest-environment node`.
+- A Next.js page cannot set an arbitrary status code, so the suspended/archived holding page answers **200 + `noindex`**, not 503. `getSiteByHost` resolves the site regardless of lifecycle; `getSiteContext().serving` (`status === 'active'`) is what gates content, chrome and theme — never key a content read off the raw site.
+- Starter-content translation pairs layout rows by index between locales — both locales must build the same block sequence. That invariant is asserted in `tests/int/provisioning.int.spec.ts`; `starterPages`/`starterNav` live in `src/provisioning/starter-content.ts` as plain functions and copy tables, deliberately not a template engine.
+
 ## Working style
 
 - Read `PLAN.md` before starting a wave. Waves are tracked as GitHub issues #1–#9 under #10.
