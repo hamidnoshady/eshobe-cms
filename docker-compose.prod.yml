@@ -13,8 +13,22 @@ services:
       CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET}
       PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
       NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
+      # Cloudflare R2. All four or none: a partial set keeps uploads on the local
+      # volume rather than half-configuring the bucket (see src/plugins/storage.ts).
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      # The jobs cron lives in this container, which is only correct while there is
+      # exactly one replica. Scaling `web` means setting this to false and running
+      # `payload jobs:run` in a container of its own — two replicas both run every
+      # scheduled publish, and nothing errors when they do.
+      JOBS_AUTORUN: ${JOBS_AUTORUN:-true}
     expose:
-      - "3000"
+      - '3000'
+    # One replica. `deploy.replicas` here would double every scheduled publish —
+    # see JOBS_AUTORUN above.
+    scale: 1
     volumes:
       # Customer uploads (Media.staticDir = MEDIA_DIR = /app/media). Without a
       # volume every redeploy deletes every uploaded file.
@@ -22,7 +36,13 @@ services:
     healthcheck:
       # Any HTTP response counts: the ask endpoint 404s without a domain param,
       # which still proves the server is up and able to answer Caddy.
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/domain-check').then(() => process.exit(0), () => process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/api/domain-check').then(() => process.exit(0), () => process.exit(1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -41,7 +61,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}']
       interval: 5s
       timeout: 5s
       retries: 12
@@ -50,8 +70,8 @@ services:
     image: caddy:2.10-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - '80:80'
+      - '443:443'
     environment:
       CONTROL_PLANE_HOST: ${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}

@@ -18,7 +18,27 @@ export const Users: CollectionConfig = {
     defaultColumns: ['name', 'email', 'role'],
     useAsTitle: 'name',
   },
-  auth: true,
+  /**
+   * The session cookie is the whole admin panel — a stolen one is every tenant this
+   * user can edit.
+   *
+   * `secure` is conditional and not simply `true`: a `Secure` cookie is dropped by
+   * the browser over plain http, so hardcoding it would break `pnpm dev` on
+   * `localhost` with a login that silently never sticks. Production is behind Caddy
+   * with TLS, so there it is unconditional.
+   *
+   * `sameSite: 'Lax'` (Payload's default, restated because it matters) is what stops
+   * a third-party page from driving the admin API with the editor's session. Live
+   * preview does not need `None` here: the admin and the customer domain are
+   * different origins, so the preview handshake hands the token over explicitly and
+   * sets its own cookie on the site's domain — see `next/preview/route.ts`.
+   */
+  auth: {
+    cookies: {
+      sameSite: 'Lax',
+      secure: process.env.NODE_ENV === 'production',
+    },
+  },
   labels: {
     singular: 'کاربر',
     plural: 'کاربران',

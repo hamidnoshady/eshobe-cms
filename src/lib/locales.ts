@@ -30,4 +30,9 @@ export const dirFor = (code: string): 'ltr' | 'rtl' =>
  * `#section` with a locale would break them.
  */
 export const localeHref = (path: string, locale: string, siteDefault: string): string =>
-  path.startsWith('/') && locale !== siteDefault ? `/${locale}${path}` : path
+  path.startsWith('/') && locale !== siteDefault
+    ? // `/en`, not `/en/`: the home page's path is `/`, and naively concatenating
+      // gives the one URL a trailing-slash twin that Next redirects away from —
+      // fine to click, wrong to publish in a canonical tag or a sitemap.
+      `/${locale}${path === '/' ? '' : path}`
+    : path

@@ -27,10 +27,22 @@ import type { Site } from '@/payload-types'
 type FindArgs = {
   depth?: number
   draft?: boolean
+  /**
+   * `false` turns Payload's locale fallback off for one read.
+   *
+   * `localization.fallback` is on globally, so an untranslated `slug` comes back
+   * holding the Persian one — which reads as "this page exists in English" while
+   * `where: { slug }` (which never falls back) 404s that very URL. Anything that
+   * enumerates locales — hreflang, the sitemap — has to ask without the fallback or
+   * it publishes URLs that do not resolve.
+   */
+  fallbackLocale?: false | TypedLocale
   limit?: number
   locale?: TypedLocale
   page?: number
   pagination?: boolean
+  /** Narrows the columns Payload reads; the shape is Payload's `select` object. */
+  select?: Record<string, unknown>
   sort?: string
   /** Needed for draft preview: `overrideAccess: false` has to see who is asking. */
   user?: TypedUser | null

@@ -39,8 +39,22 @@ export const siteOrigin = (site: UrlSite, origin?: string | null): string => {
 
 export const siteUrl = (
   site: UrlSite,
-  { locale, origin, slug }: { locale?: string | null; origin?: string | null; slug?: string | null },
-): string => siteOrigin(site, origin) + sitePath(site, locale, slug)
+  {
+    locale,
+    origin,
+    slug,
+  }: { locale?: string | null; origin?: string | null; slug?: string | null },
+): string => {
+  const path = sitePath(site, locale, slug)
+
+  /**
+   * `https://acme.com`, not `https://acme.com/`, for a home page. Next normalizes
+   * the canonical tag it renders to the slash-less form, so emitting the other one
+   * in the sitemap and in `hreflang` would have the two disagree about the single
+   * most-linked URL on the site.
+   */
+  return siteOrigin(site, origin) + (path === '/' ? '' : path)
+}
 
 /**
  * The same, for admin-side hooks that hold a document rather than a resolved site.

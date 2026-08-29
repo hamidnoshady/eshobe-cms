@@ -2,6 +2,7 @@ import type { CollectionAfterChangeHook } from 'payload'
 
 import { revalidateTag } from 'next/cache'
 
+import { tryRevalidate } from '@/hooks/revalidate'
 import { siteTag } from '@/lib/site-query'
 
 /**
@@ -33,7 +34,7 @@ export const revalidateSiteGlobal =
 
     payload.logger.info(`Revalidating ${tag}`)
 
-    revalidateTag(tag, 'max')
+    tryRevalidate(payload, tag, () => revalidateTag(tag, 'max'))
 
     return doc
   }

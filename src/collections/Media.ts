@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 
 import { anyone } from '../access/anyone'
 import { authenticated } from '../access/authenticated'
+import { setMediaPrefix } from '../hooks/mediaPrefix'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -48,6 +49,10 @@ export const Media: CollectionConfig = {
       }),
     },
   ],
+  hooks: {
+    // Namespaces the file's key in R2 by site. No-op while uploads are local.
+    beforeChange: [setMediaPrefix],
+  },
   upload: {
     // Dev: public/media in the repo. Production: MEDIA_DIR, an absolute path the
     // compose file mounts as a volume — inside the standalone bundle a relative

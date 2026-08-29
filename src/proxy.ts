@@ -26,9 +26,15 @@ export const config = {
    * proxy's job (PLAN §5), not app code's. `/media` is served from `public/` —
    * static files are resolved after middleware, so a rewrite 404s them.
    *
+   * `robots.txt` and `sitemap.xml` are deliberately *not* excluded any more. They
+   * used to be, back when `next-sitemap` wrote them into `public/` at build time —
+   * one file, one origin, for a deployment that serves many. They are now per-site
+   * route handlers under `[domain]`, so they have to go through the host rewrite
+   * like every other page; excluding them serves 404s.
+   *
    * `/admin` is matched but never rewritten — see `adminLanguage`.
    */
-  matcher: ['/((?!api|next|_next|media|favicon|robots\\.txt|sitemap\\.xml).*)'],
+  matcher: ['/((?!api|next|_next|media|favicon).*)'],
 }
 
 /** Payload's admin-language cookie. `cookiePrefix` is left at its default. */
