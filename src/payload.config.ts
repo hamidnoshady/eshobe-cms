@@ -7,6 +7,7 @@ import path from 'path'
 import { buildConfig, PayloadRequest } from 'payload'
 import { fileURLToPath } from 'url'
 
+import { ApiKeys } from './collections/ApiKeys'
 import { Categories } from './collections/Categories'
 import { Media } from './collections/Media'
 import { Orders } from './collections/Orders'
@@ -25,6 +26,7 @@ import { migrations } from './migrations'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
+import { apiKeysEndpoints } from './endpoints/apiKeys'
 import { checkoutEndpoints } from './endpoints/checkout'
 import { domainCheck } from './endpoints/domainCheck'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
@@ -34,7 +36,7 @@ const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
-  endpoints: [domainCheck, siteDescriptor, provisionSiteEndpoint, ...checkoutEndpoints],
+  endpoints: [domainCheck, siteDescriptor, provisionSiteEndpoint, ...checkoutEndpoints, ...apiKeysEndpoints],
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],
@@ -85,6 +87,10 @@ export default buildConfig({
     Categories,
     Users,
     Sites,
+    // WAVE-9 §9.4 — platform-admin only, deliberately not in the multi-tenant
+    // plugin's `collections` map (src/plugins/index.ts): a key is credential
+    // material, the same shape as `Users`, not a site's own content.
+    ApiKeys,
     Theme,
     Header,
     Footer,

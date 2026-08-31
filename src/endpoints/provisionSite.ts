@@ -2,6 +2,7 @@ import type { Endpoint } from 'payload'
 import { APIError, ValidationError } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { provisionSite, type ProvisionSiteInput } from '@/provisioning/provisionSite'
 import { siteOrigin } from '@/lib/site-url'
 
@@ -11,13 +12,15 @@ import { siteOrigin } from '@/lib/site-url'
  * Platform-admin only — this is an agency-operated internal action, not a
  * signup funnel. It mounts under `/api`, which the control-plane host serves
  * and customer hosts 404 (see the Caddyfile), so it is unreachable from a
- * client domain even before the role check.
+ * client domain even before the role check. WAVE-9 §9.4 widens "platform-admin"
+ * to also accept a `role: "platform"` API key — the same operator action, called
+ * by a headless client instead of the admin view's own form.
  */
 export const provisionSiteEndpoint: Endpoint = {
   path: '/provision-site',
   method: 'post',
   handler: async (req) => {
-    if (!isPlatformAdmin(req.user)) {
+    if (!(await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user)))) {
       return Response.json(
         { message: 'ساخت سایت فقط برای مدیر پلتفرم ممکن است.' },
         { status: 403, headers: { 'cache-control': 'no-store' } },

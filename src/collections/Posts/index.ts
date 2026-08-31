@@ -11,6 +11,7 @@ import {
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { apiKeyAware } from '../../access/siteApiKey'
 import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
@@ -37,7 +38,8 @@ export const Posts: CollectionConfig<'posts'> = {
   access: {
     create: writeUnlessPublishing('posts'),
     delete: authenticated,
-    read: scopedPublishedRead(authenticatedOrPublished),
+    // A site API key (WAVE-9 §9.4) sees its own site's drafts too.
+    read: apiKeyAware(scopedPublishedRead(authenticatedOrPublished)),
     update: writeUnlessPublishing('posts'),
   },
   // This config controls what's populated by default when a post is referenced

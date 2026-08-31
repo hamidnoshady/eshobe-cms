@@ -73,6 +73,7 @@ export interface Config {
     categories: Category;
     users: User;
     sites: Site;
+    'api-keys': ApiKey;
     theme: Theme;
     header: Header;
     footer: Footer;
@@ -102,6 +103,7 @@ export interface Config {
     categories: CategoriesSelect<false> | CategoriesSelect<true>;
     users: UsersSelect<false> | UsersSelect<true>;
     sites: SitesSelect<false> | SitesSelect<true>;
+    'api-keys': ApiKeysSelect<false> | ApiKeysSelect<true>;
     theme: ThemeSelect<false> | ThemeSelect<true>;
     header: HeaderSelect<false> | HeaderSelect<true>;
     footer: FooterSelect<false> | FooterSelect<true>;
@@ -1076,6 +1078,39 @@ export interface ArchiveBlock {
   blockType: 'archive';
 }
 /**
+ * کلیدهای دسترسی برنامه‌نویسی — برای اتصال یک برنامهٔ بیرونی (مثل سامانهٔ صندوق فروش) به یک سایت یا به کل پلتفرم.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "api-keys".
+ */
+export interface ApiKey {
+  id: string;
+  /**
+   * برای خودتان — مثلاً «سامانهٔ صندوق فروش، شعبهٔ مرکزی».
+   */
+  name: string;
+  /**
+   * کلید «سایت» فقط به همان سایت دسترسی دارد. کلید «پلتفرم» هیچ محتوایی نمی‌خواند؛ فقط می‌تواند سایت بسازد یا کلید صادر/باطل کند.
+   */
+  role: 'site' | 'platform';
+  site?: (string | null) | Site;
+  keyHash?: string | null;
+  /**
+   * برای شناختن کلید در فهرست — کلید کامل فقط یک بار، در لحظهٔ صدور، نمایش داده می‌شود.
+   */
+  keyPrefix?: string | null;
+  /**
+   * پر کردن این فیلد، کلید را فوراً از کار می‌اندازد — سطر برای پیگیری باقی می‌ماند.
+   */
+  disabledAt?: string | null;
+  /**
+   * هر بار که این کلید یک درخواست را احراز هویت می‌کند به‌روز می‌شود؛ برای اطلاع، نه برای احراز هویت.
+   */
+  lastUsedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "theme".
  */
@@ -1435,6 +1470,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'sites';
         value: string | Site;
+      } | null)
+    | ({
+        relationTo: 'api-keys';
+        value: string | ApiKey;
       } | null)
     | ({
         relationTo: 'theme';
@@ -2019,6 +2058,21 @@ export interface SitesSelect<T extends boolean = true> {
   defaultLocale?: T;
   generateSlug?: T;
   slug?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "api-keys_select".
+ */
+export interface ApiKeysSelect<T extends boolean = true> {
+  name?: T;
+  role?: T;
+  site?: T;
+  keyHash?: T;
+  keyPrefix?: T;
+  disabledAt?: T;
+  lastUsedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

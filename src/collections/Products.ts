@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { authenticatedOrPublished } from '../access/authenticatedOrPublished'
+import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
 import { scopedPublishedRead } from '../access/siteRead'
 import { writeUnlessPublishing } from '../access/publish'
 import { validatePriceMinor } from '../lib/money'
@@ -24,13 +25,17 @@ import { validatePriceMinor } from '../lib/money'
 export const Products: CollectionConfig<'products'> = {
   slug: 'products',
   access: {
-    create: writeUnlessPublishing('products'),
-    delete: authenticated,
+    // A site API key (WAVE-9 §9.4) is that site's own headless client — full
+    // catalogue read/write for the one site the key names, never a publish.
+    // `forceApiKeySite` (below) is what stops a create/update from naming a
+    // *different* site than the key's own.
+    create: apiKeyCreateAware(writeUnlessPublishing('products')),
+    delete: apiKeyAware(authenticated),
     // Public for published rows only, and always scoped: the storefront reads this
     // through `findForSite`, which adds the `site` constraint. `draft: true` does not
     // filter drafts — this where-clause is what does.
-    read: scopedPublishedRead(authenticatedOrPublished),
-    update: writeUnlessPublishing('products'),
+    read: apiKeyAware(scopedPublishedRead(authenticatedOrPublished)),
+    update: apiKeyUpdateAware(writeUnlessPublishing('products')),
   },
   admin: {
     defaultColumns: ['title', 'price', 'inventory', 'updatedAt'],
@@ -148,5 +153,10 @@ export const Products: CollectionConfig<'products'> = {
       autosave: { interval: 375 },
     },
     maxPerDoc: 25,
+  },
+  hooks: {
+    // Access only checked that a site key exists — never trust the payload's own
+    // `site` value on a key-authorized write.
+    beforeChange: [forceApiKeySite],
   },
 }

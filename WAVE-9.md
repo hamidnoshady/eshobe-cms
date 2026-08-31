@@ -53,6 +53,19 @@ for an unfathomable one. The way to close it is at the proxy (deny anonymous `/a
 on the control-plane host) plus per-site API keys, which is slice 9.4 — config, not
 another hook.
 
+**Per-site API keys landed** (`src/access/siteApiKey.ts`) — see §9.4 below.
+**The proxy half is still open.** An attempt to close it in the access function
+instead (deny an anonymous, unscoped `scopedPublicRead`/`scopedPublishedRead`
+outright rather than falling through) was tried and reverted: `findForSite()`'s
+own render-path calls are *also* anonymous and *also* resolve no site from a
+Local API call with no real `Host`, and rely on exactly this fallback plus
+their own explicit `{ site: { equals } }` `where` — closing the fallback broke
+the app's own page rendering (`tenancy.int.spec.ts`, `store.int.spec.ts`).
+Closing it at Caddy, as originally scoped, needs verifying against the real
+deployment's Caddy version/config (matcher support for "has *some*
+`payload-token` cookie or `Authorization` header" is the shape that would not
+also break the admin UI's own `/api/*` calls) — left for whoever can test that.
+
 ## 2. `GET /api/site` — what a renderer needs before first paint
 
 One call, per `Host`, and one answer: `domain`, `name`, `slug`, `type`,
@@ -163,7 +176,7 @@ to be designed, not discovered:
 |---|---|---|
 | ~~9.2~~ | Revalidation webhook — **shipped** (§4b). Retry-via-jobs-queue is the upgrade if at-most-once ever stops being enough. | done |
 | ~~9.3~~ | ~~Media on R2~~ — **in flight in #15** (Wave 6), which also replaces `next-sitemap` with per-site `sitemap.xml`/`robots.txt` route handlers, `hreflang` and OG images. After it lands: drop `media.basePath` from `/api/site` and re-check this file's §3.3 | — |
-| 9.4 | **Close the fail-open**: deny anonymous `/api/*` reads on the control-plane host at Caddy, then per-site read API keys so a builder can call from a non-customer origin (webhooks, previews from a CMS-hosted editor). | S–M |
+| ~~9.4~~ | ~~Close the fail-open~~ — **per-site/platform API keys shipped** (`src/access/siteApiKey.ts`, `src/collections/ApiKeys.ts`, `src/endpoints/apiKeys.ts`): a headless builder (cafe-restaurant-pos's `/dashboard/website`) authenticates from a non-customer origin, reads its own site's drafts, writes its own products, and moves its own orders' status. **Still open**: denying anonymous `/api/*` reads on the control-plane host at Caddy — see the note in §1 above for why an access-layer attempt at this broke the app's own rendering, and what a correct proxy-level fix needs. | S |
 | ~~9.5~~ | `search` and `redirects` wrapped through the plugins' `overrides.access` — **shipped** (§4b). | done |
 | 9.6 | **Preview handoff** (§4.2) + the builder-side `/next/preview` contract written as a test fixture. | M |
 | 9.7 | **Contract hygiene**: `ETag`/`Last-Modified` on `/api/site`, a `contractVersion` field, and publishing `@eshobe/site-runtime` (format/money/theme/blocks) from the existing `pnpm-workspace.yaml` — which has no `packages:` key yet. | S |

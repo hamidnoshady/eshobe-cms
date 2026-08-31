@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
+import { apiKeyAware } from '../../access/siteApiKey'
 import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { allowedBlocks, siteBlocks } from '../../blocks'
@@ -29,7 +30,9 @@ export const Pages: CollectionConfig<'pages'> = {
     delete: authenticated,
     // Host-scoped as well as publish-gated: this collection is readable over the
     // public REST/GraphQL API by a second renderer (`src/access/siteRead.ts`).
-    read: scopedPublishedRead(authenticatedOrPublished),
+    // A site API key (WAVE-9 §9.4) sees its own site's drafts too — it is that
+    // site's own headless client, not an anonymous visitor.
+    read: apiKeyAware(scopedPublishedRead(authenticatedOrPublished)),
     update: writeUnlessPublishing('pages'),
   },
   // This config controls what's populated by default when a page is referenced

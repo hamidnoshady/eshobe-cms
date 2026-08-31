@@ -1,6 +1,7 @@
 import type { Endpoint } from 'payload'
 
 import { blockSlugsForSiteType } from '@/blocks'
+import { requestApiKey } from '@/access/siteApiKey'
 import { idOf } from '@/lib/ids'
 import { siteFromRequest } from '@/lib/site-query'
 import { siteOrigin } from '@/lib/site-url'
@@ -31,7 +32,31 @@ export const siteDescriptor: Endpoint = {
   path: '/site',
   method: 'get',
   handler: async (req) => {
-    const site = await siteFromRequest(req)
+    let site = await siteFromRequest(req)
+    let resolvedByApiKey = false
+
+    // WAVE-9 §9.4 — a headless client calling from its own server (not a
+    // customer domain) has no `Host` to name the tenant with; its site API key
+    // does instead. Host is tried first because it is what every real visitor
+    // and same-origin renderer sends, and a key is only ever a fallback for the
+    // one case `Host` cannot cover.
+    if (!site) {
+      const key = await requestApiKey(req)
+      if (key?.role === 'site' && key.siteId) {
+        site = await req.payload.findByID({
+          id: key.siteId,
+          collection: 'sites',
+          depth: 0,
+          disableErrors: true,
+          // Same exception as the `overrideAccess: true` below: the key itself
+          // established the tenant, so this lookup cannot be tenant-scoped by
+          // the thing it is establishing.
+          overrideAccess: true,
+          req,
+        })
+        resolvedByApiKey = true
+      }
+    }
 
     if (!site) {
       return Response.json({ error: 'unknown-host' }, { headers: { 'cache-control': 'no-store' }, status: 404 })
@@ -101,8 +126,12 @@ export const siteDescriptor: Endpoint = {
         headers: {
           // Cached briefly and publicly, and never on a mismatched host: this
           // response is per-tenant, so a shared cache keyed by path alone would serve
-          // one customer's theme to another's domain.
-          'cache-control': 'public, s-maxage=30, stale-while-revalidate=300',
+          // one customer's theme to another's domain. An API-key-resolved response
+          // (no `Host` to vary on at all) is never cached publicly, for the same
+          // reason — a shared cache has no way to key it by bearer token.
+          'cache-control': resolvedByApiKey
+            ? 'private, no-store'
+            : 'public, s-maxage=30, stale-while-revalidate=300',
           'vary': 'Host',
         },
         status: 200,

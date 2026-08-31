@@ -26,11 +26,14 @@ https://{$CONTROL_PLANE_HOST} {
 }
 
 # Every other host is a customer site. Never expose the control plane paths
-# here — but the public site itself depends on four API routes: the Wave 3
+# here — but the public site itself depends on API routes: the Wave 3
 # contact form posts to /api/form-submissions from the customer domain, the Wave 7
 # storefront posts to /api/checkout and takes the payment gateway's callback on
-# /api/checkout/callback, a headless renderer reads /api/site (WAVE-9.md), and
-# locally-stored uploads are served from /api/media/file/*.
+# /api/checkout/callback, a headless renderer reads /api/site (WAVE-9.md),
+# locally-stored uploads are served from /api/media/file/*, and (WAVE-9 §9.4) a
+# headless builder's own dashboard (e.g. cafe-restaurant-pos's /dashboard/website)
+# reads and writes one site's content through its API key while still sending this
+# site's own domain as `Host` — see the note on @cms_content below.
 https:// {
     tls {
         on_demand
@@ -69,6 +72,20 @@ https:// {
         path /api/media/file/*
     }
     handle @media_files {
+        reverse_proxy web:3000
+    }
+
+    # WAVE-9 §9.4 — the site key's own read/write surface (docs/eshobe-cms-integration.md
+    # in cafe-restaurant-pos). No method filter, like @checkout above: a site key
+    # reads its catalogue (GET) and writes its products and order statuses
+    # (POST/PATCH/DELETE), and the real boundary is the application's access layer
+    # (`src/access/siteApiKey.ts` scopes every one of these paths to the bearer
+    # key's own site; `src/access/siteRead.ts` does the same for an anonymous read),
+    # not this proxy — the same trust split /api/site above already makes.
+    @cms_content {
+        path /api/pages /api/pages/* /api/posts /api/posts/* /api/categories /api/categories/* /api/products /api/products/* /api/store /api/store/* /api/orders /api/orders/*
+    }
+    handle @cms_content {
         reverse_proxy web:3000
     }
 
