@@ -4,6 +4,7 @@ import { slugField } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
+import { platformApiKeyAware } from '../access/siteApiKey'
 import { locales } from '../lib/locales'
 import { slugifyField } from '../lib/slug'
 
@@ -24,7 +25,10 @@ export const Sites: CollectionConfig = {
     create: platformAdmin,
     delete: platformAdmin,
     // The plugin narrows this to the user's own sites (`useTenantsCollectionAccess`).
-    read: authenticated,
+    // A platform API key (WAVE-9 §9.4) may also list every site — it is the
+    // provisioning console's own credential — but a site key gets nothing here: a
+    // site descriptor is `GET /api/site`, never a `sites` document.
+    read: platformApiKeyAware(authenticated),
     update: authenticated,
   },
   admin: {

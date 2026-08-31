@@ -6,6 +6,7 @@ import { ValidationError } from 'payload'
 import type { Form, Header, Page, Site, Theme } from '@/payload-types'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { dirFor } from '@/lib/locales'
 import { slugify } from '@/lib/slug'
 import { richText } from './richText'
@@ -235,7 +236,10 @@ export const provisionSite = async ({
   payload: Payload
   req: PayloadRequest
 }): Promise<ProvisionResult> => {
-  if (!req.user || !isPlatformAdmin(req.user)) {
+  // WAVE-9 §9.4 — a `role: "platform"` API key is the same operator action called
+  // by a headless client instead of the admin view's own form, so it satisfies this
+  // boundary check exactly like a platform-admin session does.
+  if (!(await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user)))) {
     throw new ValidationError({
       errors: [{ message: 'ساخت سایت فقط برای مدیر پلتفرم ممکن است.', path: '_error' }],
     })

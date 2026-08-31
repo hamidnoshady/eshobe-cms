@@ -17,6 +17,18 @@ const NEXT_PUBLIC_SERVER_URL =
     ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
     : process.env.__NEXT_PRIVATE_ORIGIN || 'http://localhost:3000')
 
+/**
+ * WAVE-9 §9.4 — a second app (the builder's own dashboard, e.g. the POS's
+ * `/dashboard/website`) also frames a customer's live site for preview, from an
+ * origin that is neither `'self'` nor the admin's own `NEXT_PUBLIC_SERVER_URL`.
+ * Comma-separated, baked in at build time like `NEXT_PUBLIC_SERVER_URL` above;
+ * empty (the default) changes nothing — only the admin origin may frame a site.
+ */
+const SITE_PREVIEW_ORIGINS = (process.env.SITE_PREVIEW_ORIGINS ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+
 const nextConfig: NextConfig = {
   // The production Dockerfile copies `.next/standalone` and runs `node server.js`;
   // without this the image build fails at that COPY step.
@@ -51,9 +63,10 @@ const nextConfig: NextConfig = {
    * URL rather than a policy.
    *
    * `frame-ancestors` and not `X-Frame-Options`: the latter has no origin list, only
-   * `SAMEORIGIN`, which is exactly what this is not. Naming the admin origin rather
-   * than allowing any parent is the whole point — a customer page must not be
-   * frameable by a third party for clickjacking.
+   * `SAMEORIGIN`, which is exactly what this is not. Naming the allowed origins
+   * (the admin, plus `SITE_PREVIEW_ORIGINS` above) rather than allowing any parent
+   * is the whole point — a customer page must not be frameable by a third party for
+   * clickjacking.
    */
   async headers() {
     return [
@@ -61,7 +74,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: `frame-ancestors 'self' ${NEXT_PUBLIC_SERVER_URL}`,
+            value: `frame-ancestors 'self' ${[NEXT_PUBLIC_SERVER_URL, ...SITE_PREVIEW_ORIGINS].join(' ')}`,
           },
         ],
         // Payload's admin sets its own headers; this is for the rendered sites.

@@ -2,9 +2,11 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { platformAdmin } from '../access/platformAdmin'
+import { apiKeyAware } from '../access/siteApiKey'
 import { MAX_ORDER_QUANTITY } from '../lib/checkout'
 import { currencyCodes, validatePriceMinor } from '../lib/money'
 import { paymentProviderOptions } from '../payments'
+import { restrictApiKeyOrderWrite } from './hooks/restrictApiKeyOrderWrite'
 import { snapshotOrder } from './hooks/snapshotOrder'
 import { settleStock } from './hooks/settleStock'
 
@@ -34,8 +36,11 @@ export const Orders: CollectionConfig<'orders'> = {
     // belongs to — with money on the other end of it.
     create: authenticated,
     delete: platformAdmin,
-    read: authenticated,
-    update: authenticated,
+    // A site API key (WAVE-9 §9.4) reads and moves the status of its own site's
+    // orders — never creates or deletes one, and `restrictApiKeyOrderWrite` (below)
+    // is what keeps an update to *just* the status.
+    read: apiKeyAware(authenticated),
+    update: apiKeyAware(authenticated),
   },
   admin: {
     defaultColumns: ['reference', 'productTitle', 'total', 'status', 'createdAt'],
@@ -222,6 +227,7 @@ export const Orders: CollectionConfig<'orders'> = {
   ],
   hooks: {
     afterChange: [settleStock],
+    beforeChange: [restrictApiKeyOrderWrite],
     beforeValidate: [snapshotOrder],
   },
   timestamps: true,
