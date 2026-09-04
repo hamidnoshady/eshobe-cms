@@ -64,6 +64,35 @@ export const Media: CollectionConfig = {
     staticDir: process.env.MEDIA_DIR || path.resolve(dirname, '../../public/media'),
     adminThumbnail: 'thumbnail',
     focalPoint: true,
+    /**
+     * What a customer may put in their media library — raster images, and
+     * nothing else.
+     *
+     * This list does two jobs, and the second is the one that matters. Setting
+     * `mimeTypes` at all is what switches on Payload's **content-based** check:
+     * with the key absent, `checkFileRestrictions` only screens filenames
+     * against a list of executable extensions and never looks inside the file,
+     * so a `.png` holding markup uploads clean. With it set, the bytes are
+     * sniffed (`file-type`) and the detected type — not the browser's
+     * `Content-Type`, and not the extension — has to appear below.
+     *
+     * `image/svg+xml` is deliberately absent, and `image/*` is deliberately not
+     * used in its place: the wildcard re-admits SVG by name inside that same
+     * check. An SVG is a script-bearing document, and `/api/media/file/*` is a
+     * Caddy carve-out serving it from the *customer's own* origin — so an SVG
+     * uploaded by any editor of any tenant is stored XSS against that site,
+     * its session cookie and its localStorage. Payload's `validateSvg` would
+     * screen the obvious payloads, but "sanitised SVG" is a moving target and
+     * nothing in this platform needs one: every media field is a photo, a logo
+     * or a gallery image (Team, MediaBlock, Gallery, Logos, Testimonials,
+     * Features, Products, heroes).
+     *
+     * The cost, stated plainly: a customer whose logo is an SVG can no longer
+     * upload it and must supply a PNG or WebP. Files already stored are not
+     * re-validated and keep serving. If a real need for SVG appears, the answer
+     * is a sanitising pipeline on the way in, never widening this list.
+     */
+    mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
     imageSizes: [
       {
         name: 'thumbnail',
