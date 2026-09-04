@@ -3,7 +3,7 @@ import type { TypedUser } from 'payload'
 import { draftMode } from 'next/headers'
 import { cache } from 'react'
 
-import type { Page, Post } from '@/payload-types'
+import type { Page, Post, Product } from '@/payload-types'
 
 import { getSiteContext, getViewer } from '@/lib/site-context'
 import { findForSite } from '@/lib/site-query'
@@ -58,6 +58,26 @@ export const queryPost = cache(async (slug: string): Promise<Post | null> => {
   const { draft, user } = await draftAndViewer()
 
   const { docs } = await findForSite('posts', site.id, {
+    depth: 1,
+    draft,
+    limit: 1,
+    locale,
+    pagination: false,
+    user,
+    where: { slug: { equals: slug } },
+  })
+
+  return docs[0] ?? null
+})
+
+export const queryProduct = cache(async (slug: string): Promise<Product | null> => {
+  const { locale, serving, site } = await getSiteContext()
+
+  if (!site || !serving) return null
+
+  const { draft, user } = await draftAndViewer()
+
+  const { docs } = await findForSite('products', site.id, {
     depth: 1,
     draft,
     limit: 1,

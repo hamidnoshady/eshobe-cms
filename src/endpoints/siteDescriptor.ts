@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { Endpoint } from 'payload'
 
 import { blockSlugsForSiteType } from '@/blocks'
@@ -5,6 +7,7 @@ import { requestApiKey } from '@/access/siteApiKey'
 import { idOf } from '@/lib/ids'
 import { siteFromRequest } from '@/lib/site-query'
 import { siteOrigin } from '@/lib/site-url'
+import { contractVersion } from '@eshobe/site-runtime'
 
 /**
  * `GET /api/site` — what a renderer needs before it can render anything.
@@ -77,10 +80,10 @@ export const siteDescriptor: Endpoint = {
           overrideAccess: true,
           pagination: false,
           req,
-          select: { currency: true, paymentProvider: true },
+          select: { currency: true, paymentProvider: true, updatedAt: true },
           where: { site: { equals: siteId } },
         })
-        .then(({ docs }) => docs[0]),
+        .then(({ docs }) => docs[0] as (typeof docs)[0] & { updatedAt?: string }),
       req.payload
         .find({
           collection: 'theme',
@@ -89,58 +92,98 @@ export const siteDescriptor: Endpoint = {
           overrideAccess: true,
           pagination: false,
           req,
-          select: { accent: true, background: true, foreground: true, lineHeight: true, primary: true, radius: true },
+          select: {
+            accent: true,
+            background: true,
+            foreground: true,
+            lineHeight: true,
+            primary: true,
+            radius: true,
+            updatedAt: true,
+          },
           where: { site: { equals: siteId } },
         })
-        .then(({ docs }) => docs[0]),
+        .then(({ docs }) => docs[0] as (typeof docs)[0] & { updatedAt?: string }),
     ])
 
-    return Response.json(
-      {
-        // Both locales and the default: a renderer must 404 `/de` on a `fa`+`en` site
-        // rather than falling back and duplicating the home page under a URL that
-        // does not exist (`src/app/(site)/[domain]/[[...path]]/page.tsx` does exactly
-        // this, and it needs the same data to do it).
-        availableLocales: site.availableLocales ?? [],
-        blocks: blockSlugsForSiteType(site.type),
-        defaultLocale: site.defaultLocale,
-        domain: site.domain,
-        // Internal fields — a database id and an admin-only verification flag — are
-        // only handed back when a site key proved the caller *is* that site's own
-        // builder. The public, `Host`-resolved response (any visitor on the domain)
-        // never carries them: `tests/int/headless.int.spec.ts` pins that.
-        ...(resolvedByApiKey ? { domainVerified: Boolean(site.domainVerified), id: siteId } : {}),
-        // Where uploads resolve. Local storage serves them relative
-        // (`/api/media/file/x.png`), which is meaningless off-domain: a consumer
-        // builds `new URL(media.url, media.origin)`. Moves to the R2 bucket URL when
-        // the storage adapter lands (WAVE-9.md §4).
-        media: { basePath: '/api/media/file', origin: siteOrigin(site, req.origin) },
-        name: site.name,
-        slug: site.slug,
-        status: site.status,
-        store: store
-          ? { currency: store.currency, paymentProvider: store.paymentProvider }
-          : // A store site whose editor has not saved the settings doc yet: the same
-            // defaults `src/lib/store.ts` falls back to, so the renderer never invents
-            // a currency and a storefront never renders "480,000" with no unit.
-            { currency: 'IRT', paymentProvider: 'bank' },
-        theme: theme ?? null,
-        type: site.type,
-      },
-      {
+    const body = {
+      // Both locales and the default: a renderer must 404 `/de` on a `fa`+`en` site
+      // rather than falling back and duplicating the home page under a URL that
+      // does not exist (`src/app/(site)/[domain]/[[...path]]/page.tsx` does exactly
+      // this, and it needs the same data to do it).
+      availableLocales: site.availableLocales ?? [],
+      blocks: blockSlugsForSiteType(site.type),
+      contractVersion,
+      defaultLocale: site.defaultLocale,
+      domain: site.domain,
+      // Internal fields — a database id and an admin-only verification flag — are
+      // only handed back when a site key proved the caller *is* that site's own
+      // builder. The public, `Host`-resolved response (any visitor on the domain)
+      // never carries them: `tests/int/headless.int.spec.ts` pins that.
+      ...(resolvedByApiKey ? { domainVerified: Boolean(site.domainVerified), id: siteId } : {}),
+      // Where uploads resolve. Local storage serves them relative
+      // (`/api/media/file/x.png`), which is meaningless off-domain: a consumer
+      // builds `new URL(media.url, media.origin)`. Moves to the R2 bucket URL when
+      // the storage adapter lands (WAVE-9.md §4).
+      media: { basePath: '/api/media/file', origin: siteOrigin(site, req.origin) },
+      name: site.name,
+      slug: site.slug,
+      status: site.status,
+      store: store
+        ? { currency: store.currency, paymentProvider: store.paymentProvider }
+        : // A store site whose editor has not saved the settings doc yet: the same
+          // defaults `src/lib/store.ts` falls back to, so the renderer never invents
+          // a currency and a storefront never renders "480,000" with no unit.
+          { currency: 'IRT', paymentProvider: 'bank' },
+      theme: theme
+        ? {
+            accent: theme.accent,
+            background: theme.background,
+            foreground: theme.foreground,
+            lineHeight: theme.lineHeight,
+            primary: theme.primary,
+            radius: theme.radius,
+          }
+        : null,
+      type: site.type,
+    }
+
+    const json = JSON.stringify(body)
+    const etag = `"${createHash('sha256').update(json).digest('hex').slice(0, 32)}"`
+    const timestamps = [site.updatedAt, store?.updatedAt, theme?.updatedAt].filter(Boolean) as string[]
+    const latest = timestamps.length
+      ? new Date(Math.max(...timestamps.map((t) => Date.parse(t)))).toUTCString()
+      : new Date().toUTCString()
+
+    if (req.headers.get('if-none-match') === etag) {
+      return new Response(null, {
         headers: {
-          // Cached briefly and publicly, and never on a mismatched host: this
-          // response is per-tenant, so a shared cache keyed by path alone would serve
-          // one customer's theme to another's domain. An API-key-resolved response
-          // (no `Host` to vary on at all) is never cached publicly, for the same
-          // reason — a shared cache has no way to key it by bearer token.
           'cache-control': resolvedByApiKey
             ? 'private, no-store'
             : 'public, s-maxage=30, stale-while-revalidate=300',
-          'vary': 'Host',
+          etag,
+          'last-modified': latest,
+          vary: 'Host',
         },
-        status: 200,
+        status: 304,
+      })
+    }
+
+    return Response.json(body, {
+      headers: {
+        // Cached briefly and publicly, and never on a mismatched host: this
+        // response is per-tenant, so a shared cache keyed by path alone would serve
+        // one customer's theme to another's domain. An API-key-resolved response
+        // (no `Host` to vary on at all) is never cached publicly, for the same
+        // reason — a shared cache has no way to key it by bearer token.
+        'cache-control': resolvedByApiKey
+          ? 'private, no-store'
+          : 'public, s-maxage=30, stale-while-revalidate=300',
+        etag,
+        'last-modified': latest,
+        vary: 'Host',
       },
-    )
+      status: 200,
+    })
   },
 }

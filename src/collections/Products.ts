@@ -1,10 +1,18 @@
 import type { CollectionConfig } from 'payload'
 
+import { slugField } from 'payload'
+
 import { authenticated } from '../access/authenticated'
 import { authenticatedOrPublished } from '../access/authenticatedOrPublished'
 import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
 import { scopedPublishedRead } from '../access/siteRead'
 import { writeUnlessPublishing } from '../access/publish'
+import { PRODUCTS_BASE } from '@/lib/slug'
+import { slugifyField } from '@/lib/slug'
+
+import { generatePreviewPath } from '../utilities/generatePreviewPath'
+import { revalidateSiteDoc, revalidateSiteDocDelete } from '../hooks/revalidateSiteDoc'
+import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { validatePriceMinor } from '../lib/money'
 
 /**
@@ -38,10 +46,14 @@ export const Products: CollectionConfig<'products'> = {
     update: apiKeyUpdateAware(writeUnlessPublishing('products')),
   },
   admin: {
-    defaultColumns: ['title', 'price', 'inventory', 'updatedAt'],
+    defaultColumns: ['title', 'slug', 'price', 'inventory', 'updatedAt'],
     description: 'قیمت‌ها بر حسب واحد پولِ خودِ این سایت نوشته می‌شود.',
     group: 'فروشگاه',
     useAsTitle: 'title',
+    livePreview: {
+      url: ({ data, req }) => generatePreviewPath({ base: PRODUCTS_BASE, data, req }),
+    },
+    preview: (data, { req }) => generatePreviewPath({ base: PRODUCTS_BASE, data, req }),
   },
   labels: {
     singular: 'محصول',
@@ -49,6 +61,7 @@ export const Products: CollectionConfig<'products'> = {
   },
   defaultPopulate: {
     title: true,
+    slug: true,
   },
   fields: [
     {
@@ -58,6 +71,7 @@ export const Products: CollectionConfig<'products'> = {
       required: true,
       localized: true,
     },
+    slugField({ slugify: slugifyField, localized: true, disableUnique: true }),
     {
       name: 'summary',
       type: 'textarea',
@@ -155,8 +169,11 @@ export const Products: CollectionConfig<'products'> = {
     maxPerDoc: 25,
   },
   hooks: {
+    afterChange: [revalidateSiteDoc(PRODUCTS_BASE)],
+    afterDelete: [revalidateSiteDocDelete(PRODUCTS_BASE)],
     // Access only checked that a site key exists — never trust the payload's own
     // `site` value on a key-authorized write.
     beforeChange: [forceApiKeySite],
+    beforeValidate: [uniqueSlugPerSite],
   },
 }

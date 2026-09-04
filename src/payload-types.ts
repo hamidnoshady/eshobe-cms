@@ -925,6 +925,11 @@ export interface Product {
   site?: (string | null) | Site;
   title: string;
   /**
+   * When enabled, the slug will auto-generate from the title field on save and autosave.
+   */
+  generateSlug?: boolean | null;
+  slug: string;
+  /**
    * زیر عنوان در کارت محصول نمایش داده می‌شود.
    */
   summary?: string | null;
@@ -2144,6 +2149,8 @@ export interface FooterSelect<T extends boolean = true> {
 export interface ProductsSelect<T extends boolean = true> {
   site?: T;
   title?: T;
+  generateSlug?: T;
+  slug?: T;
   summary?: T;
   image?: T;
   price?: T;

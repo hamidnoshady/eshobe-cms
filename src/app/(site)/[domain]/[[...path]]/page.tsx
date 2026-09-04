@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import React from 'react'
 
 import { SiteHolding } from '@/components/SiteHolding'
-import { POSTS_BASE } from '@/lib/slug'
+import { POSTS_BASE, PRODUCTS_BASE } from '@/lib/slug'
 import { resolveSiteRoute } from '@/lib/site-route'
 import { getSiteContext, localeIsServed } from '@/lib/site-context'
 import { siteUrl } from '@/lib/site-url'
@@ -14,7 +14,8 @@ import { generateMeta } from '@/utilities/generateMeta'
 import { CheckoutReceipt, checkoutMetadata } from './CheckoutReceipt'
 import { PostDetail } from './PostDetail'
 import { PostsIndex } from './PostsIndex'
-import { queryPage, queryPost } from './queries'
+import { ProductDetail } from './ProductDetail'
+import { queryPage, queryPost, queryProduct } from './queries'
 import { SearchResults } from './SearchResults'
 import { SitePage } from './SitePage'
 
@@ -78,6 +79,9 @@ export default async function SiteRoute({ params, searchParams }: Args) {
     case 'posts':
       return <PostsIndex page={pageNumber(query.page)} />
 
+    case 'product':
+      return <ProductDetail slug={route.slug} />
+
     case 'search':
       return <SearchResults page={pageNumber(query.page)} q={query.q} />
 
@@ -121,6 +125,18 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
           ? { canonical: siteUrl(site, { base: POSTS_BASE, locale }) }
           : undefined,
         title: [uiString('postsHeading', locale), site?.name].filter(Boolean).join(' | '),
+      }
+    }
+
+    case 'product': {
+      const product = await queryProduct(route.slug)
+      if (!product) return {}
+      const { locale, site } = await getSiteContext()
+      const url = site ? siteUrl(site, { base: PRODUCTS_BASE, locale, slug: product.slug }) : undefined
+      return {
+        alternates: url ? { canonical: url } : undefined,
+        description: product.summary ?? undefined,
+        title: [product.title, site?.name].filter(Boolean).join(' | '),
       }
     }
 

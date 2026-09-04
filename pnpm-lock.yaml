@@ -8,12 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@eshobe/site-runtime':
+        specifier: workspace:*
+        version: link:packages/site-runtime
       '@payloadcms/admin-bar':
         specifier: 3.88.0
         version: 3.88.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@payloadcms/db-postgres':
         specifier: 3.88.0
         version: 3.88.0(payload@3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3))(supports-color@7.2.0)
+      '@payloadcms/email-nodemailer':
+        specifier: 3.88.0
+        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3))
       '@payloadcms/live-preview-react':
         specifier: 3.88.0
         version: 3.88.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -83,6 +89,9 @@ importers:
       next:
         specifier: 16.3.0
         version: 16.3.0(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.59.1)(@types/node@24.12.3)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
+      nodemailer:
+        specifier: 6.9.16
+        version: 6.9.16
       payload:
         specifier: 3.88.0
         version: 3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3)
@@ -171,6 +180,12 @@ importers:
       vitest:
         specifier: 4.1.6
         version: 4.1.6(@types/node@24.12.3)(happy-dom@20.11.6)(jsdom@28.0.0(supports-color@7.2.0))(vite@7.3.6(@types/node@24.12.3)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.77.4)(tsx@4.22.4))
+
+  packages/site-runtime:
+    dependencies:
+      payload:
+        specifier: ^3.0.0
+        version: 3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3)
 
 packages:
 
@@ -1557,6 +1572,12 @@ packages:
 
   '@payloadcms/drizzle@3.88.0':
     resolution: {integrity: sha512-qtPVSLjAFnQl1GwaQPhmnYTwCCWgTnRm4ps5yJxmN3RPdLF6S77gvqZMnC4HTeH7YADQJW3nFgQCVYExxWE6hA==}
+    peerDependencies:
+      payload: 3.88.0
+
+  '@payloadcms/email-nodemailer@3.88.0':
+    resolution: {integrity: sha512-cW8SUYpdVXdZBpa539smI5P2lYdTB3944rfAipv/TVG9VND0u/DDwtRuqBqGf/0eh5OajqWC0X9igMXU67dhbg==}
+    engines: {node: ^18.20.2 || >=20.9.0}
     peerDependencies:
       payload: 3.88.0
 
@@ -4146,6 +4167,14 @@ packages:
     resolution: {integrity: sha512-D9UOmYG3UH1V+ENW56t5QXBwJw1YEY18ruVeus89Rw+SyIgjPkCO84bRzO3uNIYosJbNwiabWVn48o3uJLjxFQ==}
     engines: {node: '>=18'}
 
+  nodemailer@6.9.16:
+    resolution: {integrity: sha512-psAuZdTIRN08HKVd/E8ObdV6NO7NTBY3KsC30F7M4H1OnmLCUNaS56FpYxyb26zWLSyYF9Ozch9KYHhHegsiOQ==}
+    engines: {node: '>=6.0.0'}
+
+  nodemailer@9.1.1:
+    resolution: {integrity: sha512-izw9mVKFix6YSnC9eLgV6g1opl9DUlRio9ZNcq+Wu9Ujn2UwF+8Nl0B8nz22kEC+CTZCvinkxwJ0DeFbb6NwcQ==}
+    engines: {node: '>=6.0.0'}
+
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
     engines: {node: '>=0.10.0'}
@@ -6581,6 +6610,11 @@ snapshots:
       - prisma
       - sql.js
       - sqlite3
+
+  '@payloadcms/email-nodemailer@3.88.0(payload@3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3))':
+    dependencies:
+      nodemailer: 9.1.1
+      payload: 3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3)
 
   '@payloadcms/graphql@3.88.0(graphql@16.14.2)(payload@3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3))(typescript@6.0.3)':
     dependencies:
@@ -9450,6 +9484,10 @@ snapshots:
       semver: 6.3.1
 
   node-releases@2.0.53: {}
+
+  nodemailer@6.9.16: {}
+
+  nodemailer@9.1.1: {}
 
   normalize-path@3.0.0: {}
 
