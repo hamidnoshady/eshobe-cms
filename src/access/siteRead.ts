@@ -3,6 +3,8 @@ import type { Access, PayloadRequest } from 'payload'
 import { idOf } from '@/lib/ids'
 import { siteFromRequest } from '@/lib/site-query'
 
+import { requestApiKey } from './siteApiKey'
+
 /**
  * Public reads, scoped to the tenant the request arrived on.
  *
@@ -24,16 +26,32 @@ import { siteFromRequest } from '@/lib/site-query'
  * it — a `where[site][equals]=<other site>` now intersects with the host's site and
  * yields nothing.
  *
- * ## The part this does not cover — deliberately
+ * ## When the host resolves to no site
  *
- * When the host resolves to no site, nothing is added. That is the control plane
- * (`admin.example.com`, and `localhost` in dev) *and* every non-request context: the
- * CLI seed, jobs tasks, `payload.update` from a hook, and tests built with
- * `createLocalReq`. Failing closed there would mean a seeded script or a reindex task
- * has to fabricate a `Host` header to read the tenant it owns, which trades a real
- * leak for an unfathomable one. The follow-ups that close it — deny anonymous
- * `/api/*` reads on the control plane at the proxy, per-site read keys — are scoped in
- * `WAVE-9.md`, and they are proxy/config work, not more hooks.
+ * Two very different callers land here, and they are told apart by whether there is
+ * an HTTP request at all:
+ *
+ *   - **A non-request context** — the CLI seed, a jobs task, `payload.update` from a
+ *     hook, a test built with `createLocalReq` without headers. There is no request
+ *     to attribute, so nothing is added and the collection's own access decides.
+ *     Failing closed here would mean a seeded script or a reindex task has to
+ *     fabricate a `Host` header to read the tenant it owns.
+ *
+ *   - **An anonymous HTTP caller on a host that is not a customer site** — the
+ *     control plane (`admin.example.com`, and `localhost` in dev), or an unknown
+ *     domain. This used to fall through to the collection's own access, which for
+ *     every public collection is "any published row" — so an unauthenticated
+ *     `GET https://admin.example.com/api/pages` returned *every customer's*
+ *     published pages, and `/api/products`, `/api/media`, `/api/categories`,
+ *     `/api/store`, `/api/theme` and `/api/graphql` did the same for their
+ *     collections. The mitigation was scoped as proxy work in `WAVE-9.md` and never
+ *     shipped, which left the platform's whole content surface enumerable by anyone
+ *     who knew the admin hostname. It is closed here instead: no tenant, no session
+ *     and no API key means no rows.
+ *
+ * An admin session (`req.user`) and an API key are both untouched by that rule —
+ * the multi-tenant plugin narrows the former to its own sites, and `apiKeyAware`
+ * resolves the latter to the one site its key names before this ever runs.
  */
 
 const SITE_CONTEXT_KEY = 'eshobeRequestSiteId'
@@ -72,10 +90,34 @@ export const requestSiteId = async (req: PayloadRequest): Promise<null | string>
 const siteConstraint = async (req: PayloadRequest): Promise<null | { site: { equals: string } }> => {
   const siteId = await requestSiteId(req)
 
-  // No tenant to scope to — see "The part this does not cover".
+  // No tenant to scope to — see "When the host resolves to no site".
   if (!siteId) return null
 
   return { site: { equals: siteId } }
+}
+
+/**
+ * An anonymous HTTP caller whose `Host` names no site — the control plane, or a
+ * domain no customer owns. Such a request has no tenant it could legitimately be
+ * asking about, so the answer is no rows rather than every tenant's rows.
+ *
+ * Deliberately narrow, because each excluded case is a caller that *does* have a
+ * tenant by some other means:
+ *
+ *   - no `headers.get` at all — a Local API call (seed, job, hook, test), which has
+ *     no request to attribute and must not have to fabricate one;
+ *   - `req.user` — an admin session, which the multi-tenant plugin already narrows
+ *     to the sites that user belongs to;
+ *   - an API key — `apiKeyAware` scopes it to the single site the key names, and a
+ *     collection that is not wrapped in `apiKeyAware` (media, categories, theme,
+ *     store) must still answer that site's own headless client.
+ */
+const isUnscopedAnonymousRequest = async (req: PayloadRequest): Promise<boolean> => {
+  if (typeof req.headers?.get !== 'function') return false
+  if (req.user) return false
+  if (await requestApiKey(req)) return false
+
+  return (await requestSiteId(req)) === null
 }
 
 /**
@@ -85,6 +127,8 @@ const siteConstraint = async (req: PayloadRequest): Promise<null | { site: { equ
 export const scopedPublicRead =
   (base: Access = () => true): Access =>
   async (args) => {
+    if (await isUnscopedAnonymousRequest(args.req)) return false
+
     const allowed = await base(args)
     const site = await siteConstraint(args.req)
 
@@ -106,6 +150,7 @@ export const scopedPublishedRead =
   (base: Access): Access =>
   async (args) => {
     if (args.req.user) return base(args)
+    if (await isUnscopedAnonymousRequest(args.req)) return false
 
     const allowed = await base(args)
     const site = await siteConstraint(args.req)

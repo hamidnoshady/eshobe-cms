@@ -171,13 +171,16 @@ describe('public reads on a customer host', () => {
     expect(JSON.stringify(store)).not.toContain('۶۰۳۷')
   })
 
-  it('return nothing scoped for a host that is not a customer', async () => {
-    // The documented fail-open: no tenant resolves, so the collection's own access
-    // decides. Pinned as a test because it is a decision, not an oversight — closing
-    // it means denying anonymous `/api/*` at the proxy, not more hooks (WAVE-9.md).
-    const everySite = await read({ collection: 'pages', host: 'localhost' })
+  it('return nothing at all for a host that is not a customer', async () => {
+    // The control plane (and any domain no customer owns) resolves to no site. An
+    // anonymous caller there has no tenant it could be asking about, so it gets no
+    // rows — never every tenant's rows, which is what this used to return and what
+    // made the admin hostname an unauthenticated index of the whole platform.
+    for (const collection of ['pages', 'posts', 'products', 'categories', 'media'] as const) {
+      const docs = await read({ collection, host: 'localhost' })
 
-    expect(new Set(everySite.map((doc) => idOf(doc.site))).size).toBeGreaterThan(1)
+      expect(docs, `${collection} leaked on a non-customer host`).toEqual([])
+    }
   })
 })
 
