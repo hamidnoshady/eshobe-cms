@@ -171,15 +171,21 @@ describe('public reads on a customer host', () => {
     expect(JSON.stringify(store)).not.toContain('۶۰۳۷')
   })
 
-  it('return nothing at all for a host that is not a customer', async () => {
+  it('are refused outright on a host that is not a customer', async () => {
     // The control plane (and any domain no customer owns) resolves to no site. An
-    // anonymous caller there has no tenant it could be asking about, so it gets no
-    // rows — never every tenant's rows, which is what this used to return and what
-    // made the admin hostname an unauthenticated index of the whole platform.
+    // anonymous caller there has no tenant it could be asking about, so access is
+    // denied — never every tenant's rows, which is what this used to return and
+    // what made the admin hostname an unauthenticated index of the whole platform.
+    //
+    // Denied, not empty: access returning `false` makes Payload throw rather than
+    // answer with no documents, which is why this asserts a rejection. Over REST
+    // that is a 403 — a better answer than an empty list, since it does not
+    // pretend the platform holds nothing.
     for (const collection of ['pages', 'posts', 'products', 'categories', 'media'] as const) {
-      const docs = await read({ collection, host: 'localhost' })
-
-      expect(docs, `${collection} leaked on a non-customer host`).toEqual([])
+      await expect(
+        read({ collection, host: 'localhost' }),
+        `${collection} was readable on a non-customer host`,
+      ).rejects.toThrow()
     }
   })
 })

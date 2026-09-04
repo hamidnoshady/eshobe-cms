@@ -32,10 +32,11 @@ import { requestApiKey } from './siteApiKey'
  * an HTTP request at all:
  *
  *   - **A non-request context** — the CLI seed, a jobs task, `payload.update` from a
- *     hook, a test built with `createLocalReq` without headers. There is no request
- *     to attribute, so nothing is added and the collection's own access decides.
- *     Failing closed here would mean a seeded script or a reindex task has to
- *     fabricate a `Host` header to read the tenant it owns.
+ *     hook, `findForSite` itself (which passes no `req` at all, so Payload
+ *     synthesizes one). There is no `Host` to attribute, so nothing is added and the
+ *     collection's own access decides. Failing closed here would mean a seeded
+ *     script, a reindex task or the app's own render path has to fabricate a `Host`
+ *     header to read the tenant it already named.
  *
  *   - **An anonymous HTTP caller on a host that is not a customer site** — the
  *     control plane (`admin.example.com`, and `localhost` in dev), or an unknown
@@ -113,7 +114,14 @@ const siteConstraint = async (req: PayloadRequest): Promise<null | { site: { equ
  *     store) must still answer that site's own headless client.
  */
 const isUnscopedAnonymousRequest = async (req: PayloadRequest): Promise<boolean> => {
-  if (typeof req.headers?.get !== 'function') return false
+  // The discriminator is a `Host` header, not the presence of a `headers` object:
+  // `payload.find` with no `req` — which is how `findForSite` and every seed, job
+  // and hook call it — gets a synthesized req carrying empty `Headers`, so
+  // `headers.get` exists and answers null. Keying on the function would deny the
+  // app's own render path. Every real HTTP request carries a Host (HTTP/1.1
+  // requires it, HTTP/2 carries `:authority`), so nothing reachable from outside
+  // lands in the exempt branch.
+  if (!req.headers?.get?.('host')) return false
   if (req.user) return false
   if (await requestApiKey(req)) return false
 
