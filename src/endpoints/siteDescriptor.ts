@@ -105,6 +105,11 @@ export const siteDescriptor: Endpoint = {
         blocks: blockSlugsForSiteType(site.type),
         defaultLocale: site.defaultLocale,
         domain: site.domain,
+        // Internal fields — a database id and an admin-only verification flag — are
+        // only handed back when a site key proved the caller *is* that site's own
+        // builder. The public, `Host`-resolved response (any visitor on the domain)
+        // never carries them: `tests/int/headless.int.spec.ts` pins that.
+        ...(resolvedByApiKey ? { domainVerified: Boolean(site.domainVerified), id: siteId } : {}),
         // Where uploads resolve. Local storage serves them relative
         // (`/api/media/file/x.png`), which is meaningless off-domain: a consumer
         // builds `new URL(media.url, media.origin)`. Moves to the R2 bucket URL when

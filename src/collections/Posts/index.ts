@@ -11,7 +11,7 @@ import {
 
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
-import { apiKeyAware } from '../../access/siteApiKey'
+import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../../access/siteApiKey'
 import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
@@ -36,11 +36,15 @@ import { slugField } from 'payload'
 export const Posts: CollectionConfig<'posts'> = {
   slug: 'posts',
   access: {
-    create: writeUnlessPublishing('posts'),
-    delete: authenticated,
+    // A site API key (WAVE-9 §9.4) is that site's own headless client — same rule
+    // as `Products`: full read/write for the one site the key names, never a
+    // publish. `forceApiKeySite` (below) stops a create/update from naming a
+    // different site than the key's own.
+    create: apiKeyCreateAware(writeUnlessPublishing('posts')),
+    delete: apiKeyAware(authenticated),
     // A site API key (WAVE-9 §9.4) sees its own site's drafts too.
     read: apiKeyAware(scopedPublishedRead(authenticatedOrPublished)),
-    update: writeUnlessPublishing('posts'),
+    update: apiKeyUpdateAware(writeUnlessPublishing('posts')),
   },
   // This config controls what's populated by default when a post is referenced
   // https://payloadcms.com/docs/queries/select#defaultpopulate-collection-config-property
@@ -237,6 +241,9 @@ export const Posts: CollectionConfig<'posts'> = {
     afterChange: [revalidateSiteDoc(POSTS_BASE)],
     afterDelete: [revalidateSiteDocDelete(POSTS_BASE)],
     afterRead: [populateAuthors],
+    // Access only checked that a site key exists — never trust the payload's own
+    // `site` value on a key-authorized write.
+    beforeChange: [forceApiKeySite],
     beforeValidate: [uniqueSlugPerSite],
   },
   versions: {

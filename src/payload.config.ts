@@ -31,12 +31,13 @@ import { checkoutEndpoints } from './endpoints/checkout'
 import { domainCheck } from './endpoints/domainCheck'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { siteDescriptor } from './endpoints/siteDescriptor'
+import { updateSiteDomain } from './endpoints/updateSiteDomain'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
-  endpoints: [domainCheck, siteDescriptor, provisionSiteEndpoint, ...checkoutEndpoints, ...apiKeysEndpoints],
+  endpoints: [domainCheck, siteDescriptor, updateSiteDomain, provisionSiteEndpoint, ...checkoutEndpoints, ...apiKeysEndpoints],
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],

@@ -10,7 +10,9 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
 import { issueApiKeyEndpoint, listApiKeysEndpoint, revokeApiKeyEndpoint } from '@/endpoints/apiKeys'
+import { updateSiteDomain } from '@/endpoints/updateSiteDomain'
 import { idOf } from '@/lib/ids'
+import { richText } from '@/provisioning/richText'
 
 /**
  * WAVE-9 §9.4 — the credential a headless client (the cafe-restaurant-pos POS)
@@ -53,10 +55,22 @@ const reqWithKey = (key: string, host?: string): Promise<PayloadRequest> =>
 const adminReqWithBody = async (body: unknown): Promise<PayloadRequest> => {
   const admin = await reqAsAdmin()
   return createLocalReq(
-    { req: { json: async () => body } as Partial<PayloadRequest>, user: admin.user },
+    { req: { json: async () => body } as Partial<PayloadRequest>, user: admin.user ?? undefined },
     payload,
   )
 }
+
+/** A keyed request (see `reqWithKey`) whose body is `body` — for the JSON PATCH endpoints. */
+const reqWithKeyAndBody = (key: string, body: unknown): Promise<PayloadRequest> =>
+  createLocalReq(
+    {
+      req: {
+        headers: new Headers({ authorization: `Bearer ${key}` }),
+        json: async () => body,
+      } as Partial<PayloadRequest>,
+    },
+    payload,
+  )
 
 const issueKey = async (input: { name: string; role: 'platform' | 'site'; siteId?: string }) => {
   const req = await adminReqWithBody(input)
@@ -178,6 +192,61 @@ describe('a site key', () => {
     }
   })
 
+  it('creates and updates a post on its own site, but never publishes it over the API', async () => {
+    const issued = await issueKey({ name: 'post write test', role: 'site', siteId: siteId.acme })
+    const req = await reqWithKey(issued.key)
+
+    const created = await payload.create({
+      collection: 'posts',
+      overrideAccess: false,
+      req,
+      data: {
+        content: richText([{ text: 'یک نوشتهٔ آزمایشی WAVE-9', type: 'paragraph' }]),
+        site: siteId.studio, // forceApiKeySite must overwrite this to acme
+        title: 'نوشتهٔ آزمایشی WAVE-9',
+      } as never,
+    })
+
+    try {
+      expect(idOf((created as { site: unknown }).site)).toBe(siteId.acme)
+      expect(created._status).not.toBe('published')
+
+      await expect(
+        payload.create({
+          collection: 'posts',
+          overrideAccess: false,
+          req,
+          data: {
+            _status: 'published',
+            content: richText([{ text: 'x', type: 'paragraph' }]),
+            title: 'نباید منتشر شود',
+          } as never,
+        }),
+      ).rejects.toThrow()
+
+      const updated = await payload.update({
+        id: created.id,
+        collection: 'posts',
+        overrideAccess: false,
+        req,
+        data: { title: 'عنوان ویرایش‌شده' } as never,
+      })
+      expect((updated as { title: unknown }).title).toBe('عنوان ویرایش‌شده')
+
+      await expect(
+        payload.update({
+          id: created.id,
+          collection: 'posts',
+          overrideAccess: false,
+          req,
+          data: { _status: 'published' } as never,
+        }),
+      ).rejects.toThrow()
+    } finally {
+      await payload.delete({ id: created.id, collection: 'posts', overrideAccess: true })
+    }
+  })
+
   it('cannot read or write a collection it holds no grant on', async () => {
     const issued = await issueKey({ name: 'sites test', role: 'site', siteId: siteId.acme })
     const req = await reqWithKey(issued.key)
@@ -219,6 +288,42 @@ describe('a site key', () => {
   })
 })
 
+describe('a site key changing its domain', () => {
+  it('moves its own site, resets verification, and refuses a clash', async () => {
+    const issued = await issueKey({ name: 'domain write test', role: 'site', siteId: siteId.acme })
+
+    // Verified beforehand, so the reset below is actually observed.
+    await payload.update({ id: siteId.acme, collection: 'sites', data: { domainVerified: true }, overrideAccess: true })
+
+    // A domain already in use (studio's) must be refused, and must not touch
+    // acme's row at all.
+    const clashResponse = await updateSiteDomain.handler(await reqWithKeyAndBody(issued.key, { domain: 'studio.localhost' }))
+    expect(clashResponse.status).toBe(409)
+    const unchanged = await payload.findByID({ id: siteId.acme, collection: 'sites', depth: 0, overrideAccess: true })
+    expect(unchanged.domain).toBe('acme.localhost')
+
+    try {
+      const response = await updateSiteDomain.handler(await reqWithKeyAndBody(issued.key, { domain: 'acme-new.localhost' }))
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { domain: string; domainVerified: boolean }
+      expect(body.domain).toBe('acme-new.localhost')
+      expect(body.domainVerified).toBe(false)
+
+      const moved = await payload.findByID({ id: siteId.acme, collection: 'sites', depth: 0, overrideAccess: true })
+      expect(moved.domain).toBe('acme-new.localhost')
+      expect(moved.domainVerified).toBe(false)
+    } finally {
+      await payload.update({ id: siteId.acme, collection: 'sites', data: { domain: 'acme.localhost', domainVerified: true }, overrideAccess: true })
+    }
+  })
+
+  it('refuses a platform key — domain is a site key operation only', async () => {
+    const issued = await issueKey({ name: 'platform domain test', role: 'platform' })
+    const response = await updateSiteDomain.handler(await reqWithKeyAndBody(issued.key, { domain: 'nope.localhost' }))
+    expect(response.status).toBe(403)
+  })
+})
+
 describe('a platform key', () => {
   it('lists every site but reads no content', async () => {
     const issued = await issueKey({ name: 'platform test', role: 'platform' })
@@ -233,7 +338,7 @@ describe('a platform key', () => {
   it('is listed back masked, never with the raw key', async () => {
     const issued = await issueKey({ name: 'list test', role: 'platform' })
 
-    const listReq = await createLocalReq({ user: (await reqAsAdmin()).user }, payload)
+    const listReq = await createLocalReq({ user: (await reqAsAdmin()).user ?? undefined }, payload)
     const response = await listApiKeysEndpoint.handler(listReq)
     const body = (await response.json()) as { docs: { id: string; prefix: string }[] }
 

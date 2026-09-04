@@ -75,6 +75,18 @@ https:// {
         reverse_proxy web:3000
     }
 
+    # A site key changing its own domain (docs/eshobe-cms-integration.md). PATCH
+    # only, distinct from @site_descriptor's GET/HEAD above; the application's
+    # access layer (`src/endpoints/updateSiteDomain.ts`) requires a valid site
+    # key regardless, this is only routing.
+    @site_domain {
+        method PATCH
+        path /api/site/domain
+    }
+    handle @site_domain {
+        reverse_proxy web:3000
+    }
+
     # WAVE-9 §9.4 — the site key's own read/write surface (docs/eshobe-cms-integration.md
     # in cafe-restaurant-pos). No method filter, like @checkout above: a site key
     # reads its catalogue (GET) and writes its products and order statuses
