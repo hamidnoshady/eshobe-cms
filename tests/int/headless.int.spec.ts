@@ -171,13 +171,22 @@ describe('public reads on a customer host', () => {
     expect(JSON.stringify(store)).not.toContain('۶۰۳۷')
   })
 
-  it('return nothing scoped for a host that is not a customer', async () => {
-    // The documented fail-open: no tenant resolves, so the collection's own access
-    // decides. Pinned as a test because it is a decision, not an oversight — closing
-    // it means denying anonymous `/api/*` at the proxy, not more hooks (WAVE-9.md).
-    const everySite = await read({ collection: 'pages', host: 'localhost' })
-
-    expect(new Set(everySite.map((doc) => idOf(doc.site))).size).toBeGreaterThan(1)
+  it('are refused outright on a host that is not a customer', async () => {
+    // The control plane (and any domain no customer owns) resolves to no site. An
+    // anonymous caller there has no tenant it could be asking about, so access is
+    // denied — never every tenant's rows, which is what this used to return and
+    // what made the admin hostname an unauthenticated index of the whole platform.
+    //
+    // Denied, not empty: access returning `false` makes Payload throw rather than
+    // answer with no documents, which is why this asserts a rejection. Over REST
+    // that is a 403 — a better answer than an empty list, since it does not
+    // pretend the platform holds nothing.
+    for (const collection of ['pages', 'posts', 'products', 'categories', 'media'] as const) {
+      await expect(
+        read({ collection, host: 'localhost' }),
+        `${collection} was readable on a non-customer host`,
+      ).rejects.toThrow()
+    }
   })
 })
 
