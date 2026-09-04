@@ -215,6 +215,51 @@ export default buildConfig({
     },
   },
   plugins,
+  /**
+   * The GraphQL API stays on — `WAVE-9.md` names REST *and* GraphQL as the
+   * surface a second renderer attaches to, so disabling it would retract a
+   * documented contract — but it stops being unbounded in shape.
+   *
+   * Access control already decides *which rows* a caller sees: GraphQL runs the
+   * same `src/access/siteRead.ts` scoping as REST, so it cannot read across
+   * tenants (an anonymous query on the control-plane host answers 403). What it
+   * could do was ask for one tenant's rows in an arbitrarily expensive shape.
+   * The schema is deeply self-referential — a page holds a `layout` of blocks,
+   * blocks hold media and link fields pointing back at pages and posts — so a
+   * query can nest through those relationships until the resolver count
+   * explodes, from one unweighted request.
+   *
+   * 300 is chosen from measurement, not taste. Payload scores a query with
+   * `simpleEstimator({ defaultComplexity: 1 })`, so the number is essentially
+   * "fields resolved across the query tree". Against this schema:
+   *
+   *     a page list with meta and images                    22
+   *     one page with all 14 block types expanded           43
+   *     pages + posts + products + theme + store at once    84
+   *     five levels of relatedPosts → categories            66
+   *
+   * So real renderer traffic lives under ~100, and 300 leaves a richer consumer
+   * room to grow while still cutting off runaway nesting. A legitimate query
+   * that ever hits the ceiling should have this number raised deliberately,
+   * with the query that needed it named in the commit — the failure is loud and
+   * reports the actual complexity, so there is no guessing.
+   *
+   * **What this does not bound is volume.** Complexity counts fields, never
+   * rows, so `Pages(limit: 100000)` scores the same as `Pages(limit: 10)` and
+   * costs the database far more. Payload 3.88 has no `maxLimit` — only
+   * `pagination.defaultLimit`, which a caller overrides — so clamping that needs
+   * a hook and would have to cover REST too. It is a separate piece of work and
+   * is not fixed here.
+   *
+   * The two `disable*InProduction` flags are already Payload's defaults. They
+   * are written out because they are load-bearing and silent: nothing fails if a
+   * future version flips a default, the schema simply becomes readable.
+   */
+  graphQL: {
+    disableIntrospectionInProduction: true,
+    disablePlaygroundInProduction: true,
+    maxComplexity: 300,
+  },
   secret: process.env.PAYLOAD_SECRET,
   sharp,
   typescript: {
