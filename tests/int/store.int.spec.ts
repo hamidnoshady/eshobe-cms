@@ -183,6 +183,7 @@ describe('store', () => {
         _status: 'published',
         price: 75_000,
         site: acme.id,
+        slug: 'mahsool-azmayeshi-acme',
         title: 'محصول آزمایشی آکمه',
         trackInventory: false,
       },

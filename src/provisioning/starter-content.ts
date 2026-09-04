@@ -101,6 +101,76 @@ export type StarterNavItem = { slug: string; label: Text }
 /** The theme tokens a new site of this type starts from. */
 export type StarterTheme = Pick<Theme, 'accent' | 'lineHeight' | 'primary' | 'radius'>
 
+/** A single product a freshly provisioned store starts with. */
+export type StarterProduct = {
+  /** Price in the site's minor currency unit (Toman). */
+  price: number
+  compareAtPrice?: number
+  title: Text
+  summary: Text
+  slug: Text
+  trackInventory?: boolean
+  inventory?: number
+}
+
+/** Starter catalogue for a store site — three products so the grid has something to show. */
+export const starterProducts = (locale: StarterLocale): StarterProduct[] => {
+  if (locale === 'fa') {
+    return [
+      {
+        price: 480_000,
+        summary: { en: 'Cardamom brittle, in a 750 g tin.', fa: 'شیرینی خشک هل، در قوطی فلزی ۷۵۰ گرمی.' },
+        title: { en: 'Cardamom Brittle', fa: 'سوهان هل' },
+        slug: { en: 'sohan-hel', fa: 'سوهان-هل' },
+        trackInventory: true,
+        inventory: 20,
+      },
+      {
+        compareAtPrice: 260_000,
+        price: 198_000,
+        summary: { en: 'Premium saffron, 4 g pack.', fa: 'زعفران سرگل، بستهٔ ۴ گرمی.' },
+        title: { en: 'Premium Saffron', fa: 'زعفران سرگل' },
+        slug: { en: 'zaferan-sargol', fa: 'زعفران-سرگل' },
+        trackInventory: false,
+      },
+      {
+        price: 290_000,
+        summary: { en: 'Rose water double-distilled, 500 ml bottle.', fa: 'گلاب دوآتیشه، بطری ۵۰۰ سی‌سی.' },
+        title: { en: 'Rose Water', fa: 'گلاب دوآتیشه' },
+        slug: { en: 'golab-do-atish', fa: 'گلاب-دوآتیشه' },
+        trackInventory: true,
+        inventory: 40,
+      },
+    ]
+  }
+  return [
+    {
+      price: 480_000,
+      summary: { en: 'Cardamom brittle, in a 750 g tin.', fa: 'شیرینی خشک هل، در قوطی فلزی ۷۵۰ گرمی.' },
+      title: { en: 'Cardamom Brittle', fa: 'سوهان هل' },
+      slug: { en: 'sohan-hel', fa: 'سوهان-هل' },
+      trackInventory: true,
+      inventory: 20,
+    },
+    {
+      compareAtPrice: 260_000,
+      price: 198_000,
+      summary: { en: 'Premium saffron, 4 g pack.', fa: 'زعفران سرگل، بستهٔ ۴ گرمی.' },
+      title: { en: 'Premium Saffron', fa: 'زعفران سرگل' },
+      slug: { en: 'zaferan-sargol', fa: 'زعفران-سرگل' },
+      trackInventory: false,
+    },
+    {
+      price: 290_000,
+      summary: { en: 'Rose water double-distilled, 500 ml bottle.', fa: 'گلاب دوآتیشه، بطری ۵۰۰ سی‌سی.' },
+      title: { en: 'Rose Water', fa: 'گلاب دوآتیشه' },
+      slug: { en: 'golab-do-atish', fa: 'گلاب-دوآتیشه' },
+      trackInventory: true,
+      inventory: 40,
+    },
+  ]
+}
+
 // --- block builders -----------------------------------------------------------
 
 const contentBlock = (locale: StarterLocale, paragraph: string): Page['layout'] => [
@@ -158,6 +228,16 @@ const pricingBlock = (copy: PricingCopy, locale: StarterLocale): Page['layout'] 
       price,
       unit: locale === 'fa' ? 'تومان' : 'Toman',
     })),
+  },
+]
+
+const productGridBlock = (): Page['layout'] => [
+  {
+    blockType: 'productGrid',
+    columns: '3',
+    limit: 6,
+    populateBy: 'collection',
+    showBuyButton: true,
   },
 ]
 
@@ -672,6 +752,7 @@ export const starterPages = (type: SiteType, locale: StarterLocale): StarterPage
     intro: copy.services.intro,
     build: (refs) => [
       ...contentBlock(locale, copy.services.intro),
+      ...(type === 'store' ? productGridBlock() : []),
       ...(copy.services.features ? featuresBlock(copy.services.features) : []),
       ...(copy.services.pricing ? pricingBlock(copy.services.pricing, locale) : []),
       ...(copy.services.faq ? faqBlock(copy.services.faq) : []),

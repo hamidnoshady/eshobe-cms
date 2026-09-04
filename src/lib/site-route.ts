@@ -3,6 +3,7 @@ import {
   CHECKOUT_SEGMENT,
   HOME_SLUG,
   POSTS_SEGMENT,
+  PRODUCTS_SEGMENT,
   SEARCH_SEGMENT,
 } from './slug'
 
@@ -27,6 +28,7 @@ export type SiteRoute =
   | { kind: 'page'; slug: string }
   | { kind: 'post'; slug: string }
   | { kind: 'posts' }
+  | { kind: 'product'; slug: string }
   | { kind: 'search' }
 
 export const resolveSiteRoute = (path: string[] = []): SiteRoute => {
@@ -43,6 +45,10 @@ export const resolveSiteRoute = (path: string[] = []): SiteRoute => {
   }
 
   if (first === SEARCH_SEGMENT && segments.length === 1) return { kind: 'search' }
+
+  if (first === PRODUCTS_SEGMENT) {
+    return second ? { kind: 'product', slug: second } : { kind: 'page', slug: 'products' }
+  }
 
   if (first === CHECKOUT_SEGMENT && segments.length <= 2) {
     return { kind: 'checkout', order: second ?? null }

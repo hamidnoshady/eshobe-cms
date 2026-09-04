@@ -23,6 +23,7 @@
   "dependencies": {
     "@payloadcms/admin-bar": "3.88.0",
     "@payloadcms/db-postgres": "3.88.0",
+    "@payloadcms/email-nodemailer": "3.88.0",
     "@payloadcms/live-preview-react": "3.88.0",
     "@payloadcms/next": "3.88.0",
     "@payloadcms/plugin-form-builder": "3.88.0",
@@ -46,6 +47,8 @@
     "graphql": "^16.8.2",
     "lucide-react": "0.563.0",
     "next": "16.3.0",
+    "@eshobe/site-runtime": "workspace:*",
+    "nodemailer": "6.9.16",
     "payload": "3.88.0",
     "prism-react-renderer": "^2.3.1",
     "react": "19.2.6",

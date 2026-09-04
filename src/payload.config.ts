@@ -1,4 +1,5 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
+import { nodemailerAdapter } from '@payloadcms/email-nodemailer'
 import { getTenantFromCookie } from '@payloadcms/plugin-multi-tenant/utilities'
 import { en } from '@payloadcms/translations/languages/en'
 import { fa } from '@payloadcms/translations/languages/fa'
@@ -29,6 +30,7 @@ import { getServerSideURL } from './utilities/getURL'
 import { apiKeysEndpoints } from './endpoints/apiKeys'
 import { checkoutEndpoints } from './endpoints/checkout'
 import { domainCheck } from './endpoints/domainCheck'
+import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
@@ -36,8 +38,43 @@ import { updateSiteDomain } from './endpoints/updateSiteDomain'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+const emailFromAddress = process.env.EMAIL_FROM ?? `noreply@${process.env.CONTROL_PLANE_HOST ?? 'example.com'}`
+const emailConfig = process.env.SMTP_HOST
+  ? {
+      defaultFromAddress: emailFromAddress,
+      defaultFromName: 'Eshobe CMS',
+      transportOptions: {
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT ?? 587),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth:
+          process.env.SMTP_USER && process.env.SMTP_PASS
+            ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+            : undefined,
+      },
+    }
+  : {
+      defaultFromAddress: emailFromAddress,
+      defaultFromName: 'Eshobe CMS',
+      // No SMTP configured — emit JSON to the logger instead of attempting network.
+      // Payload's default adapter does the same, but this is explicit and
+      // skipVerify avoids a startup check against a missing server.
+      transportOptions: { jsonTransport: true } as Record<string, unknown>,
+      skipVerify: true,
+    }
+
 export default buildConfig({
-  endpoints: [domainCheck, siteDescriptor, updateSiteDomain, provisionSiteEndpoint, ...checkoutEndpoints, ...apiKeysEndpoints],
+  email: nodemailerAdapter(emailConfig as Parameters<typeof nodemailerAdapter>[0]),
+  endpoints: [
+    domainCheck,
+    siteDescriptor,
+    updateSiteDomain,
+    provisionSiteEndpoint,
+    handoffEndpoint,
+    handoffPostEndpoint,
+    ...checkoutEndpoints,
+    ...apiKeysEndpoints,
+  ],
   admin: {
     components: {
       beforeLogin: ['@/components/BeforeLogin'],

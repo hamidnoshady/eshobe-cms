@@ -2,7 +2,7 @@ import type { CollectionSlug, Payload, PayloadRequest } from 'payload'
 
 import type { Page } from '@/payload-types'
 
-import { HOME_SLUG } from '@/lib/slug'
+import { HOME_SLUG, slugify } from '@/lib/slug'
 import { richText } from '@/provisioning/richText'
 
 /** One seeded customer, and everything the wave that owns a feature hung off it. */
@@ -322,7 +322,12 @@ export const seed = async ({
       await payload.create({
         collection: 'products',
         context: noRevalidate,
-        data: { ...rest, _status: draft ? 'draft' : 'published', site: siteDoc.id },
+        data: {
+          ...rest,
+          _status: draft ? 'draft' : 'published',
+          site: siteDoc.id,
+          slug: slugify(rest.title),
+        },
         depth: 0,
         locale: 'fa',
         req,

@@ -15,6 +15,7 @@ import {
   starterFormTitle,
   starterNav,
   starterPages,
+  starterProducts,
   starterTheme,
   type PageRefs,
   type SiteType,
@@ -307,6 +308,51 @@ export const provisionSite = async ({
       req: txReq,
     })
 
+    const createdProducts: { id: string }[] = []
+    let createdStore: { id: string } | null = null
+
+    if (type === 'store') {
+      const storeDoc = await payload.create({
+        collection: 'store',
+        context: noRevalidate,
+        data: {
+          currency: 'IRT',
+          paymentProvider: 'bank',
+          paymentInstructions:
+            defaultLocale === 'fa'
+              ? 'پرداخت از طریق کارت به کارت. پس از واریز با فروشگاه تماس بگیرید.'
+              : 'Bank card transfer. Contact the store after payment.',
+          site: site.id,
+        },
+        depth: 0,
+        locale: defaultLocale,
+        req: txReq,
+      })
+      createdStore = storeDoc as { id: string }
+
+      for (const prod of starterProducts(defaultLocale)) {
+        const doc = await payload.create({
+          collection: 'products',
+          context: noRevalidate,
+          data: {
+            _status: 'published',
+            compareAtPrice: prod.compareAtPrice,
+            price: prod.price,
+            site: site.id,
+            slug: prod.slug[defaultLocale],
+            summary: prod.summary[defaultLocale],
+            title: prod.title[defaultLocale],
+            trackInventory: prod.trackInventory ?? false,
+            ...(prod.trackInventory ? { inventory: prod.inventory ?? 0 } : {}),
+          },
+          depth: 0,
+          locale: defaultLocale,
+          req: txReq,
+        })
+        createdProducts.push(doc as { id: string })
+      }
+    }
+
     const refs: PageRefs = {
       contactEmail: `info@${domain}`,
       contactPageId: '', // set once the contact page exists — it is created first
@@ -457,6 +503,44 @@ export const provisionSite = async ({
           locale,
           req: txReq,
         })
+      }
+
+      if (type === 'store' && createdStore) {
+        await payload.update({
+          id: createdStore.id,
+          collection: 'store',
+          context: noRevalidate,
+          data: {
+            paymentInstructions:
+              locale === 'fa'
+                ? 'پرداخت از طریق کارت به کارت. پس از واریز با فروشگاه تماس بگیرید.'
+                : 'Bank card transfer. Contact the store after payment.',
+          },
+          depth: 0,
+          locale,
+          req: txReq,
+        })
+      }
+
+      if (type === 'store' && createdProducts.length) {
+        const localeProducts = starterProducts(locale as StarterLocale)
+        for (const [index, doc] of createdProducts.entries()) {
+          const prod = localeProducts[index]
+          if (!prod) continue
+          await payload.update({
+            id: doc.id,
+            collection: 'products',
+            context: noRevalidate,
+            data: {
+              slug: prod.slug[locale as StarterLocale],
+              summary: prod.summary[locale as StarterLocale],
+              title: prod.title[locale as StarterLocale],
+            },
+            depth: 0,
+            locale,
+            req: txReq,
+          })
+        }
       }
     }
 

@@ -2,16 +2,20 @@ import type { ProductGridBlock as Props } from '@/payload-types'
 
 import React from 'react'
 
+import Link from 'next/link'
+
 import type { Product } from '@/payload-types'
 
 import { Media } from '@/components/Media'
 import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
 import { formatPrice } from '@/lib/format'
 import { idOf } from '@/lib/ids'
+import { localeHref } from '@/lib/locales'
 import { getSiteContext } from '@/lib/site-context'
 import { findForSite } from '@/lib/site-query'
 import { storeSettingsForSite } from '@/lib/store'
 import { uiString } from '@/lib/ui-strings'
+import { productPath } from '@/lib/slug'
 import { cn } from '@/utilities/ui'
 
 import { columnClass } from '../fields'
@@ -105,7 +109,12 @@ export const ProductGridBlock: React.FC<Props> = async ({
               </div>
 
               <div className="flex flex-1 flex-col gap-3 p-4">
-                <h3 className="text-lg leading-snug font-semibold">{product.title}</h3>
+                <Link
+                  href={localeHref(productPath(product.slug), locale, site?.defaultLocale ?? 'fa')}
+                  className="hover:underline"
+                >
+                  <h3 className="text-lg leading-snug font-semibold">{product.title}</h3>
+                </Link>
 
                 {product.summary && (
                   <p className="text-sm text-muted-foreground">{product.summary}</p>
