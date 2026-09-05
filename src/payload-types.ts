@@ -260,13 +260,29 @@ export interface Site {
   id: string;
   name: string;
   /**
-   * میزبان کامل بدون پروتکل — مثلاً acme.ir. DNS: یک رکورد A به IP سرور یا CNAME به نام میزبان سرور بسازید؛ سپس دامنه را تأیید کنید.
+   * نشانی اصلی و canonical سایت، بدون پروتکل — مثلاً acme.ir یا shop.acme.ir. همهٔ نشانی‌های فرعی به این نشانی تغییر مسیر می‌دهند.
    */
   domain: string;
   /**
-   * فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. دامنهٔ تأییدنشده گواهی TLS نمی‌گیرد.
+   * فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. با تغییر دامنه، تأیید خودکار برداشته می‌شود.
    */
   domainVerified?: boolean | null;
+  /**
+   * برای www، زیردامنه‌ها و دامنه‌های قدیمی یک ردیف اضافه کنید. هر نشانی تأییدشده به دامنهٔ اصلی تغییر مسیر دائمی (308) می‌دهد تا SEO و آمار دوپاره نشوند.
+   */
+  domains?:
+    | {
+        /**
+         * بدون پروتکل، پورت و مسیر — مثلاً www.acme.ir یا shop.acme.ir.
+         */
+        hostname: string;
+        /**
+         * تا وقتی DNS این نام به سرور اشاره نکرده، آن را تأیید نکنید. نام تأییدنشده نه TLS می‌گیرد و نه به محتوای سایت وصل می‌شود.
+         */
+        verified?: boolean | null;
+        id?: string | null;
+      }[]
+    | null;
   type: 'business' | 'portfolio' | 'store';
   /**
    * چرخهٔ عمر سایت از این فیلد می‌آید، نه از حذف کردن آن.
@@ -2233,6 +2249,13 @@ export interface SitesSelect<T extends boolean = true> {
   name?: T;
   domain?: T;
   domainVerified?: T;
+  domains?:
+    | T
+    | {
+        hostname?: T;
+        verified?: T;
+        id?: T;
+      };
   type?: T;
   status?: T;
   availableLocales?: T;

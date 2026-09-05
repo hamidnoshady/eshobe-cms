@@ -8,7 +8,8 @@ import { cache } from 'react'
 import type { Site } from '@/payload-types'
 
 import { defaultLocale, dirFor, isLocale } from '@/lib/locales'
-import { getSiteByHost } from '@/lib/site-query'
+import { hostFromHeader } from '@/lib/domains'
+import { getSiteHostResolution } from '@/lib/site-query'
 
 /**
  * Who is being served, in what language. Every front-end render starts here.
@@ -18,6 +19,10 @@ import { getSiteByHost } from '@/lib/site-query'
  * tests and CLI scripts.
  */
 export type SiteContext = {
+  /** The normalized inbound host, without its development port. */
+  host: string
+  /** True only when `host` is the site's primary/canonical domain. */
+  canonicalHost: boolean
   dir: 'ltr' | 'rtl'
   locale: TypedLocale
   /** The site on this host, whatever its lifecycle state — null on an unknown host. */
@@ -41,14 +46,18 @@ const resolveLocale = (site: Site | null, requested: string | null): string => {
 
 export const getSiteContext = cache(async (): Promise<SiteContext> => {
   const headerList = await headers()
+  const host = hostFromHeader(headerList.get('host'))
+  const resolved = await getSiteHostResolution(host)
+  const site = resolved?.site ?? null
 
-  const site = await getSiteByHost(headerList.get('host'))
   // Set by middleware from the URL's locale segment. Absent on requests that
   // have not been through routing yet, and on an unknown host.
   const locale = resolveLocale(site, headerList.get('x-locale'))
 
   return {
+    canonicalHost: resolved?.canonical ?? false,
     dir: dirFor(locale),
+    host,
     locale: locale as TypedLocale,
     site,
     serving: site?.status === 'active',

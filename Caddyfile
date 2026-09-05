@@ -97,15 +97,27 @@ https:// {
         reverse_proxy web:3000
     }
 
-    # A site key changing its own domain (docs/eshobe-cms-integration.md). PATCH
-    # only, distinct from @site_descriptor's GET/HEAD above; the application's
-    # access layer (`src/endpoints/updateSiteDomain.ts`) requires a valid site
-    # key regardless, this is only routing.
+    # A site key changing its own canonical domain (docs/domains.md). PATCH only,
+    # distinct from @site_descriptor's GET/HEAD above; the application's access
+    # layer requires a valid site key regardless, this is only routing.
     @site_domain {
         method PATCH
         path /api/site/domain
     }
     handle @site_domain {
+        reverse_proxy web:3000
+    }
+
+    # A tenant can request/list/remove aliases such as `www.example.ir` and
+    # `shop.example.ir`. The application adds every new hostname as *pending*;
+    # only a platform admin may verify it, which is what lets `/api/domain-check`
+    # authorise Caddy's on-demand TLS. Keep all three methods together so a site
+    # builder can manage aliases without exposing the general `/api/sites` API.
+    @site_domains {
+        method GET POST DELETE
+        path /api/site/domains
+    }
+    handle @site_domains {
         reverse_proxy web:3000
     }
 

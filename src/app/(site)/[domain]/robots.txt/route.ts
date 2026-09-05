@@ -9,8 +9,12 @@ import { siteOrigin } from '@/lib/site-url'
  * `acme.com` must never be pointed at another tenant's sitemap, which is exactly
  * what a single build-time `robots.txt` (one `siteUrl`, baked in) would do.
  */
-export async function GET(): Promise<Response> {
-  const { site } = await getSiteContext()
+export async function GET(request: Request): Promise<Response> {
+  const { canonicalHost, site } = await getSiteContext()
+
+  if (site && !canonicalHost) {
+    return Response.redirect(`${siteOrigin(site)}/robots.txt${new URL(request.url).search}`, 308)
+  }
 
   const body = site
     ? robotsTxt({ sitemapUrl: `${siteOrigin(site)}/sitemap.xml` })

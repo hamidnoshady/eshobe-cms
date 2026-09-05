@@ -11,6 +11,7 @@ import { dirFor } from '@/lib/locales'
 import { HOME_SLUG } from '@/lib/slug'
 import { getSiteContext } from '@/lib/site-context'
 import { findForSite } from '@/lib/site-query'
+import { siteOrigin } from '@/lib/site-url'
 
 /**
  * `https://acme.com/og?slug=about&locale=en` — the social card for one document, on
@@ -91,9 +92,13 @@ const findDoc = async (site: Site, locale: string, slug: string): Promise<Doc | 
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const { site } = await getSiteContext()
+  const { canonicalHost, site } = await getSiteContext()
 
   if (!site) return new Response('Not found', { status: 404 })
+
+  if (!canonicalHost) {
+    return Response.redirect(`${siteOrigin(site)}/og${new URL(request.url).search}`, 308)
+  }
 
   const params = new URL(request.url).searchParams
   const requested = params.get('locale')

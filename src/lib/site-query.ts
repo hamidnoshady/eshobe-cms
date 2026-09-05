@@ -15,6 +15,8 @@ import { cache } from 'react'
 
 import type { Site } from '@/payload-types'
 
+import { hostFromHeader, siteHostMatch } from './domains'
+
 /**
  * The only module allowed to call the Local API from front-end code.
  *
@@ -55,8 +57,12 @@ type FindArgs = {
 export const siteTag = (siteId: string, ...parts: string[]): string =>
   ['site', siteId, ...parts].join(':')
 
-/** A `Host` header may carry a port; `sites.domain` never does. */
-const normalizeHost = (host: string): string => host.split(':')[0]!.toLowerCase()
+/** The result of resolving an inbound hostname, including whether it was canonical. */
+export type SiteHostResolution = {
+  /** False for a verified alias; aliases redirect to this site's canonical `domain`. */
+  canonical: boolean
+  site: Site
+}
 
 /**
  * Host → site, whatever its lifecycle state. The one deliberate
@@ -65,8 +71,14 @@ const normalizeHost = (host: string): string => host.split(':')[0]!.toLowerCase(
  * the tenant that everything else is scoped to, so it cannot itself be
  * tenant-scoped.
  *
+ * A primary domain is still a unique column. Aliases live in `sites.domains`,
+ * therefore both possible locations are queried, then the exact matching row is
+ * inspected in memory. This final inspection matters: a broad SQL join must not
+ * accidentally accept hostname A because a *different* alias row on the same site
+ * happens to be verified.
+ *
  * Lifecycle is deliberately *not* filtered here: a suspended or archived site
- * still owns its domain, and `getSiteContext` needs to know it exists to serve
+ * still owns its hostname, and `getSiteContext` needs to know it exists to serve
  * the holding page. Every *content* read goes through `findForSite` with an
  * active site — `serving: false` means no content, no chrome, holding page.
  */
@@ -74,27 +86,45 @@ const findSiteByHost = async (
   payload: Payload,
   host: null | string,
   req?: PayloadRequest,
-): Promise<Site | null> => {
-  if (!host) return null
+): Promise<SiteHostResolution | null> => {
+  const normalized = hostFromHeader(host)
+  if (!normalized) return null
 
   const { docs } = await payload.find({
     collection: 'sites',
     depth: 0,
-    limit: 1,
+    // Both hostname columns are unique at the database layer, but use a small
+    // cushion here so an old database with duplicate legacy alias rows cannot make
+    // resolution depend on whichever row PostgreSQL returned first.
+    limit: 10,
     overrideAccess: true,
     pagination: false,
     req,
-    where: { domain: { equals: normalizeHost(host) } },
+    where: {
+      or: [{ domain: { equals: normalized } }, { 'domains.hostname': { equals: normalized } }],
+    },
   })
 
-  return docs[0] ?? null
+  for (const site of docs) {
+    const match = siteHostMatch(site, normalized)
+    if (match) return { canonical: match.canonical, site }
+  }
+
+  return null
 }
 
 /**
  * `cache` dedupes it per request — the layout and the page both need the site.
  */
-export const getSiteByHost = cache(async (host: string | null): Promise<Site | null> =>
-  findSiteByHost(await getPayload({ config: configPromise }), host),
+export const getSiteHostResolution = cache(
+  async (host: string | null): Promise<SiteHostResolution | null> =>
+    findSiteByHost(await getPayload({ config: configPromise }), host),
+)
+
+/** Backwards-compatible convenience for callers that only need the tenant record. */
+export const getSiteByHost = cache(
+  async (host: string | null): Promise<Site | null> =>
+    (await getSiteHostResolution(host))?.site ?? null,
 )
 
 /**
@@ -105,8 +135,8 @@ export const getSiteByHost = cache(async (host: string | null): Promise<Site | n
  * `Host` header, never from the request body. A tenant id a caller can choose is a
  * tenant id a caller can choose.
  */
-export const siteFromRequest = (req: PayloadRequest): Promise<Site | null> =>
-  findSiteByHost(req.payload, req.headers?.get?.('host') ?? null, req)
+export const siteFromRequest = async (req: PayloadRequest): Promise<Site | null> =>
+  (await findSiteByHost(req.payload, req.headers?.get?.('host') ?? null, req))?.site ?? null
 
 /**
  * Every front-end read. Always access-controlled, always scoped to one site.

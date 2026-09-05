@@ -1,15 +1,150 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, Where } from 'payload'
 
 import { slugField } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
 import { platformApiKeyAware } from '../access/siteApiKey'
+import {
+  domainValidationMessage,
+  isValidDomain,
+  normalizeDomain,
+  siteHostnames,
+} from '../lib/domains'
 import { locales } from '../lib/locales'
 import { slugifyField } from '../lib/slug'
 
 /** Same list the platform offers, in select-field shape. */
 const localeOptions = locales.map(({ code, label }) => ({ label, value: code }))
+
+type DomainRow = { hostname?: unknown; id?: unknown; verified?: unknown }
+type SiteData = { domain?: unknown; domainVerified?: unknown; domains?: DomainRow[] | null }
+
+/**
+ * Normalize hostnames at the write boundary and reject a primary/alias collision
+ * before Postgres' unique index needs to provide a terse error. The database
+ * migration also guards cross-tenant collisions; this is the helpful CMS-side
+ * half of the invariant.
+ */
+const normalizeAndValidateDomains: NonNullable<CollectionConfig['hooks']>['beforeValidate'] = [
+  async ({ data, originalDoc, req }) => {
+    const input = (data ?? {}) as SiteData
+    const persisted = (originalDoc ?? {}) as SiteData
+    const domain =
+      typeof input.domain === 'string' ? normalizeDomain(input.domain) : persisted.domain
+    const originalAliases = Array.isArray(persisted.domains) ? persisted.domains : []
+    const aliases = Array.isArray(input.domains) ? input.domains : originalAliases
+
+    // An unrelated site edit should not rewrite an old document's aliases, but every
+    // new primary/alias value is normalized to the one spelling used by Host lookups.
+    const normalizedAliases = aliases.map((alias) =>
+      typeof alias?.hostname === 'string'
+        ? { ...alias, hostname: normalizeDomain(alias.hostname) }
+        : alias,
+    )
+
+    const primary = typeof domain === 'string' ? domain : ''
+    const aliasHosts = normalizedAliases
+      .map((alias) => (typeof alias?.hostname === 'string' ? alias.hostname : ''))
+      .filter(Boolean)
+    const hosts = [primary, ...aliasHosts].filter(Boolean)
+
+    if (primary && !isValidDomain(primary)) {
+      throw new Error(domainValidationMessage)
+    }
+
+    if (aliasHosts.some((hostname) => !isValidDomain(hostname))) {
+      throw new Error(domainValidationMessage)
+    }
+
+    const duplicate = hosts.find((hostname, index) => hosts.indexOf(hostname) !== index)
+    if (duplicate) {
+      throw new Error(`هر میزبان فقط یک‌بار می‌تواند ثبت شود: ${duplicate}`)
+    }
+
+    // The regular `sites.domain` column and the alias array live in different
+    // PostgreSQL tables, so no ordinary unique index can span both. Ask the CMS for
+    // possible matches to turn the collision into a field-level message; the paired
+    // migration has database triggers as the race-safe final backstop.
+    if (hosts.length && req?.payload) {
+      const { docs } = await req.payload.find({
+        collection: 'sites',
+        depth: 0,
+        limit: hosts.length * 2 + 10,
+        overrideAccess: true,
+        pagination: false,
+        req,
+        where: {
+          or: hosts.flatMap((hostname) => [
+            { domain: { equals: hostname } },
+            { 'domains.hostname': { equals: hostname } },
+          ]) as unknown as Where[],
+        },
+      })
+
+      const ownId = String((originalDoc as { id?: unknown } | undefined)?.id ?? '')
+      const incoming = new Set(hosts)
+      const conflict = docs.find((site) => {
+        if (String(site.id) === ownId) return false
+
+        return siteHostnames(site).some((hostname) => incoming.has(hostname))
+      })
+
+      if (conflict) {
+        const duplicateHost = siteHostnames(conflict).find((hostname) => incoming.has(hostname))
+        throw new Error(`میزبان «${duplicateHost}» قبلاً به سایت دیگری اختصاص داده شده است.`)
+      }
+    }
+
+    return {
+      ...input,
+      ...(typeof input.domain === 'string' ? { domain: primary } : {}),
+      ...(Array.isArray(input.domains) ? { domains: normalizedAliases } : {}),
+    }
+  },
+]
+
+/**
+ * A changed hostname can never inherit the old hostname's TLS approval. This is
+ * particularly important for edits made in the regular CMS form, which do not go
+ * through the site-key endpoint.
+ */
+const resetVerificationOnHostChange: NonNullable<CollectionConfig['hooks']>['beforeChange'] = [
+  ({ data, originalDoc }) => {
+    const input = (data ?? {}) as SiteData
+    const persisted = (originalDoc ?? {}) as SiteData
+    const next: SiteData = { ...input }
+
+    if (
+      typeof input.domain === 'string' &&
+      typeof persisted.domain === 'string' &&
+      normalizeDomain(input.domain) !== normalizeDomain(persisted.domain)
+    ) {
+      next.domainVerified = false
+    }
+
+    if (Array.isArray(input.domains)) {
+      const oldById = new Map(
+        (Array.isArray(persisted.domains) ? persisted.domains : [])
+          .filter((alias) => alias?.id)
+          .map((alias) => [String(alias.id), alias]),
+      )
+
+      next.domains = input.domains.map((alias) => {
+        const previous = alias?.id ? oldById.get(String(alias.id)) : undefined
+        const hostname = typeof alias?.hostname === 'string' ? normalizeDomain(alias.hostname) : ''
+        const oldHostname =
+          typeof previous?.hostname === 'string' ? normalizeDomain(previous.hostname) : ''
+
+        return previous && hostname && oldHostname !== hostname
+          ? { ...alias, verified: false }
+          : alias
+      })
+    }
+
+    return next
+  },
+]
 
 /**
  * A site is one customer website — and the multi-tenant plugin's tenant. Every
@@ -57,6 +192,10 @@ export const Sites: CollectionConfig = {
       },
     },
   },
+  hooks: {
+    beforeChange: resetVerificationOnHostChange,
+    beforeValidate: normalizeAndValidateDomains,
+  },
   labels: {
     singular: 'سایت',
     plural: 'سایت‌ها',
@@ -71,31 +210,70 @@ export const Sites: CollectionConfig = {
     {
       name: 'domain',
       type: 'text',
-      label: 'دامنه',
+      label: 'دامنهٔ اصلی',
       required: true,
       unique: true,
       index: true,
       admin: {
-        description: 'میزبان کامل بدون پروتکل — مثلاً acme.ir. DNS: یک رکورد A به IP سرور یا CNAME به نام میزبان سرور بسازید؛ سپس دامنه را تأیید کنید.',
+        description:
+          'نشانی اصلی و canonical سایت، بدون پروتکل — مثلاً acme.ir یا shop.acme.ir. همهٔ نشانی‌های فرعی به این نشانی تغییر مسیر می‌دهند.',
       },
-      // Host matching is an exact string compare, so a protocol, port or path
-      // here would simply never match and the site would 404 with no clue why.
       validate: (value: string | null | undefined) =>
-        !value || /^[a-z0-9.-]+$/.test(value)
-          ? true
-          : 'دامنه باید فقط میزبان باشد: بدون //:http، بدون پورت و بدون مسیر.',
+        !value || isValidDomain(value) ? true : domainValidationMessage,
     },
     {
       name: 'domainVerified',
       type: 'checkbox',
-      label: 'دامنه تأیید شده',
+      label: 'دامنهٔ اصلی تأیید شده',
       defaultValue: false,
       admin: {
-        description: 'فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. دامنهٔ تأییدنشده گواهی TLS نمی‌گیرد.',
+        description:
+          'فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. با تغییر دامنه، تأیید خودکار برداشته می‌شود.',
       },
       access: {
         update: platformAdminFieldAccess,
       },
+    },
+    {
+      name: 'domains',
+      type: 'array',
+      label: 'دامنه‌ها و زیردامنه‌های فرعی',
+      labels: { plural: 'دامنه‌های فرعی', singular: 'دامنهٔ فرعی' },
+      maxRows: 20,
+      admin: {
+        description:
+          'برای www، زیردامنه‌ها و دامنه‌های قدیمی یک ردیف اضافه کنید. هر نشانی تأییدشده به دامنهٔ اصلی تغییر مسیر دائمی (308) می‌دهد تا SEO و آمار دوپاره نشوند.',
+        initCollapsed: true,
+      },
+      fields: [
+        {
+          name: 'hostname',
+          type: 'text',
+          label: 'میزبان',
+          required: true,
+          unique: true,
+          index: true,
+          admin: {
+            description: 'بدون پروتکل، پورت و مسیر — مثلاً www.acme.ir یا shop.acme.ir.',
+          },
+          validate: (value: string | null | undefined) =>
+            !value || isValidDomain(value) ? true : domainValidationMessage,
+        },
+        {
+          name: 'verified',
+          type: 'checkbox',
+          label: 'DNS و TLS تأیید شده',
+          defaultValue: false,
+          admin: {
+            description:
+              'تا وقتی DNS این نام به سرور اشاره نکرده، آن را تأیید نکنید. نام تأییدنشده نه TLS می‌گیرد و نه به محتوای سایت وصل می‌شود.',
+          },
+          access: {
+            create: platformAdminFieldAccess,
+            update: platformAdminFieldAccess,
+          },
+        },
+      ],
     },
     {
       name: 'type',

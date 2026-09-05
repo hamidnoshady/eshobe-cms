@@ -37,11 +37,13 @@ import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
+import { siteDomainsEndpoints } from './endpoints/siteDomains'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
-const emailFromAddress = process.env.EMAIL_FROM ?? `noreply@${process.env.CONTROL_PLANE_HOST ?? 'example.com'}`
+const emailFromAddress =
+  process.env.EMAIL_FROM ?? `noreply@${process.env.CONTROL_PLANE_HOST ?? 'example.com'}`
 const emailConfig = process.env.SMTP_HOST
   ? {
       defaultFromAddress: emailFromAddress,
@@ -72,6 +74,7 @@ export default buildConfig({
     domainCheck,
     siteDescriptor,
     updateSiteDomain,
+    ...siteDomainsEndpoints,
     provisionSiteEndpoint,
     handoffEndpoint,
     handoffPostEndpoint,
