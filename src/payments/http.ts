@@ -37,11 +37,25 @@ import { siteOrigin } from '@/lib/site-url'
 
 const REQUEST_TIMEOUT_MS = 8_000
 
+/**
+ * "This site cannot take online payment right now", as distinct from "the gateway did not
+ * answer".
+ *
+ * `src/endpoints/checkout.ts` tests for this class to choose between the two Persian
+ * sentences a buyer can get, because they mean different things to a shop: one is a
+ * configuration somebody has to fix, the other is an outage somebody has to wait out.
+ *
+ * The optional message is the specific reason from `resolveGateway`. It is carried for the
+ * log and for staff-facing endpoints; the buyer's sentence stays the generic one.
+ */
 export class PaymentGatewayNotConfigured extends Error {
-  constructor() {
-    super('درگاه پرداخت پیکربندی نشده است.')
+  constructor(detail?: string) {
+    super(detail ? `درگاه پرداخت پیکربندی نشده است: ${detail}` : 'درگاه پرداخت پیکربندی نشده است.')
     this.name = 'PaymentGatewayNotConfigured'
+    this.detail = detail
   }
+
+  detail?: string
 }
 
 type GatewayConfig = { createUrl: string; token: string; verifyUrl: string }

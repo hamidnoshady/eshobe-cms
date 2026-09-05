@@ -6,7 +6,7 @@ import { Media } from '@/components/Media'
 import { LivePreviewListener } from '@/components/LivePreviewListener'
 import { formatPrice } from '@/lib/format'
 import { getSiteContext } from '@/lib/site-context'
-import { storeSettingsForSite } from '@/lib/store'
+import { paymentMethodsForSite, storeSettingsForSite } from '@/lib/store'
 import { uiString } from '@/lib/ui-strings'
 
 import { PurchaseForm } from '@/blocks/ProductGrid/PurchaseForm'
@@ -22,6 +22,12 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
   const { currency } = site
     ? await storeSettingsForSite(String(site.id), { locale })
     : { currency: 'IRT' as const }
+
+  // Same list the product grid renders, from the same helper: a buyer who sees Digipay on
+  // the card and not on the detail page has been told two different things about one shop.
+  const paymentMethods = site
+    ? await paymentMethodsForSite(String(site.id), { currency, locale })
+    : []
 
   const stock =
     product.trackInventory && typeof product.inventory === 'number'
@@ -79,7 +85,9 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
             {!soldOut ? (
               <PurchaseForm
                 availability={stock}
+                currency={currency}
                 locale={locale}
+                paymentMethods={paymentMethods}
                 productId={String(product.id)}
               />
             ) : (

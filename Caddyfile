@@ -29,7 +29,9 @@ https://{$CONTROL_PLANE_HOST} {
 # here — but the public site itself depends on API routes: the Wave 3
 # contact form posts to /api/form-submissions from the customer domain, the Wave 7
 # storefront posts to /api/checkout and takes the payment gateway's callback on
-# /api/checkout/callback, a headless renderer reads /api/site (WAVE-9.md),
+# /api/checkout/callback, that same storefront reads the shop's enabled Iranian
+# payment gateways from /api/payments/methods (WAVE-10), a headless renderer reads
+# /api/site (WAVE-9.md),
 # locally-stored uploads are served from /api/media/file/*, and (WAVE-9 §9.4) a
 # headless builder's own dashboard (e.g. cafe-restaurant-pos's /dashboard/website)
 # reads and writes one site's content through its API key while still sending this
@@ -54,6 +56,26 @@ https:// {
         path /api/checkout /api/checkout/*
     }
     handle @checkout {
+        reverse_proxy web:3000
+    }
+
+    # The buyer's payment-gateway picker. GET only, and only `methods`: a storefront on
+    # this domain has to be able to ask which gateways the shop takes before it can draw
+    # the radio group, and the answer is as public as the shop's own prices — labels,
+    # blurbs, amount windows, no row ids and no credentials.
+    #
+    # The rest of `/api/payments/*` is deliberately NOT carved out. `self-test` makes this
+    # server call a live merchant account and is platform-admin only; `cancel` moves money
+    # back and is site-staff only. Both are reached from the control plane's own origin,
+    # where an admin session or a site key can authorise them, and letting a customer
+    # domain route to them would put a staff-only endpoint one `curl` away from anybody
+    # standing on a shop's homepage. They fall through to @control_plane_paths below and
+    # get a 404, which is the same answer every other control-plane path gets here.
+    @payment_methods {
+        method GET HEAD
+        path /api/payments/methods
+    }
+    handle @payment_methods {
         reverse_proxy web:3000
     }
 

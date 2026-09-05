@@ -5,7 +5,7 @@ import { platformAdmin } from '../access/platformAdmin'
 import { apiKeyAware } from '../access/siteApiKey'
 import { MAX_ORDER_QUANTITY } from '../lib/checkout'
 import { currencyCodes, validatePriceMinor } from '../lib/money'
-import { paymentProviderOptions } from '../payments'
+import { isGatewayProvider, paymentProviderOptions } from '../payments'
 import { restrictApiKeyOrderWrite } from './hooks/restrictApiKeyOrderWrite'
 import { snapshotOrder } from './hooks/snapshotOrder'
 import { settleStock } from './hooks/settleStock'
@@ -221,6 +221,44 @@ export const Orders: CollectionConfig<'orders'> = {
           name: 'paidAt',
           type: 'date',
           label: 'زمان پرداخت',
+        },
+        {
+          name: 'mode',
+          type: 'select',
+          label: 'محیط پرداخت',
+          admin: {
+            /**
+             * Only shown when the provider is one of the four PSPs; `bank` and `http` have no
+             * sandbox. It is a snapshot of the gateway row's `mode` at checkout time, because
+             * that row can be flipped to `live` afterwards and an order that was *taken* in
+             * sandbox must still say so — a support conversation about an unpaid order starts
+             * from this field.
+             */
+            condition: (_data, siblingData) => isGatewayProvider(siblingData?.provider as string),
+            description: '«آزمایشی» یعنی پولی جابه‌جا نشده است.',
+          },
+          options: [
+            { label: 'عملیاتی', value: 'live' },
+            { label: 'آزمایشی', value: 'sandbox' },
+          ],
+        },
+        {
+          name: 'gatewayData',
+          type: 'json',
+          label: 'دادهٔ درگاه',
+          access: {
+            // Not writable by any caller. `applyPayment` (`src/endpoints/checkout.ts`) writes
+            // it under `overrideAccess`, which is the only path that should: it is the
+            // adapter's account of what the PSP said, and a tenant able to set it could
+            // manufacture a `settled: true` for an order nobody paid.
+            create: () => false,
+            update: () => false,
+          },
+          admin: {
+            description:
+              'آنچه درگاه برگرداند: شناسهٔ توکن، مبلغ تأییدشده، وضعیت تسویه، کد خطا. برای تطبیق با پنل پذیرنده. این مقدار هیچ‌وقت دلیلِ «پرداخت‌شده» شدن سفارش نیست — آن را خودِ سرور از درگاه می‌پرسد.',
+            readOnly: true,
+          },
         },
       ],
     },

@@ -80,6 +80,7 @@ export interface Config {
     products: Product;
     orders: Order;
     store: Store;
+    'payment-gateways': PaymentGateway;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -110,6 +111,7 @@ export interface Config {
     products: ProductsSelect<false> | ProductsSelect<true>;
     orders: OrdersSelect<false> | OrdersSelect<true>;
     store: StoreSelect<false> | StoreSelect<true>;
+    'payment-gateways': PaymentGatewaysSelect<false> | PaymentGatewaysSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -125,8 +127,12 @@ export interface Config {
     defaultIDType: string;
   };
   fallbackLocale: ('false' | 'none' | 'null') | false | null | ('fa' | 'en') | ('fa' | 'en')[];
-  globals: {};
-  globalsSelect: {};
+  globals: {
+    payments: Payment;
+  };
+  globalsSelect: {
+    payments: PaymentsSelect<false> | PaymentsSelect<true>;
+  };
   locale: 'fa' | 'en';
   widgets: {
     collections: CollectionsWidget;
@@ -1230,9 +1236,25 @@ export interface Order {
    * پر کردنش کارِ درگاه است، نه کاربر.
    */
   payment: {
-    provider: 'bank' | 'http';
+    provider: 'bank' | 'http' | 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
     reference?: string | null;
     paidAt?: string | null;
+    /**
+     * «آزمایشی» یعنی پولی جابه‌جا نشده است.
+     */
+    mode?: ('live' | 'sandbox') | null;
+    /**
+     * آنچه درگاه برگرداند: شناسهٔ توکن، مبلغ تأییدشده، وضعیت تسویه، کد خطا. برای تطبیق با پنل پذیرنده. این مقدار هیچ‌وقت دلیلِ «پرداخت‌شده» شدن سفارش نیست — آن را خودِ سرور از درگاه می‌پرسد.
+     */
+    gatewayData?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
   };
   updatedAt: string;
   createdAt: string;
@@ -1251,11 +1273,161 @@ export interface Store {
   /**
    * «کارت به کارت» به شمارهٔ کارت پایین نیاز دارد؛ «درگاه HTTP» به متغیرهای محیطی PAYMENT_HTTP_* — بدون آن‌ها، پرداخت با خطای «پیکربندی نشده» رد می‌شود.
    */
-  paymentProvider: 'bank' | 'http';
+  paymentProvider: 'bank' | 'http' | 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
   /**
    * شمارهٔ کارت یا هر متنی که خریدار باید ببیند تا پول را بفرستد. در API عمومی و در جست‌وجو نمایش داده نمی‌شود.
    */
   paymentInstructions?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * هر ردیف، پیکربندی یک درگاه برای یک سایت است. اعتبارنامه‌ها را فقط کارکنان سکو وارد می‌کنند و هیچ API آن‌ها را برنمی‌گرداند؛ صاحب سایت فقط روشن/خاموش بودن و ترتیب نمایش را تعیین می‌کند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payment-gateways".
+ */
+export interface PaymentGateway {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * خودکار از روی درگاه و نام نمایشی ساخته می‌شود.
+   */
+  title?: string | null;
+  /**
+   * پس از ساخت ردیف قابل تغییر نیست: اعتبارنامهٔ رمزنگاری‌شدهٔ هر درگاه در ستون‌های همان درگاه معنا دارد.
+   */
+  gateway: 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
+  /**
+   * «آزمایشی» درخواست‌ها را به محیط تست همان درگاه می‌فرستد. روی سایت فعال، این وضعیت به خریدار هم نشان داده می‌شود.
+   */
+  mode: 'live' | 'sandbox';
+  /**
+   * خاموش یعنی این درگاه نه در فروشگاه نمایش داده می‌شود و نه در API. روشن کردنش نیاز دارد اعتبارنامه‌ها کامل باشند و واحد پول سایت با درگاه بخواند.
+   */
+  enabled?: boolean | null;
+  /**
+   * اختیاری. خالی بماند، نام رسمی درگاه نمایش داده می‌شود. برای سایت‌های دوزبانه در هر زبان جداگانه نوشته می‌شود.
+   */
+  displayName?: string | null;
+  /**
+   * عدد کمتر یعنی بالاتر در فهرست. درگاه اول، انتخاب پیش‌فرض خرید است.
+   */
+  priority: number;
+  /**
+   * به واحد پول سایت. خالی یعنی بدون حداقل (حداقل خودِ درگاه اعمال می‌شود).
+   */
+  minAmount?: number | null;
+  /**
+   * به واحد پول سایت. برای سقف شاپرک یا سقفی که فروشگاه روی پرداخت اقساطی می‌خواهد.
+   */
+  maxAmount?: number | null;
+  /**
+   * فقط کارکنان سکو. هر مقدار رمزنگاری‌شده (AES-256-GCM) ذخیره می‌شود و بعد از ذخیره، خالی نمایش داده می‌شود — خالی گذاشتن یعنی «تغییر نده». پلت‌فرم ویجت رمزِ عبور ندارد، پس مقدار هنگام تایپ دیده می‌شود؛ محافظت، در ذخیره‌سازی و در خواندن است.
+   */
+  credentials?: {
+    /**
+     * کد ۳۶ کاراکتری پذیرنده از پنل زرین‌پال. همین یک فیلد، کل اعتبارنامهٔ این درگاه است.
+     */
+    merchantId?: string | null;
+    /**
+     * کد معرف، اگر در قرارداد با زرین‌پال دارید. خالی بگذارید مگر اینکه بدانید چیست.
+     */
+    referrerId?: string | null;
+    /**
+     * نام کاربری پذیرنده، همان که ارائه‌دهندهٔ درگاه به شما داده است.
+     */
+    username?: string | null;
+    /**
+     * رمز عبور پذیرنده. رمزنگاری‌شده ذخیره می‌شود و هیچ API آن را برنمی‌گرداند.
+     */
+    password?: string | null;
+    /**
+     * با رمز کلید به شکل base64(client_id:client_secret) در هدر Authorization فرستاده می‌شود.
+     */
+    clientId?: string | null;
+    clientSecret?: string | null;
+    /**
+     * توکن درگاه از پنل ترب. اگر ترب فقط توکن داده است، نام کاربری و رمز عبور را خالی بگذارید.
+     */
+    token?: string | null;
+    /**
+     * نشانی پایهٔ API درگاه. خالی یعنی نشانی رسمیِ همان محیط. این فیلد تصمیم می‌گیرد پول به کجا می‌رود؛ دامنهٔ آن هم باید در فهرست مجاز همان درگاه باشد.
+     */
+    baseUrl?: string | null;
+    /**
+     * ۰ = کیف پول، ۲ = درگاه بانکی (IPG). «بدون ترجیح» یعنی صفحهٔ انتخاب ابزار پرداختِ خودِ دیجی‌پی نمایش داده شود.
+     */
+    preferredGateway?: ('none' | '0' | '2') | null;
+    /**
+     * نوع تیکتی که در `?type=` فرستاده می‌شود. ۱۱ همهٔ فیچرهای UPG را پوشش می‌دهد و پیش‌فرض مستندات است.
+     */
+    ticketType?: ('11' | '5' | '13') | null;
+    /**
+     * جزئیات سبد خرید (`basketDetailsDto`) فقط برای خرید اعتباری و اقساطی اجباری است. این پنج فیلد را فقط زمانی پر کنید که دیجی‌پی از شما خواسته باشد؛ «دستهٔ کالا» که خالی بماند، سبد ارسال نمی‌شود و مسیر IPG/کیف پول طی می‌شود.
+     */
+    basketCategoryId?: ('none' | 'Mobile' | 'laptop' | 'tablet' | 'gameconsole') | null;
+    /**
+     * ۱ بادوام، ۲ مصرفی، ۳ سرویس/خدمات، ۴ مصرفیِ بادوام.
+     */
+    basketProductType?: ('1' | '2' | '3' | '4') | null;
+    /**
+     * شناسهٔ فروشنده که دیجی‌پی به پذیرنده اختصاص می‌دهد.
+     */
+    sellerId?: string | null;
+    /**
+     * شناسهٔ تأمین‌کننده که دیجی‌پی به پذیرنده اختصاص می‌دهد.
+     */
+    supplierId?: string | null;
+    /**
+     * برند کالا در سبد خرید. خالی یعنی نام سایت.
+     */
+    basketBrand?: string | null;
+    /**
+     * الگوی نشانی صفحهٔ پرداخت اسنپ‌پی؛ `{token}` با توکن پرداخت جایگزین می‌شود. اگر پاسخ سرویس token خودش نشانی برگرداند، همان بر این الگو اولویت دارد.
+     */
+    payPageUrl?: string | null;
+    /**
+     * حداقل مبلغ مجاز اسنپ‌پی به ریال. خالی یعنی ۱٬۰۰۰٬۰۰۰ ریال (۱۰۰٬۰۰۰ تومان).
+     */
+    minAmountRial?: string | null;
+    /**
+     * نوع کمیسیون کالا (`commissionType`) در هر قلم سبد. مقداری که اسنپ‌پی در مستندات فنی پذیرندهٔ شما نوشته؛ خالی یعنی ۱.
+     */
+    commissionType?: string | null;
+    /**
+     * مسیر سرویس ساخت تراکنش، نسبی به نشانی پایه. ترب مستندات عمومی ندارد؛ مسیر را از همان چیزی بگیرید که پشتیبانی ترب به شما داده است.
+     */
+    createPath?: string | null;
+    /**
+     * مسیر سرویس تأیید/استعلام. این سرویس باید server-to-server باشد؛ نتیجهٔ بازگشت مرورگر به‌تنهایی پرداخت را تأیید نمی‌کند.
+     */
+    verifyPath?: string | null;
+    /**
+     * مسیر سرویس لغو/عودت تراکنش (اختیاری).
+     */
+    cancelPath?: string | null;
+    /**
+     * واحدی که درگاه مبلغ را در آن می‌گیرد. «همان واحد سایت» پیش‌فرض است و توصیه می‌شود: تبدیل تومان به ریال یک‌بار، در `src/lib/money.ts` انجام می‌شود.
+     */
+    amountUnit?: ('site' | 'IRR' | 'IRT') | null;
+  };
+  /**
+   * تیک بزنید و ذخیره کنید تا هر چه در این ردیف ذخیره شده پاک شود. بدون تیک، فیلدهای خالی یعنی «همان مقدار قبلی».
+   */
+  clearCredentials?: boolean | null;
+  /**
+   * چون مقدار رمزها هرگز برگردانده نمی‌شود، این خلاصه و انگشت‌های هشِ کنارش تنها راهِ فهمیدنِ «ذخیره شد یا نه» است.
+   */
+  credentialsSummary?: string | null;
+  credentialsUpdatedAt?: string | null;
+  selfTestOk?: boolean | null;
+  selfTestDetail?: string | null;
+  selfTestAt?: string | null;
+  /**
+   * برای خودتان: شمارهٔ قرارداد، نام کارشناس درگاه، تاریخ انقضای اعتبارنامه.
+   */
+  notes?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1503,6 +1675,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'store';
         value: string | Store;
+      } | null)
+    | ({
+        relationTo: 'payment-gateways';
+        value: string | PaymentGateway;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -2190,6 +2366,8 @@ export interface OrdersSelect<T extends boolean = true> {
         provider?: T;
         reference?: T;
         paidAt?: T;
+        mode?: T;
+        gatewayData?: T;
       };
   updatedAt?: T;
   createdAt?: T;
@@ -2203,6 +2381,56 @@ export interface StoreSelect<T extends boolean = true> {
   currency?: T;
   paymentProvider?: T;
   paymentInstructions?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payment-gateways_select".
+ */
+export interface PaymentGatewaysSelect<T extends boolean = true> {
+  site?: T;
+  title?: T;
+  gateway?: T;
+  mode?: T;
+  enabled?: T;
+  displayName?: T;
+  priority?: T;
+  minAmount?: T;
+  maxAmount?: T;
+  credentials?:
+    | T
+    | {
+        merchantId?: T;
+        referrerId?: T;
+        username?: T;
+        password?: T;
+        clientId?: T;
+        clientSecret?: T;
+        token?: T;
+        baseUrl?: T;
+        preferredGateway?: T;
+        ticketType?: T;
+        basketCategoryId?: T;
+        basketProductType?: T;
+        sellerId?: T;
+        supplierId?: T;
+        basketBrand?: T;
+        payPageUrl?: T;
+        minAmountRial?: T;
+        commissionType?: T;
+        createPath?: T;
+        verifyPath?: T;
+        cancelPath?: T;
+        amountUnit?: T;
+      };
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  credentialsUpdatedAt?: T;
+  selfTestOk?: T;
+  selfTestDetail?: T;
+  selfTestAt?: T;
+  notes?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2484,6 +2712,41 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   batch?: T;
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * کلید روشن/خاموشِ ماژول درگاه‌های پرداخت برای همهٔ سایت‌ها، و فهرست درگاه‌هایی که سکو اجازهٔ استفاده از آن‌ها را می‌دهد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payments".
+ */
+export interface Payment {
+  id: string;
+  /**
+   * خاموش کردنِ این کلید، همهٔ درگاه‌های آنلاین را در همهٔ سایت‌ها متوقف می‌کند. سفارش‌ها از این پس با روش دریافت وجهِ خودِ سایت (کارت به کارت یا درگاه HTTP) ثبت می‌شوند؛ سفارش‌های در جریان، همان‌جا تأیید می‌شوند.
+   */
+  moduleEnabled: boolean;
+  /**
+   * درگاهی که اینجا نباشد، هیچ سایتی نمی‌تواند روشنش کند و هیچ خریداری نمی‌بیندش — بدون اینکه پیکربندی مشتری تغییر کند.
+   */
+  allowedGateways: ('digipay' | 'snappPay' | 'torobPay' | 'zarinpal')[];
+  /**
+   * برای اپراتورهای سکو: شمارهٔ قرارداد پذیرندگی، وضعیت محیط آزمایشی هر درگاه، یا دلیلِ خاموش بودنِ ماژول.
+   */
+  notes?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payments_select".
+ */
+export interface PaymentsSelect<T extends boolean = true> {
+  moduleEnabled?: T;
+  allowedGateways?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

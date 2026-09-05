@@ -13,7 +13,7 @@ import { idOf } from '@/lib/ids'
 import { localeHref } from '@/lib/locales'
 import { getSiteContext } from '@/lib/site-context'
 import { findForSite } from '@/lib/site-query'
-import { storeSettingsForSite } from '@/lib/store'
+import { paymentMethodsForSite, storeSettingsForSite } from '@/lib/store'
 import { uiString } from '@/lib/ui-strings'
 import { productPath } from '@/lib/slug'
 import { cn } from '@/utilities/ui'
@@ -42,6 +42,13 @@ export const ProductGridBlock: React.FC<Props> = async ({
   const { currency } = site
     ? await storeSettingsForSite(String(site.id), { locale })
     : { currency: 'IRT' as const }
+
+  // Which Iranian PSPs this site has switched on, already ordered for the buyer. Empty on
+  // a site with none, which is the common case and renders exactly the form that existed
+  // before the module did.
+  const paymentMethods = site
+    ? await paymentMethodsForSite(String(site.id), { currency, locale })
+    : []
 
   let items: Product[] = []
 
@@ -135,7 +142,9 @@ export const ProductGridBlock: React.FC<Props> = async ({
                 {showBuyButton !== false && !soldOut && (
                   <PurchaseForm
                     availability={stock}
+                    currency={currency}
                     locale={locale}
+                    paymentMethods={paymentMethods}
                     productId={String(product.id)}
                   />
                 )}

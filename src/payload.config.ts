@@ -12,6 +12,7 @@ import { ApiKeys } from './collections/ApiKeys'
 import { Categories } from './collections/Categories'
 import { Media } from './collections/Media'
 import { Orders } from './collections/Orders'
+import { PaymentGateways } from './collections/PaymentGateways'
 import { Products } from './collections/Products'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
@@ -19,6 +20,7 @@ import { Sites } from './collections/Sites'
 import { Store } from './collections/Store'
 import { Theme } from './collections/Theme'
 import { Users } from './collections/Users'
+import { Payments } from './globals/Payments'
 import { Footer } from './Footer/config'
 import { Header } from './Header/config'
 import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
@@ -32,6 +34,7 @@ import { checkoutEndpoints } from './endpoints/checkout'
 import { domainCheck } from './endpoints/domainCheck'
 import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
+import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
 
@@ -74,6 +77,20 @@ export default buildConfig({
     handoffPostEndpoint,
     ...checkoutEndpoints,
     ...apiKeysEndpoints,
+    // Wave 10 — the payment-gateway module's API. `methods` is public (a headless
+    // renderer draws the buyer's picker from it) and the rest are staff-only; see
+    // `src/endpoints/paymentGateways.ts` for who may call which.
+    ...paymentGatewayEndpoints,
+  ],
+  globals: [
+    /**
+     * The only Payload global in this codebase. Everything else that looks like a
+     * singleton (`store`, `theme`, `header`, `footer`) is a collection registered
+     * `isGlobal: true` in the multi-tenant plugin's map, because a Payload global cannot
+     * be tenant-scoped — and this one deliberately is not: "is the payment module on at
+     * all" is the platform operator's question, not a site's.
+     */
+    Payments,
   ],
   admin: {
     components: {
@@ -138,6 +155,12 @@ export default buildConfig({
     Products,
     Orders,
     Store,
+    // Wave 10 — one row per (site, gateway), holding the AES-encrypted credentials a
+    // platform admin typed and the tenant's own on/off switch. In the multi-tenant
+    // plugin's `collections` map for the reason CLAUDE.md states: unregistered means
+    // shared by every tenant, and here that would mean one customer's merchant
+    // credentials editable from another customer's admin.
+    PaymentGateways,
   ],
   /**
    * Origins allowed to call the API with credentials. The deployment origin is the

@@ -2,13 +2,15 @@ import type { Endpoint, PayloadRequest } from 'payload'
 
 import { addDataAndFileToRequest } from 'payload'
 
-import type { CheckoutOrder } from '@/payments'
-import type { Order, Product, Site } from '@/payload-types'
+import type { PaymentProvider } from '@/payments'
+import type { Product, Site } from '@/payload-types'
+
+import { isGatewayId, listEnabledGateways, verifyGatewayState } from '@/payments/gateways'
 
 import { newOrderReference } from '@/collections/hooks/snapshotOrder'
 import { toAsciiDigits } from '@/lib/digits'
 import { clientKey, consume } from '@/lib/rate-limit'
-import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
+import { MAX_ORDER_QUANTITY, toCheckoutOrder } from '@/lib/checkout'
 import { isUuid } from '@/lib/ids'
 import { localeHref } from '@/lib/locales'
 import { CHECKOUT_BASE } from '@/lib/slug'
@@ -91,6 +93,19 @@ const queryParam = (req: PayloadRequest, name: string): null | string => {
   }
 }
 
+/**
+ * `req.query` is populated by Payload's REST layer; `req.url` always exists. Adapters that
+ * read a callback parameter (`authority`, `trackingCode`, `providerId`) get both merged, so
+ * the same handler works whether a PSP posted a form, posted JSON, or bounced a browser.
+ */
+const bodyQuery = (req: PayloadRequest): null | Record<string, string> => {
+  try {
+    return Object.fromEntries(new URL(req.url ?? '', 'http://localhost').searchParams.entries())
+  } catch {
+    return null
+  }
+}
+
 const badRequest = (message: string) =>
   Response.json({ message }, { headers: noStore, status: 400 })
 
@@ -141,23 +156,6 @@ const confirmationUrl = ({
   `${localeHref(`${CHECKOUT_BASE}/${orderId}`, locale, site.defaultLocale)}?r=${encodeURIComponent(
     signOrderReceipt({ orderId, siteId }),
   )}`
-
-/** What a provider is told about a payment, and nothing more. */
-const toCheckoutOrder = ({ locale, order, site }: { locale: string; order: Order; site: Site }): CheckoutOrder => ({
-  buyer: {
-    email: order.buyer?.email ?? undefined,
-    name: order.buyer?.name ?? '',
-    phone: order.buyer?.phone ?? '',
-  },
-  currency: order.currency,
-  id: String(order.id),
-  locale,
-  productTitle: order.productTitle ?? '',
-  quantity: Number(order.quantity ?? 1),
-  reference: String(order.reference ?? order.id),
-  site,
-  total: Number(order.total ?? 0),
-})
 
 export const startCheckout: Endpoint['handler'] = async (req) => {
   await addDataAndFileToRequest(req)
@@ -288,9 +286,61 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     locale: site.defaultLocale ?? undefined,
   })
 
-  const provider = resolvePaymentProvider(paymentProvider)
   const total = unitPrice * quantity
   const locale = site.defaultLocale ?? 'fa'
+
+  /**
+   * Which gateway takes this order — the buyer's choice, or the site's.
+   *
+   * Resolved *before* the order is created, so a stale picker cannot leave a `pending`
+   * row behind that the duplicate guard will then hold against the buyer for fifteen
+   * minutes. `listEnabledGateways` answers it without decrypting anything: a gateway the
+   * site has not switched on, has not configured, or whose amount window excludes this
+   * basket is simply not in the list.
+   */
+  const requested = typeof data.gateway === 'string' && data.gateway.trim() ? data.gateway.trim() : null
+
+  if (requested !== null && !isGatewayId(requested)) return badRequest('unknown gateway')
+
+  const methods = await listEnabledGateways({
+    amount: total,
+    currency,
+    req,
+    siteId: String(site.id),
+  })
+
+  let provider: PaymentProvider
+
+  if (requested) {
+    const method = methods.find(({ id }) => id === requested)
+
+    if (!method) {
+      // Telling the buyer *why* is safe here for the same reason `/api/payments/methods`
+      // is public: which gateways this site has switched on is already readable from its
+      // own domain. The reasons come from `resolveGateway` and are deliberately coarse —
+      // "unavailable" and "amount out of range", never "misconfigured".
+      const refusal =
+        methods.length === 0
+          ? 'پرداخت آنلاین در حال حاضر برای این فروشگاه فعال نیست.'
+          : 'این روش پرداخت برای مبلغ سفارش شما در دسترس نیست. روش دیگری را انتخاب کنید.'
+
+      return Response.json({ message: refusal, methods, ok: false }, { headers: noStore, status: 409 })
+    }
+
+    provider = resolvePaymentProvider(method.id)
+  } else if (methods.length > 0 && !isGatewayId(paymentProvider ?? undefined)) {
+    /**
+     * The site's configured method is a *method* (`bank`, `http`) but it has switched a
+     * gateway on. Switching one on is an explicit statement of intent — "take money this
+     * way" — and `store.paymentProvider` is a default most tenants never visit, so the
+     * top-priority enabled gateway wins. A headless renderer that has not been updated to
+     * send `gateway` therefore gets the merchant's new PSP instead of silently falling
+     * back to card-to-card, and the storefront picker still overrides this per buyer.
+     */
+    provider = resolvePaymentProvider(methods[0]?.id ?? paymentProvider)
+  } else {
+    provider = resolvePaymentProvider(paymentProvider)
+  }
 
   const order = await req.payload.create({
     collection: 'orders',
@@ -319,9 +369,10 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
 
   let redirectUrl: null | string = null
   let paymentReference: string | undefined
+  let initiation: Awaited<ReturnType<NonNullable<PaymentProvider['initiate']>>> | undefined
 
   try {
-    const initiation = await provider.initiate({ order: checkoutOrder, req })
+    initiation = await provider.initiate({ order: checkoutOrder, req })
 
     redirectUrl = initiation.redirectUrl ?? null
     paymentReference = initiation.paymentReference
@@ -338,7 +389,9 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
         confirmationUrl: confirmationUrl({ locale, orderId: String(order.id), site, siteId: String(site.id) }),
         message:
           error instanceof PaymentGatewayNotConfigured
-            ? 'درگاه پرداخت این سایت پیکربندی نشده است.'
+            ? // `detail` is a `resolveGateway` refusal reason: written to be shown to a
+              // buyer, so it names what is unavailable without naming what is missing.
+              (error.detail ?? 'درگاه پرداخت این سایت پیکربندی نشده است.')
             : 'درگاه پرداخت پاسخ نداد؛ سفارش شما ذخیره شد.',
         ok: true,
         pending: true,
@@ -347,11 +400,27 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     )
   }
 
-  if (paymentReference) {
+  /**
+   * Everything the attempt produced, in one write: the reference the callback will look
+   * up, the environment it was taken in, and whatever the PSP handed back that a support
+   * conversation will need (a ticket, a token, a fee).
+   *
+   * `gatewayData` is written here and nowhere else by a caller — the column denies writes
+   * at field level, and this update runs `overrideAccess`, because it is the adapter's
+   * account of what the PSP said rather than a tenant's opinion of it.
+   */
+  if (paymentReference || initiation?.data || initiation?.mode) {
     await req.payload.update({
       id: order.id,
       collection: 'orders',
-      data: { payment: { provider: provider.name, reference: paymentReference } },
+      data: {
+        payment: {
+          ...(initiation?.data ? { gatewayData: initiation.data } : {}),
+          ...(initiation?.mode ? { mode: initiation.mode } : {}),
+          provider: provider.name,
+          ...(paymentReference ? { reference: paymentReference } : {}),
+        },
+      },
       depth: 0,
       overrideAccess: true,
       req,
@@ -377,6 +446,11 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
  * anything.
  */
 export const completeCheckout: Endpoint['handler'] = async (req) => {
+  // A PSP's own callback is a POST with a body, and every adapter that cross-checks one
+  // (`amount`, `providerId`, `reference`) reads it from `callback.body`. Payload fills
+  // `req.data` only when asked to.
+  await addDataAndFileToRequest(req)
+
   const orderId = queryParam(req, 'order')
   const isBrowser = req.method === 'GET'
 
@@ -402,6 +476,41 @@ export const completeCheckout: Endpoint['handler'] = async (req) => {
     return isBrowser ? redirect(back) : Response.json({ ok: true, status: order.status }, { headers: noStore })
   }
 
+  /**
+   * The signed state we put on the callback URL, checked before anything else.
+   *
+   * Not a substitute for asking the gateway — `confirm` does that, and `verifyGatewayState`
+   * failing still leaves the order untouched rather than paid. What it does close is a
+   * narrower hole: `/api/checkout/callback?order=<uuid>` with no `st` is reachable by
+   * anyone who learns an order id, and without this an attacker can drive the callback for
+   * an order they did not create, forcing a verify against the PSP with whatever
+   * `providerId`/`authority` they like to supply. Refusing an unknown or replayed signature
+   * costs nothing — the URL we hand the PSP carries a fresh one, good for fifteen minutes
+   * and one order.
+   *
+   * A `gw` that disagrees with the order's own provider is refused outright: it means the
+   * URL was edited, and the stored provider is the only one this attempt was ever made
+   * against.
+   */
+  const state = queryParam(req, 'st')
+  const claimedGateway = queryParam(req, 'gw')
+
+  if (claimedGateway && claimedGateway !== order.payment?.provider) {
+    return refused(req, `callback: gateway ${claimedGateway} does not match order ${order.id}`, 400)
+  }
+
+  if (
+    state &&
+    !verifyGatewayState(state, {
+      amount: Number(order.total ?? 0),
+      gateway: String(order.payment?.provider ?? ''),
+      orderId: String(order.id),
+      siteId: String(site.id),
+    })
+  ) {
+    return refused(req, `callback: bad or expired state signature for order ${order.id}`, 400)
+  }
+
   const provider = resolvePaymentProvider(order.payment?.provider)
 
   if (!provider.confirm) {
@@ -415,8 +524,17 @@ export const completeCheckout: Endpoint['handler'] = async (req) => {
   }
 
   const confirmation = await provider.confirm({
+    /**
+     * What came back, for lookups and cross-checks only. `paymentReference` below is what
+     * we stored at initiate — never what the query string claims — and the adapters that
+     * read `callback` (Digipay's `providerId`, ZarinPal's `authority`) compare it against
+     * the stored value before believing it.
+     */
+    callback: {
+      body: (req.data ?? {}) as Record<string, unknown>,
+      query: { ...(req.query as Record<string, unknown>), ...(bodyQuery(req) ?? {}) },
+    },
     order: toCheckoutOrder({ locale, order, site }),
-    // What we stored at initiate — not what the query string claims.
     paymentReference: order.payment?.reference ?? undefined,
     req,
   })
@@ -434,6 +552,7 @@ export const completeCheckout: Endpoint['handler'] = async (req) => {
     collection: 'orders',
     data: {
       payment: {
+        ...(confirmation.data ? { gatewayData: confirmation.data } : {}),
         paidAt: new Date().toISOString(),
         provider: provider.name,
         reference: confirmation.paymentReference ?? order.payment?.reference,

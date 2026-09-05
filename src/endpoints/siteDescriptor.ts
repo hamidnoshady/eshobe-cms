@@ -7,6 +7,7 @@ import { requestApiKey } from '@/access/siteApiKey'
 import { idOf } from '@/lib/ids'
 import { siteFromRequest } from '@/lib/site-query'
 import { siteOrigin } from '@/lib/site-url'
+import { listEnabledGateways } from '@/payments/gateways'
 import { contractVersion } from '@eshobe/site-runtime'
 
 /**
@@ -67,6 +68,17 @@ export const siteDescriptor: Endpoint = {
 
     const siteId = idOf(site.id)
 
+    // `idOf` returns `null | string` because it takes `unknown`; a persisted site always
+    // has an id, and `listEnabledGateways` below is typed for one. Answering 404 rather
+    // than querying with `null` keeps "a site with no id" from becoming "every site's
+    // payment gateways".
+    if (!siteId) {
+      return Response.json(
+        { error: 'unknown-host' },
+        { headers: { 'cache-control': 'no-store' }, status: 404 },
+      )
+    }
+
     // `overrideAccess: true` because the tenant is already established by this
     // lookup — the same exception `getSiteByHost` documents. Nothing is selected that
     // a public page render could not see; `paymentInstructions` in particular is
@@ -106,6 +118,34 @@ export const siteDescriptor: Endpoint = {
         .then(({ docs }) => docs[0] as (typeof docs)[0] & { updatedAt?: string }),
     ])
 
+    const storeSettings = store
+      ? { currency: store.currency, paymentProvider: store.paymentProvider }
+      : // A store site whose editor has not saved the settings doc yet: the same
+        // defaults `src/lib/store.ts` falls back to, so the renderer never invents
+        // a currency and a storefront never renders "480,000" with no unit.
+        { currency: 'IRT' as const, paymentProvider: 'bank' as const }
+
+    /**
+     * Which Iranian PSPs this site will take, in the order the buyer should see them.
+     *
+     * Here as well as on `GET /api/payments/methods` because a headless renderer already
+     * makes this one call before it can render anything at all, and a storefront that had
+     * to make a second round trip to draw the payment picker would draw it late — after
+     * the buy button, which is exactly when a buyer notices. `methods` costs one query and
+     * carries no row ids and no credentials (`EnabledGateway` has no field for either), so
+     * it is as public as the rest of this body.
+     *
+     * No `amount` filter: the descriptor is site-wide and cached, and the checkout
+     * endpoint re-checks each gateway's window against the actual basket. A renderer that
+     * knows the quantity asks `/api/payments/methods?amount=` instead.
+     */
+    const methods = await listEnabledGateways({
+      currency: storeSettings.currency,
+      locale: site.defaultLocale ?? undefined,
+      req,
+      siteId,
+    })
+
     const body = {
       // Both locales and the default: a renderer must 404 `/de` on a `fa`+`en` site
       // rather than falling back and duplicating the home page under a URL that
@@ -129,12 +169,8 @@ export const siteDescriptor: Endpoint = {
       name: site.name,
       slug: site.slug,
       status: site.status,
-      store: store
-        ? { currency: store.currency, paymentProvider: store.paymentProvider }
-        : // A store site whose editor has not saved the settings doc yet: the same
-          // defaults `src/lib/store.ts` falls back to, so the renderer never invents
-          // a currency and a storefront never renders "480,000" with no unit.
-          { currency: 'IRT', paymentProvider: 'bank' },
+      payments: { currency: storeSettings.currency, methods },
+      store: storeSettings,
       theme: theme
         ? {
             accent: theme.accent,
