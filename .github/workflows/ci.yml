@@ -103,12 +103,14 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      # Integration tests boot Payload directly (getPayload) rather than going
+      # through the CLI. NODE_ENV unset defaults Payload to dev/push mode, where
+      # it auto-syncs the schema on first init — no manual migrate step needed.
       DATABASE_URL: postgres://eshobe:eshobe@127.0.0.1:5432/eshobe
       PAYLOAD_SECRET: ci-test-secret
       NEXT_PUBLIC_SERVER_URL: http://localhost:3000
       CRON_SECRET: ci-cron-secret
       PREVIEW_SECRET: ci-preview-secret
-      # Skip DNS-based SSRF guard in CI where PSP mocks resolve to localhost.
       PAYMENT_GATEWAY_SKIP_DNS: 'true'
       PAYMENT_GATEWAY_ALLOW_INSECURE: 'true'
     steps:
@@ -121,9 +123,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate Payload import map
         run: pnpm generate:importmap
-      - name: Run DB migrations via Payload (push schema)
-        run: pnpm payload migrate:fresh --force
-      - name: Seed database
+      - name: Seed database (pushes schema via Payload dev mode + writes seed data)
         run: pnpm seed
       - name: Vitest integration suites
         run: pnpm test:int
@@ -148,6 +148,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      # `pnpm dev` runs in dev mode (NODE_ENV=development) so Payload pushes the
+      # schema on first boot — no manual migrate step needed.
       DATABASE_URL: postgres://eshobe:eshobe@127.0.0.1:5432/eshobe
       PAYLOAD_SECRET: ci-test-secret
       NEXT_PUBLIC_SERVER_URL: http://localhost:3000
@@ -167,15 +169,11 @@ jobs:
         run: pnpm playwright install --with-deps chromium
       - name: Generate Payload import map
         run: pnpm generate:importmap
-      - name: Run DB migrations
-        run: pnpm payload migrate:fresh --force
-      - name: Seed database
+      - name: Seed database (schema pushed by Payload dev-mode on first init)
         run: pnpm seed
       - name: Playwright e2e suites
         run: pnpm test:e2e
         env:
-          # Playwright boots `pnpm dev` itself via webServer; give the cold boot
-          # the full budget (see playwright.config.ts webServer.timeout).
           CI: 'true'
       - name: Upload Playwright report on failure
         if: failure()
