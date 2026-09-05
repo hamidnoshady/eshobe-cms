@@ -81,6 +81,8 @@ export interface Config {
     orders: Order;
     store: Store;
     'payment-gateways': PaymentGateway;
+    'cdn-zones': CdnZone;
+    'cdn-events': CdnEvent;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -112,6 +114,8 @@ export interface Config {
     orders: OrdersSelect<false> | OrdersSelect<true>;
     store: StoreSelect<false> | StoreSelect<true>;
     'payment-gateways': PaymentGatewaysSelect<false> | PaymentGatewaysSelect<true>;
+    'cdn-zones': CdnZonesSelect<false> | CdnZonesSelect<true>;
+    'cdn-events': CdnEventsSelect<false> | CdnEventsSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -1448,6 +1452,169 @@ export interface PaymentGateway {
   createdAt: string;
 }
 /**
+ * کنترل داخلی DNS، پراکسی CDN، TLS، کش و امنیت دامنه‌ها. هر zone فقط با یک CDN فعال می‌شود؛ توکن هرگز از API یا فرم دوباره خوانده نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-zones".
+ */
+export interface CdnZone {
+  id: string;
+  site?: (string | null) | Site;
+  provider: 'arvancloud' | 'cloudflare';
+  /**
+   * ریشهٔ zone نزد ارائه‌دهنده، مثل example.com. برای زیردامنهٔ سایت نیز همین zone را وارد کنید؛ رکوردها پایین‌تر تعریف می‌شوند.
+   */
+  zoneName: string;
+  providerZoneKey?: string | null;
+  /**
+   * تا وقتی خاموش است، «همگام‌سازی» فقط اتصال/zone را بررسی می‌کند و DNS، کش، TLS یا قوانین امنیتی را تغییر نمی‌دهد.
+   */
+  active?: boolean | null;
+  /**
+   * یک اقدام اثرگذار است: Cloudflare ممکن است nameserverهای جدید بدهد و ArvanCloud نیز zone می‌سازد. بدون این تیک، سامانه فقط zone موجود را پیدا می‌کند.
+   */
+  provisionIfMissing?: boolean | null;
+  /**
+   * فقط برای ساخت zone جدید لازم است؛ برای zone از قبل موجود لازم نیست.
+   */
+  cloudflareAccountId?: string | null;
+  arvanDomainMode?: ('full' | 'partial') | null;
+  /**
+   * برای ساخت دامنهٔ partial فقط اگر حساب شما چنین مقدار plan level می‌خواهد وارد کنید.
+   */
+  arvanPlanLevel?: string | null;
+  /**
+   * توکن دارای کمترین سطح دسترسی ممکن وارد کنید. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود؛ بعد از آن در پنل، REST و GraphQL برگردانده نمی‌شود. Cloudflare: Zone/DNS/Cache Purge/Zone Settings Edit. Arvan: API Key مربوط به CDN.
+   */
+  credentials?: {
+    /**
+     * خالی گذاشتن در ویرایش یعنی نگه داشتن توکن قبلی؛ برای حذف، تیک پاک‌سازی را بزنید.
+     */
+    apiToken?: string | null;
+  };
+  /**
+   * فقط همراه ذخیره‌سازی استفاده کنید. zone و DNS سمت ارائه‌دهنده حذف نمی‌شوند.
+   */
+  clearCredentials?: boolean | null;
+  credentialsSummary?: string | null;
+  /**
+   * فقط این رکوردها در sync نوشته می‌شوند. حذف یک ردیف از این فهرست، رکورد را از ارائه‌دهنده حذف نمی‌کند؛ برای جلوگیری از حذف ناخواسته، ابتدا آن را در ارائه‌دهنده بررسی کنید.
+   */
+  dnsRecords?:
+    | {
+        type: 'A' | 'AAAA' | 'CNAME' | 'TXT' | 'MX' | 'CAA';
+        /**
+         * @ برای ریشهٔ zone یا نام نسبی مثل www.
+         */
+        name: string;
+        content: string;
+        /**
+         * ۱ برای automatic نزد Cloudflare.
+         */
+        ttl?: number | null;
+        priority?: number | null;
+        /**
+         * فقط A/AAAA/CNAME مربوط به HTTP/HTTPS را پراکسی کنید. MX/TXT/CAA هرگز نباید پراکسی شوند.
+         */
+        proxied?: boolean | null;
+        providerRecordId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  ssl?: {
+    /**
+     * strict فقط وقتی origin گواهی معتبر دارد. Caddy این پلتفرم باید برای hostname گواهی معتبر داشته باشد.
+     */
+    mode?: ('flexible' | 'full' | 'strict') | null;
+    minimumTls?: ('1.0' | '1.1' | '1.2' | '1.3') | null;
+    tls13?: boolean | null;
+    alwaysUseHttps?: boolean | null;
+  };
+  hsts?: {
+    enabled?: boolean | null;
+    maxAge?: number | null;
+    includeSubdomains?: boolean | null;
+    /**
+     * تنها پس از HTTPS شدن همهٔ زیردامنه‌ها. حذف preload فوری نیست.
+     */
+    preload?: boolean | null;
+  };
+  cache?: {
+    /**
+     * CMS هیچ‌وقت به‌طور پیش‌فرض HTML، /admin، /api یا پاسخ دارای cookie را cache-everything نمی‌کند.
+     */
+    mode?: ('respect-origin' | 'static-assets') | null;
+    edgeTtl?: number | null;
+    browserTtl?: number | null;
+    /**
+     * پرخطر؛ فقط با قابلیت Premium تأییدشده اعمال می‌شود.
+     */
+    ignoreSetCookie?: boolean | null;
+    developmentMode?: boolean | null;
+    alwaysOnline?: boolean | null;
+  };
+  security?: {
+    securityLevel?: ('off' | 'low' | 'medium' | 'high' | 'under_attack') | null;
+    wafMode?: ('off' | 'detect' | 'protect') | null;
+    ddosMode?: ('off' | 'cookie' | 'javascript' | 'recaptcha') | null;
+  };
+  /**
+   * عبارت‌ها syntax خود ارائه‌دهنده دارند. قوانین دست‌ساز دیگر در Cloudflare/Arvan تغییر یا حذف نمی‌شوند.
+   */
+  securityRules?:
+    | {
+        kind: 'firewall' | 'waf';
+        description?: string | null;
+        expression: string;
+        action: 'block' | 'challenge' | 'log' | 'skip';
+        enabled?: boolean | null;
+        providerRuleId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  capabilities?: {
+    advancedCache?: boolean | null;
+    wafCustomRules?: boolean | null;
+    rateLimiting?: boolean | null;
+  };
+  /**
+   * برای ثبت عملیاتی؛ CMS ادعای تشخیص پلن از روی token نمی‌کند.
+   */
+  providerPlan?: string | null;
+  providerZoneId?: string | null;
+  providerStatus?: string | null;
+  providerNameservers?:
+    | {
+        hostname?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  lastSyncOk?: boolean | null;
+  lastSyncAt?: string | null;
+  lastSyncDetail?: string | null;
+  lastPurgeAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * ردّ عملیاتی تغییرات CDN. توکن‌ها و بدنهٔ پاسخ ارائه‌دهنده هرگز در این گزارش ذخیره نمی‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-events".
+ */
+export interface CdnEvent {
+  id: string;
+  /**
+   * با حذف zone، رویداد برای گزارش تاریخی باقی می‌ماند و این ارتباط خالی می‌شود.
+   */
+  zone?: (string | null) | CdnZone;
+  operation: 'sync' | 'purge';
+  ok: boolean;
+  summary: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects".
  */
@@ -1695,6 +1862,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'payment-gateways';
         value: string | PaymentGateway;
+      } | null)
+    | ({
+        relationTo: 'cdn-zones';
+        value: string | CdnZone;
+      } | null)
+    | ({
+        relationTo: 'cdn-events';
+        value: string | CdnEvent;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -2454,6 +2629,118 @@ export interface PaymentGatewaysSelect<T extends boolean = true> {
   selfTestDetail?: T;
   selfTestAt?: T;
   notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-zones_select".
+ */
+export interface CdnZonesSelect<T extends boolean = true> {
+  site?: T;
+  provider?: T;
+  zoneName?: T;
+  providerZoneKey?: T;
+  active?: T;
+  provisionIfMissing?: T;
+  cloudflareAccountId?: T;
+  arvanDomainMode?: T;
+  arvanPlanLevel?: T;
+  credentials?:
+    | T
+    | {
+        apiToken?: T;
+      };
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  dnsRecords?:
+    | T
+    | {
+        type?: T;
+        name?: T;
+        content?: T;
+        ttl?: T;
+        priority?: T;
+        proxied?: T;
+        providerRecordId?: T;
+        id?: T;
+      };
+  ssl?:
+    | T
+    | {
+        mode?: T;
+        minimumTls?: T;
+        tls13?: T;
+        alwaysUseHttps?: T;
+      };
+  hsts?:
+    | T
+    | {
+        enabled?: T;
+        maxAge?: T;
+        includeSubdomains?: T;
+        preload?: T;
+      };
+  cache?:
+    | T
+    | {
+        mode?: T;
+        edgeTtl?: T;
+        browserTtl?: T;
+        ignoreSetCookie?: T;
+        developmentMode?: T;
+        alwaysOnline?: T;
+      };
+  security?:
+    | T
+    | {
+        securityLevel?: T;
+        wafMode?: T;
+        ddosMode?: T;
+      };
+  securityRules?:
+    | T
+    | {
+        kind?: T;
+        description?: T;
+        expression?: T;
+        action?: T;
+        enabled?: T;
+        providerRuleId?: T;
+        id?: T;
+      };
+  capabilities?:
+    | T
+    | {
+        advancedCache?: T;
+        wafCustomRules?: T;
+        rateLimiting?: T;
+      };
+  providerPlan?: T;
+  providerZoneId?: T;
+  providerStatus?: T;
+  providerNameservers?:
+    | T
+    | {
+        hostname?: T;
+        id?: T;
+      };
+  lastSyncOk?: T;
+  lastSyncAt?: T;
+  lastSyncDetail?: T;
+  lastPurgeAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-events_select".
+ */
+export interface CdnEventsSelect<T extends boolean = true> {
+  zone?: T;
+  operation?: T;
+  ok?: T;
+  summary?: T;
   updatedAt?: T;
   createdAt?: T;
 }

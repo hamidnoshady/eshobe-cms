@@ -10,6 +10,8 @@ import { fileURLToPath } from 'url'
 
 import { ApiKeys } from './collections/ApiKeys'
 import { Categories } from './collections/Categories'
+import { CdnEvents } from './collections/CdnEvents'
+import { CdnZones } from './collections/CdnZones'
 import { Media } from './collections/Media'
 import { Orders } from './collections/Orders'
 import { PaymentGateways } from './collections/PaymentGateways'
@@ -31,6 +33,7 @@ import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
 import { apiKeysEndpoints } from './endpoints/apiKeys'
 import { checkoutEndpoints } from './endpoints/checkout'
+import { cdnEndpoints } from './endpoints/cdn'
 import { domainCheck } from './endpoints/domainCheck'
 import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
@@ -84,6 +87,7 @@ export default buildConfig({
     // renderer draws the buyer's picker from it) and the rest are staff-only; see
     // `src/endpoints/paymentGateways.ts` for who may call which.
     ...paymentGatewayEndpoints,
+    ...cdnEndpoints,
   ],
   globals: [
     /**
@@ -164,6 +168,8 @@ export default buildConfig({
     // shared by every tenant, and here that would mean one customer's merchant
     // credentials editable from another customer's admin.
     PaymentGateways,
+    CdnZones,
+    CdnEvents,
   ],
   /**
    * Origins allowed to call the API with credentials. The deployment origin is the
