@@ -58,3 +58,49 @@ powershell -ExecutionPolicy Bypass -File scripts/dev-hosts.ps1
 
 Scaffolded from Payload's `website` template at v3.88.0, with the Mongo adapter
 replaced by Postgres and the Latin-only fonts replaced by Vazirmatn.
+
+## CI / CD
+
+Two GitHub Actions workflows live under `.github/workflows/`:
+
+- **`ci.yml`** — runs on every pull request to `main` and on every push to
+  `main`. Jobs:
+  - `lint` — `pnpm lint`
+  - `typecheck` — `pnpm typecheck`
+  - `build` — `pnpm build` with placeholder build-time env (matches the
+    Dockerfile)
+  - `docker-build` — builds the production Docker image (Buildx + GHA cache,
+    no push) so a Dockerfile regression is caught before merge
+  - `test-int` — Vitest integration suites (`tests/int/**`) against a real
+    Postgres 16 service container; runs `pnpm payload migrate:fresh` then
+    `pnpm seed` before tests
+  - `test-e2e` — Playwright suites (`tests/e2e/**`) against `pnpm dev`;
+    uploads the Playwright HTML report as an artifact on failure
+- **`publish.yml`** — runs after every merge to `main`, on `v*` tags, and on
+  `workflow_dispatch`. Re-runs the lint/typecheck/build gates on the exact
+  merge commit, then:
+  - **Docker** — builds and pushes the image to
+    `ghcr.io/<owner>/<repo>:<sha>` (long) and `ghcr.io/<owner>/<repo>:latest`
+    on `main`. `vX.Y.Z` tags additionally push `X.Y.Z`, `X.Y`, and `X`.
+    Provenance and SBOM are attached.
+  - **npm** — publishes `@eshobe/site-runtime` (`packages/site-runtime`) to
+    npm. Every push to `main` publishes a prerelease
+    (`<version>-dev.<short-sha>`); a `vX.Y.Z` tag publishes that exact
+    version as the stable release with npm provenance.
+
+### Required repository configuration
+
+- **Secrets**
+  - `NPM_TOKEN` — an npm *Automation* token with publish access to the
+    `@eshobe` scope (needed by `publish.yml` → `npm-publish`).
+- **Variables** (optional, under Settings → Variables → Actions)
+  - `NEXT_PUBLIC_SERVER_URL` — the public control-plane URL baked into the
+    Docker image at build time. Defaults to `http://localhost:3000` when
+    unset (safe for staging / pre-DNS deploys).
+- **Packages permissions** — `GITHUB_TOKEN` is used for GHCR; under
+  Settings → Actions → General, set *Workflow permissions* to
+  *Read repository contents and packages permissions* and enable
+  *Allow GitHub Actions to create and approve pull requests*.
+- **Branch protection on `main`** — add the following to *Required status
+  checks* before merge: `Lint`, `Typecheck`, `Build`, `Docker build`,
+  `Integration tests`, `E2E tests`.

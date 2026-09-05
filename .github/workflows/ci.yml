@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  # On PRs: cancel previous runs when a new commit is pushed.
+  # On main: let every push run to completion (no cancellation).
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------- Quick static checks (no DB required) ----------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  # ---------- Build the Next.js app (catches build-time breaks) ----------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    env:
+      # `next build` loads payload.config.ts; these placeholders are enough for the
+      # build step — nothing prerenders from the DB. Mirrors Dockerfile.
+      DATABASE_URL: postgres://build:build@localhost:5432/build
+      PAYLOAD_SECRET: build-time-placeholder
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Payload import map
+        run: pnpm generate:importmap
+      - name: Build
+        run: pnpm build
+
+  # ---------- Docker image build (verifies Dockerfile stays green) ----------
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build (do not push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: |
+            NEXT_PUBLIC_SERVER_URL=http://localhost:3000
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------- Integration tests (Vitest + real Postgres) ----------
+  test-int:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: eshobe
+          POSTGRES_PASSWORD: eshobe
+          POSTGRES_DB: eshobe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U eshobe -d eshobe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://eshobe:eshobe@127.0.0.1:5432/eshobe
+      PAYLOAD_SECRET: ci-test-secret
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+      CRON_SECRET: ci-cron-secret
+      PREVIEW_SECRET: ci-preview-secret
+      # Skip DNS-based SSRF guard in CI where PSP mocks resolve to localhost.
+      PAYMENT_GATEWAY_SKIP_DNS: 'true'
+      PAYMENT_GATEWAY_ALLOW_INSECURE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Payload import map
+        run: pnpm generate:importmap
+      - name: Run DB migrations via Payload (push schema)
+        run: pnpm payload migrate:fresh --force
+      - name: Seed database
+        run: pnpm seed
+      - name: Vitest integration suites
+        run: pnpm test:int
+
+  # ---------- End-to-end tests (Playwright against `pnpm dev`) ----------
+  test-e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    needs: [build] # Build step is proof the app compiles; reuse its deps via cache
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: eshobe
+          POSTGRES_PASSWORD: eshobe
+          POSTGRES_DB: eshobe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U eshobe -d eshobe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://eshobe:eshobe@127.0.0.1:5432/eshobe
+      PAYLOAD_SECRET: ci-test-secret
+      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
+      CRON_SECRET: ci-cron-secret
+      PREVIEW_SECRET: ci-preview-secret
+      PAYMENT_GATEWAY_SKIP_DNS: 'true'
+      PAYMENT_GATEWAY_ALLOW_INSECURE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm playwright install --with-deps chromium
+      - name: Generate Payload import map
+        run: pnpm generate:importmap
+      - name: Run DB migrations
+        run: pnpm payload migrate:fresh --force
+      - name: Seed database
+        run: pnpm seed
+      - name: Playwright e2e suites
+        run: pnpm test:e2e
+        env:
+          # Playwright boots `pnpm dev` itself via webServer; give the cold boot
+          # the full budget (see playwright.config.ts webServer.timeout).
+          CI: 'true'
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7
