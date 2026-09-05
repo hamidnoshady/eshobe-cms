@@ -7,7 +7,7 @@ import { alternateUrls } from '@/lib/alternates'
 import { sitemapXml } from '@/lib/sitemap'
 import { getSiteContext } from '@/lib/site-context'
 import { findForSite } from '@/lib/site-query'
-import { siteUrl } from '@/lib/site-url'
+import { siteOrigin, siteUrl } from '@/lib/site-url'
 
 /**
  * `https://acme.com/sitemap.xml` — one sitemap per customer domain, listing that
@@ -74,8 +74,12 @@ const publishedPages = async (site: Site): Promise<SlugsById> => {
   return byId
 }
 
-export async function GET(): Promise<Response> {
-  const { site } = await getSiteContext()
+export async function GET(request: Request): Promise<Response> {
+  const { canonicalHost, site } = await getSiteContext()
+
+  if (site && !canonicalHost) {
+    return Response.redirect(`${siteOrigin(site)}/sitemap.xml${new URL(request.url).search}`, 308)
+  }
 
   // Unknown, suspended or archived host. 404 rather than an empty sitemap: an empty
   // one is a claim that the site has no pages.

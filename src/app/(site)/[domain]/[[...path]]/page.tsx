@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 
-import { notFound } from 'next/navigation'
+import type { Site } from '@/payload-types'
+
+import { notFound, permanentRedirect } from 'next/navigation'
 import React from 'react'
 
 import { SiteHolding } from '@/components/SiteHolding'
@@ -32,9 +34,38 @@ import { SitePage } from './SitePage'
  * segment under `[domain]` cannot also sit behind a locale prefix, so `/en/posts` would
  * work only by accident of which route Next matched first.
  */
+type SiteSearchParams = {
+  [key: string]: string | string[] | undefined
+  m?: string
+  page?: string
+  q?: string
+  r?: string
+}
+
 type Args = {
   params: Promise<{ domain: string; path?: string[] }>
-  searchParams: Promise<{ m?: string; page?: string; q?: string; r?: string }>
+  searchParams: Promise<SiteSearchParams>
+}
+
+/** The aliases preserve path/query but never become a second indexable URL. */
+const canonicalAliasUrl = (
+  site: Site,
+  path: string[] | undefined,
+  query: SiteSearchParams,
+): string => {
+  const route = path?.length
+    ? `/${path.map((segment) => encodeURIComponent(segment)).join('/')}`
+    : ''
+  const params = new URLSearchParams()
+
+  for (const [name, value] of Object.entries(query)) {
+    if (Array.isArray(value)) value.forEach((item) => params.append(name, item))
+    else if (typeof value === 'string') params.set(name, value)
+  }
+
+  const search = params.toString()
+
+  return `${siteUrl(site, { slug: 'home' })}${route}${search ? `?${search}` : ''}`
 }
 
 /** `?page=3`, floored at 1 and unbothered by `?page=elephant`. */
@@ -46,7 +77,13 @@ const pageNumber = (value: string | string[] | undefined): number => {
 
 export default async function SiteRoute({ params, searchParams }: Args) {
   const { path } = await params
-  const { serving, site } = await getSiteContext()
+  const query = await searchParams
+  const { canonicalHost, serving, site } = await getSiteContext()
+
+  // An alias is only ever a doorway to the canonical host. This is a server-side
+  // 308 rather than a canonical tag alone, so form-free GET navigation, cache keys,
+  // analytics and search engines all converge on the domain the tenant selected.
+  if (site && !canonicalHost) permanentRedirect(canonicalAliasUrl(site, path, query))
 
   /**
    * A suspended or archived site answers on *every* path — its lifecycle is a
@@ -55,23 +92,21 @@ export default async function SiteRoute({ params, searchParams }: Args) {
    * `/en` on a suspended fa-only site should hold, not 404.
    */
   if (site && !serving) {
-    return <SiteHolding siteName={site.name} status={site.status === 'archived' ? 'archived' : 'suspended'} />
+    return (
+      <SiteHolding
+        siteName={site.name}
+        status={site.status === 'archived' ? 'archived' : 'suspended'}
+      />
+    )
   }
 
   if (!(await localeIsServed(path))) notFound()
 
-  const query = await searchParams
   const route = resolveSiteRoute(path)
 
   switch (route.kind) {
     case 'checkout':
-      return (
-        <CheckoutReceipt
-          order={route.order}
-          outcome={query.m}
-          receipt={query.r}
-        />
-      )
+      return <CheckoutReceipt order={route.order} outcome={query.m} receipt={query.r} />
 
     case 'post':
       return <PostDetail slug={route.slug} />
@@ -121,9 +156,7 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
       const { locale, site } = await getSiteContext()
 
       return {
-        alternates: site
-          ? { canonical: siteUrl(site, { base: POSTS_BASE, locale }) }
-          : undefined,
+        alternates: site ? { canonical: siteUrl(site, { base: POSTS_BASE, locale }) } : undefined,
         title: [uiString('postsHeading', locale), site?.name].filter(Boolean).join(' | '),
       }
     }
@@ -132,7 +165,9 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
       const product = await queryProduct(route.slug)
       if (!product) return {}
       const { locale, site } = await getSiteContext()
-      const url = site ? siteUrl(site, { base: PRODUCTS_BASE, locale, slug: product.slug }) : undefined
+      const url = site
+        ? siteUrl(site, { base: PRODUCTS_BASE, locale, slug: product.slug })
+        : undefined
       return {
         alternates: url ? { canonical: url } : undefined,
         description: product.summary ?? undefined,

@@ -81,6 +81,12 @@ export interface Config {
     orders: Order;
     store: Store;
     'payment-gateways': PaymentGateway;
+    'cdn-zones': CdnZone;
+    'cdn-events': CdnEvent;
+    'domain-reseller-products': DomainResellerProduct;
+    'reseller-domains': ResellerDomain;
+    'reseller-domain-operations': ResellerDomainOperation;
+    'reseller-domain-events': ResellerDomainEvent;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -112,6 +118,12 @@ export interface Config {
     orders: OrdersSelect<false> | OrdersSelect<true>;
     store: StoreSelect<false> | StoreSelect<true>;
     'payment-gateways': PaymentGatewaysSelect<false> | PaymentGatewaysSelect<true>;
+    'cdn-zones': CdnZonesSelect<false> | CdnZonesSelect<true>;
+    'cdn-events': CdnEventsSelect<false> | CdnEventsSelect<true>;
+    'domain-reseller-products': DomainResellerProductsSelect<false> | DomainResellerProductsSelect<true>;
+    'reseller-domains': ResellerDomainsSelect<false> | ResellerDomainsSelect<true>;
+    'reseller-domain-operations': ResellerDomainOperationsSelect<false> | ResellerDomainOperationsSelect<true>;
+    'reseller-domain-events': ResellerDomainEventsSelect<false> | ResellerDomainEventsSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -128,9 +140,11 @@ export interface Config {
   };
   fallbackLocale: ('false' | 'none' | 'null') | false | null | ('fa' | 'en') | ('fa' | 'en')[];
   globals: {
+    'domain-reseller': DomainReseller;
     payments: Payment;
   };
   globalsSelect: {
+    'domain-reseller': DomainResellerSelect<false> | DomainResellerSelect<true>;
     payments: PaymentsSelect<false> | PaymentsSelect<true>;
   };
   locale: 'fa' | 'en';
@@ -260,13 +274,29 @@ export interface Site {
   id: string;
   name: string;
   /**
-   * میزبان کامل بدون پروتکل — مثلاً acme.ir. DNS: یک رکورد A به IP سرور یا CNAME به نام میزبان سرور بسازید؛ سپس دامنه را تأیید کنید.
+   * نشانی اصلی و canonical سایت، بدون پروتکل — مثلاً acme.ir یا shop.acme.ir. همهٔ نشانی‌های فرعی به این نشانی تغییر مسیر می‌دهند.
    */
   domain: string;
   /**
-   * فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. دامنهٔ تأییدنشده گواهی TLS نمی‌گیرد.
+   * فقط پس از اطمینان از وجود رکورد DNS و اشارهٔ آن به این سرور فعال کنید. با تغییر دامنه، تأیید خودکار برداشته می‌شود.
    */
   domainVerified?: boolean | null;
+  /**
+   * برای www، زیردامنه‌ها و دامنه‌های قدیمی یک ردیف اضافه کنید. هر نشانی تأییدشده به دامنهٔ اصلی تغییر مسیر دائمی (308) می‌دهد تا SEO و آمار دوپاره نشوند.
+   */
+  domains?:
+    | {
+        /**
+         * بدون پروتکل، پورت و مسیر — مثلاً www.acme.ir یا shop.acme.ir.
+         */
+        hostname: string;
+        /**
+         * تا وقتی DNS این نام به سرور اشاره نکرده، آن را تأیید نکنید. نام تأییدنشده نه TLS می‌گیرد و نه به محتوای سایت وصل می‌شود.
+         */
+        verified?: boolean | null;
+        id?: string | null;
+      }[]
+    | null;
   type: 'business' | 'portfolio' | 'store';
   /**
    * چرخهٔ عمر سایت از این فیلد می‌آید، نه از حذف کردن آن.
@@ -1432,6 +1462,327 @@ export interface PaymentGateway {
   createdAt: string;
 }
 /**
+ * کنترل داخلی DNS، پراکسی CDN، TLS، کش و امنیت دامنه‌ها. هر zone فقط با یک CDN فعال می‌شود؛ توکن هرگز از API یا فرم دوباره خوانده نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-zones".
+ */
+export interface CdnZone {
+  id: string;
+  site?: (string | null) | Site;
+  provider: 'arvancloud' | 'cloudflare';
+  /**
+   * ریشهٔ zone نزد ارائه‌دهنده، مثل example.com. برای زیردامنهٔ سایت نیز همین zone را وارد کنید؛ رکوردها پایین‌تر تعریف می‌شوند.
+   */
+  zoneName: string;
+  providerZoneKey?: string | null;
+  /**
+   * تا وقتی خاموش است، «همگام‌سازی» فقط اتصال/zone را بررسی می‌کند و DNS، کش، TLS یا قوانین امنیتی را تغییر نمی‌دهد.
+   */
+  active?: boolean | null;
+  /**
+   * یک اقدام اثرگذار است: Cloudflare ممکن است nameserverهای جدید بدهد و ArvanCloud نیز zone می‌سازد. بدون این تیک، سامانه فقط zone موجود را پیدا می‌کند.
+   */
+  provisionIfMissing?: boolean | null;
+  /**
+   * فقط برای ساخت zone جدید لازم است؛ برای zone از قبل موجود لازم نیست.
+   */
+  cloudflareAccountId?: string | null;
+  arvanDomainMode?: ('full' | 'partial') | null;
+  /**
+   * برای ساخت دامنهٔ partial فقط اگر حساب شما چنین مقدار plan level می‌خواهد وارد کنید.
+   */
+  arvanPlanLevel?: string | null;
+  /**
+   * توکن دارای کمترین سطح دسترسی ممکن وارد کنید. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود؛ بعد از آن در پنل، REST و GraphQL برگردانده نمی‌شود. Cloudflare: Zone/DNS/Cache Purge/Zone Settings Edit. Arvan: API Key مربوط به CDN.
+   */
+  credentials?: {
+    /**
+     * خالی گذاشتن در ویرایش یعنی نگه داشتن توکن قبلی؛ برای حذف، تیک پاک‌سازی را بزنید.
+     */
+    apiToken?: string | null;
+  };
+  /**
+   * فقط همراه ذخیره‌سازی استفاده کنید. zone و DNS سمت ارائه‌دهنده حذف نمی‌شوند.
+   */
+  clearCredentials?: boolean | null;
+  credentialsSummary?: string | null;
+  /**
+   * فقط این رکوردها در sync نوشته می‌شوند. حذف یک ردیف از این فهرست، رکورد را از ارائه‌دهنده حذف نمی‌کند؛ برای جلوگیری از حذف ناخواسته، ابتدا آن را در ارائه‌دهنده بررسی کنید.
+   */
+  dnsRecords?:
+    | {
+        type: 'A' | 'AAAA' | 'CNAME' | 'TXT' | 'MX' | 'CAA';
+        /**
+         * @ برای ریشهٔ zone یا نام نسبی مثل www.
+         */
+        name: string;
+        content: string;
+        /**
+         * ۱ برای automatic نزد Cloudflare.
+         */
+        ttl?: number | null;
+        priority?: number | null;
+        /**
+         * فقط A/AAAA/CNAME مربوط به HTTP/HTTPS را پراکسی کنید. MX/TXT/CAA هرگز نباید پراکسی شوند.
+         */
+        proxied?: boolean | null;
+        providerRecordId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  ssl?: {
+    /**
+     * strict فقط وقتی origin گواهی معتبر دارد. Caddy این پلتفرم باید برای hostname گواهی معتبر داشته باشد.
+     */
+    mode?: ('flexible' | 'full' | 'strict') | null;
+    minimumTls?: ('1.0' | '1.1' | '1.2' | '1.3') | null;
+    tls13?: boolean | null;
+    alwaysUseHttps?: boolean | null;
+  };
+  hsts?: {
+    enabled?: boolean | null;
+    maxAge?: number | null;
+    includeSubdomains?: boolean | null;
+    /**
+     * تنها پس از HTTPS شدن همهٔ زیردامنه‌ها. حذف preload فوری نیست.
+     */
+    preload?: boolean | null;
+  };
+  cache?: {
+    /**
+     * CMS هیچ‌وقت به‌طور پیش‌فرض HTML، /admin، /api یا پاسخ دارای cookie را cache-everything نمی‌کند.
+     */
+    mode?: ('respect-origin' | 'static-assets') | null;
+    edgeTtl?: number | null;
+    browserTtl?: number | null;
+    /**
+     * پرخطر؛ فقط با قابلیت Premium تأییدشده اعمال می‌شود.
+     */
+    ignoreSetCookie?: boolean | null;
+    developmentMode?: boolean | null;
+    alwaysOnline?: boolean | null;
+  };
+  security?: {
+    securityLevel?: ('off' | 'low' | 'medium' | 'high' | 'under_attack') | null;
+    wafMode?: ('off' | 'detect' | 'protect') | null;
+    ddosMode?: ('off' | 'cookie' | 'javascript' | 'recaptcha') | null;
+  };
+  /**
+   * عبارت‌ها syntax خود ارائه‌دهنده دارند. قوانین دست‌ساز دیگر در Cloudflare/Arvan تغییر یا حذف نمی‌شوند.
+   */
+  securityRules?:
+    | {
+        kind: 'firewall' | 'waf';
+        description?: string | null;
+        expression: string;
+        action: 'block' | 'challenge' | 'log' | 'skip';
+        enabled?: boolean | null;
+        providerRuleId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  capabilities?: {
+    advancedCache?: boolean | null;
+    wafCustomRules?: boolean | null;
+    rateLimiting?: boolean | null;
+  };
+  /**
+   * برای ثبت عملیاتی؛ CMS ادعای تشخیص پلن از روی token نمی‌کند.
+   */
+  providerPlan?: string | null;
+  providerZoneId?: string | null;
+  providerStatus?: string | null;
+  providerNameservers?:
+    | {
+        hostname?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  lastSyncOk?: boolean | null;
+  lastSyncAt?: string | null;
+  lastSyncDetail?: string | null;
+  lastPurgeAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * ردّ عملیاتی تغییرات CDN. توکن‌ها و بدنهٔ پاسخ ارائه‌دهنده هرگز در این گزارش ذخیره نمی‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-events".
+ */
+export interface CdnEvent {
+  id: string;
+  /**
+   * با حذف zone، رویداد برای گزارش تاریخی باقی می‌ماند و این ارتباط خالی می‌شود.
+   */
+  zone?: (string | null) | CdnZone;
+  operation: 'sync' | 'purge';
+  ok: boolean;
+  summary: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * قیمت پایهٔ سالانهٔ هر پسوند نزد registrar. مستند ResellerArea قیمت را از API برنمی‌گرداند؛ قیمت نهایی هر درخواست با درصد سود سراسریِ «نمایندگی دامنه» محاسبه و snapshot می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller-products".
+ */
+export interface DomainResellerProduct {
+  id: string;
+  /**
+   * بدون نقطهٔ آغازین؛ نمونه: ir، com، co.ir.
+   */
+  tld: string;
+  enabled?: boolean | null;
+  currency: 'IRT' | 'IRR' | 'USD' | 'EUR';
+  registrationCost: number;
+  transferCost: number;
+  renewalCost: number;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * دامنه‌های ثبت یا منتقل‌شده با حساب نمایندگی پلتفرم. «پذیرفته‌شده توسط registrar» به معنی فعال بودن قطعی دامنه نیست؛ API ارائه‌شده endpoint وضعیت/انقضا ندارد و تأیید عملیاتی جداست.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domains".
+ */
+export interface ResellerDomain {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * نام کامل دامنه، بدون پروتکل، مسیر یا پورت.
+   */
+  domain: string;
+  tld?: string | null;
+  /**
+   * فقط اپراتور پلتفرم تغییر می‌دهد. API مستندشدهٔ ResellerArea وضعیت سفارش یا انقضای دامنه را نمی‌دهد؛ پاسخ موفق فقط «پذیرفته‌شدن» را ثبت می‌کند.
+   */
+  state: 'requested' | 'providerAccepted' | 'active' | 'failed' | 'external' | 'cancelled';
+  /**
+   * منبع ثبت‌شدهٔ CMS؛ تغییر واقعی با endpoint مدیریت registrar انجام می‌شود.
+   */
+  nameservers?:
+    | {
+        hostname: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * شیء contact مستند ResellerArea. شامل first_name، last_name، company_name، email، phone، fax، address، city، state، postcode و country. فقط مالک همان سایت به آن دسترسی دارد.
+   */
+  registrationContact?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * شیء دارای registrant، administrative، technical و billing برای UpdateDomainWhoisInfo. اطلاعات فقط برای مالک سایت و registrar ارسال می‌شود.
+   */
+  contacts?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * برای دامنه‌های .ir: irnic_holder_handle، irnic_admin_handle، irnic_tech_handle و irnic_bill_handle. این اطلاعات جایگزین رابطهٔ مالکیت در IRNIC نمی‌شود.
+   */
+  irnicHandles?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * شیء fields مستند registrar؛ مثلاً شناسه‌های IRNIC برای .ir.
+   */
+  customFields?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  providerLastSeenAt?: string | null;
+  providerNote?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * ردّ هر درخواست قابل‌صورتحساب. مبلغ و درصد سود در زمان درخواست snapshot می‌شوند. تا اتصال پلتفرم پرداخت، وضعیت پرداخت عمداً «در انتظار اتصال» باقی می‌ماند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-operations".
+ */
+export interface ResellerDomainOperation {
+  id: string;
+  site?: (string | null) | Site;
+  domain: string | ResellerDomain;
+  operation: 'register' | 'transfer' | 'renew';
+  status: 'submitting' | 'providerAccepted' | 'failed' | 'cancelled';
+  period: number;
+  catalogueCost: number;
+  marginPercentage: number;
+  quoteAmount: number;
+  currency: 'IRT' | 'IRR' | 'USD' | 'EUR';
+  /**
+   * این CMS هنوز درگاه پرداخت/تأیید وجه این عملیات را ندارد. پاسخ registrar نیز پرداخت را تأیید نمی‌کند.
+   */
+  paymentState: 'pendingIntegration';
+  providerSubmittedAt?: string | null;
+  providerRespondedAt?: string | null;
+  safeDetail?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * گزارش امن عملیات registrar. رمز انتقال، کلید API، هدرها، پاسخ خام و اطلاعات تماس هرگز در این گزارش ذخیره نمی‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-events".
+ */
+export interface ResellerDomainEvent {
+  id: string;
+  site?: (string | null) | Site;
+  domain: string | ResellerDomain;
+  operation:
+    | 'register'
+    | 'transfer'
+    | 'renew'
+    | 'nameserversGet'
+    | 'nameserversUpdate'
+    | 'lockGet'
+    | 'lockUpdate'
+    | 'transferCodeGet'
+    | 'childNameserverAdd'
+    | 'childNameserverUpdate'
+    | 'childNameserverRemove'
+    | 'irnicContactGet'
+    | 'transferValidate'
+    | 'whoisGet'
+    | 'whoisUpdate';
+  ok: boolean;
+  summary: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects".
  */
@@ -1679,6 +2030,30 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'payment-gateways';
         value: string | PaymentGateway;
+      } | null)
+    | ({
+        relationTo: 'cdn-zones';
+        value: string | CdnZone;
+      } | null)
+    | ({
+        relationTo: 'cdn-events';
+        value: string | CdnEvent;
+      } | null)
+    | ({
+        relationTo: 'domain-reseller-products';
+        value: string | DomainResellerProduct;
+      } | null)
+    | ({
+        relationTo: 'reseller-domains';
+        value: string | ResellerDomain;
+      } | null)
+    | ({
+        relationTo: 'reseller-domain-operations';
+        value: string | ResellerDomainOperation;
+      } | null)
+    | ({
+        relationTo: 'reseller-domain-events';
+        value: string | ResellerDomainEvent;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -2233,6 +2608,13 @@ export interface SitesSelect<T extends boolean = true> {
   name?: T;
   domain?: T;
   domainVerified?: T;
+  domains?:
+    | T
+    | {
+        hostname?: T;
+        verified?: T;
+        id?: T;
+      };
   type?: T;
   status?: T;
   availableLocales?: T;
@@ -2431,6 +2813,190 @@ export interface PaymentGatewaysSelect<T extends boolean = true> {
   selfTestDetail?: T;
   selfTestAt?: T;
   notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-zones_select".
+ */
+export interface CdnZonesSelect<T extends boolean = true> {
+  site?: T;
+  provider?: T;
+  zoneName?: T;
+  providerZoneKey?: T;
+  active?: T;
+  provisionIfMissing?: T;
+  cloudflareAccountId?: T;
+  arvanDomainMode?: T;
+  arvanPlanLevel?: T;
+  credentials?:
+    | T
+    | {
+        apiToken?: T;
+      };
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  dnsRecords?:
+    | T
+    | {
+        type?: T;
+        name?: T;
+        content?: T;
+        ttl?: T;
+        priority?: T;
+        proxied?: T;
+        providerRecordId?: T;
+        id?: T;
+      };
+  ssl?:
+    | T
+    | {
+        mode?: T;
+        minimumTls?: T;
+        tls13?: T;
+        alwaysUseHttps?: T;
+      };
+  hsts?:
+    | T
+    | {
+        enabled?: T;
+        maxAge?: T;
+        includeSubdomains?: T;
+        preload?: T;
+      };
+  cache?:
+    | T
+    | {
+        mode?: T;
+        edgeTtl?: T;
+        browserTtl?: T;
+        ignoreSetCookie?: T;
+        developmentMode?: T;
+        alwaysOnline?: T;
+      };
+  security?:
+    | T
+    | {
+        securityLevel?: T;
+        wafMode?: T;
+        ddosMode?: T;
+      };
+  securityRules?:
+    | T
+    | {
+        kind?: T;
+        description?: T;
+        expression?: T;
+        action?: T;
+        enabled?: T;
+        providerRuleId?: T;
+        id?: T;
+      };
+  capabilities?:
+    | T
+    | {
+        advancedCache?: T;
+        wafCustomRules?: T;
+        rateLimiting?: T;
+      };
+  providerPlan?: T;
+  providerZoneId?: T;
+  providerStatus?: T;
+  providerNameservers?:
+    | T
+    | {
+        hostname?: T;
+        id?: T;
+      };
+  lastSyncOk?: T;
+  lastSyncAt?: T;
+  lastSyncDetail?: T;
+  lastPurgeAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-events_select".
+ */
+export interface CdnEventsSelect<T extends boolean = true> {
+  zone?: T;
+  operation?: T;
+  ok?: T;
+  summary?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller-products_select".
+ */
+export interface DomainResellerProductsSelect<T extends boolean = true> {
+  tld?: T;
+  enabled?: T;
+  currency?: T;
+  registrationCost?: T;
+  transferCost?: T;
+  renewalCost?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domains_select".
+ */
+export interface ResellerDomainsSelect<T extends boolean = true> {
+  site?: T;
+  domain?: T;
+  tld?: T;
+  state?: T;
+  nameservers?:
+    | T
+    | {
+        hostname?: T;
+        id?: T;
+      };
+  registrationContact?: T;
+  contacts?: T;
+  irnicHandles?: T;
+  customFields?: T;
+  providerLastSeenAt?: T;
+  providerNote?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-operations_select".
+ */
+export interface ResellerDomainOperationsSelect<T extends boolean = true> {
+  site?: T;
+  domain?: T;
+  operation?: T;
+  status?: T;
+  period?: T;
+  catalogueCost?: T;
+  marginPercentage?: T;
+  quoteAmount?: T;
+  currency?: T;
+  paymentState?: T;
+  providerSubmittedAt?: T;
+  providerRespondedAt?: T;
+  safeDetail?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-events_select".
+ */
+export interface ResellerDomainEventsSelect<T extends boolean = true> {
+  site?: T;
+  domain?: T;
+  operation?: T;
+  ok?: T;
+  summary?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2714,6 +3280,44 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   createdAt?: T;
 }
 /**
+ * پیکربندی حساب نمایندگی دامنهٔ IRPower برای کل پلتفرم. کلید API فقط روی سرور و به‌صورت رمزنگاری‌شده نگهداری می‌شود؛ مشتریان هرگز آن را نمی‌بینند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller".
+ */
+export interface DomainReseller {
+  id: string;
+  /**
+   * تا وقتی خاموش است، سایت‌ها فقط می‌توانند قیمت کاتالوگ را ببینند و هیچ درخواست یا تغییر دامنه‌ای به registrar ارسال نمی‌شود.
+   */
+  enabled: boolean;
+  /**
+   * مطابق مستند ResellerArea. در صورت ارائهٔ endpoint اختصاصی IRPower، همان نشانی HTTPS را وارد کنید.
+   */
+  apiEndpoint: string;
+  /**
+   * درصد سود روی قیمت پایهٔ هر TLD در «کاتالوگ TLDها» اعمال می‌شود. این درصدها سراسری‌اند، نه برای هر سایت یا مشتری.
+   */
+  margins: {
+    registrationPercent: number;
+    transferPercent: number;
+    renewalPercent: number;
+  };
+  /**
+   * کلید فقط هنگام تایپ قابل مشاهده است. با ذخیره شدن AES-256-GCM رمزنگاری می‌شود و بعد از آن از پنل، REST و GraphQL بازگردانده نمی‌شود. خالی گذاشتن در ویرایش یعنی نگه‌داشتن کلید قبلی.
+   */
+  credentials?: {
+    apiKey?: string | null;
+  };
+  /**
+   * برای پاک‌سازی قطعی تیک بزنید و ذخیره کنید.
+   */
+  clearCredentials?: boolean | null;
+  credentialsSummary?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
  * کلید روشن/خاموشِ ماژول درگاه‌های پرداخت برای همهٔ سایت‌ها، و فهرست درگاه‌هایی که سکو اجازهٔ استفاده از آن‌ها را می‌دهد.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -2735,6 +3339,31 @@ export interface Payment {
   notes?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller_select".
+ */
+export interface DomainResellerSelect<T extends boolean = true> {
+  enabled?: T;
+  apiEndpoint?: T;
+  margins?:
+    | T
+    | {
+        registrationPercent?: T;
+        transferPercent?: T;
+        renewalPercent?: T;
+      };
+  credentials?:
+    | T
+    | {
+        apiKey?: T;
+      };
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

@@ -373,6 +373,12 @@ describe('store', () => {
         // via its `tenants` array (a `site` field on a user would double-scope).
         'sites',
         'users',
+        // Platform-wide infrastructure is intentionally staff-only rather than tenant
+        // content. It carries no site field: an event logs an operator's CDN change and
+        // the reseller TLD catalogue is the single wholesale-price source used for every
+        // tenant's derived quote.
+        'cdn-events',
+        'domain-reseller-products',
         // Payload's own tables: no tenant to scope by.
         'payload-jobs',
         'payload-kv',

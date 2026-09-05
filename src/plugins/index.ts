@@ -205,6 +205,16 @@ export const plugins: Plugin[] = [
       // merely leak content — it would hand every tenant a form for every other tenant's
       // PSP account.
       'payment-gateways': {},
+      // CDN credentials can rewrite a tenant's DNS and edge security. They are platform
+      // admin-only, but still must carry `site`: tenant registration keeps an accidental
+      // future access-policy relaxation from turning them into shared infrastructure.
+      'cdn-zones': {},
+      // Registrar domains, billable workflow rows and their audit events must carry the
+      // same site boundary as content. Leaving even the event stream unregistered would
+      // let one tenant infer another tenant's domain operations.
+      'reseller-domains': {},
+      'reseller-domain-operations': {},
+      'reseller-domain-events': {},
       pages: {},
       posts: {},
       products: {},
