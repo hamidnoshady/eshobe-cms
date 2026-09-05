@@ -1,7 +1,6 @@
 import type { CollectionConfig, FieldAccess } from 'payload'
 
 import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
-import { platformApiKeyAware } from '@/access/siteApiKey'
 import { isValidDomain, normalizeDomain } from '@/lib/domains'
 
 import {
@@ -44,7 +43,7 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
   access: {
     create: platformAdmin,
     delete: platformAdmin,
-    read: platformApiKeyAware(platformAdmin),
+    read: platformAdmin,
     update: platformAdmin,
   },
   admin: {

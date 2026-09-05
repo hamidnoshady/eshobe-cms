@@ -108,7 +108,7 @@ for public ACME TLS.
 
 ## Built-in CDN control plane (Cloudflare and ArvanCloud)
 
-The platform includes CDN management in **زیرساخت → zoneهای CDN**. It is not a Payload plugin and it does not run in the tenant-facing API. A CDN provider token can create DNS records, change TLS and block traffic, so only platform administrators (or a platform API key) can save a connection, run a sync or purge cache. Site API keys and tenant users cannot access it.
+The platform includes CDN management in **زیرساخت → zoneهای CDN**. It is not a Payload plugin and it does not run in the tenant-facing API. A CDN provider token can create DNS records, change TLS and block traffic, so only authenticated platform administrators (superadmins) can save a connection, run a sync or purge cache. API keys of every kind, tenant users and customers cannot access it.
 
 ### One active edge provider per zone
 
@@ -117,7 +117,7 @@ Choose **either Cloudflare or ArvanCloud for a zone**. They are alternative auth
 ### Safe setup sequence
 
 1. Add the CDN zone with `active` off and enter a least-privilege provider token. The token is AES-256-GCM encrypted using `CDN_INTEGRATIONS_KEY` (or, as a fallback, `PAYLOAD_SECRET`), is write-only, and is never returned by the admin, REST, GraphQL or tenant APIs. Use a distinct `CDN_INTEGRATIONS_KEY` of at least 32 random characters in production.
-2. Run `POST /api/cdn/sync` as platform staff with `{ "id": "<zone UUID>" }`. While inactive this only discovers the remote zone and its nameservers; it does not change DNS, TLS, cache or security settings.
+2. Run `POST /api/cdn/sync` from an authenticated superadmin session with `{ "id": "<zone UUID>" }`. While inactive this only discovers the remote zone and its nameservers; it does not change DNS, TLS, cache or security settings.
 3. If the zone does not exist, review the provider account and nameserver change, then explicitly select **ساخت خودکار zone اگر وجود ندارد** and activate the row. Cloudflare zone creation also requires its Account ID. Update registrar nameservers only after the provider reports them.
 4. Add only the DNS records the CMS owns. The sync updates records whose provider IDs were previously recorded by CMS. It never deletes a remote record simply because a row was removed from the CMS, and Cloudflare records are marked `eshobe-cms:<zone>:<row>` so manually managed rules are not overwritten.
 5. Confirm the canonical tenant domain in **سایت‌ها** only after DNS is live. Caddy's existing verified-domain control remains the source of truth for origin TLS/routing; CDN activation never makes an unverified tenant hostname routable.

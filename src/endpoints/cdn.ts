@@ -3,7 +3,6 @@ import type { Endpoint, PayloadRequest } from 'payload'
 import { addDataAndFileToRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
-import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import {
   cdnZoneInput,
   CdnConfigurationError,
@@ -26,7 +25,7 @@ const body = async (req: PayloadRequest): Promise<Record<string, unknown>> => {
 
 const allowed = async (req: PayloadRequest): Promise<boolean> => {
   const { user } = await req.payload.auth({ headers: req.headers, req })
-  return isPlatformAdminOrPlatformKey(req, isPlatformAdmin(user))
+  return isPlatformAdmin(user)
 }
 
 /** Reads the one field that is write-only everywhere else. A request-context flag
@@ -103,8 +102,8 @@ const operationalError = async (
  *
  * An explicit operation, not an afterChange hook: a form save must never change
  * live DNS or WAF state by accident. Platform staff may first save desired state,
- * review it, then call this endpoint (or a platform automation may call it with a
- * platform API key). A site key never qualifies.
+ * review it, then call this endpoint from their authenticated superadmin session.
+ * API keys of every kind, including platform API keys, never qualify.
  */
 export const cdnSync: Endpoint['handler'] = async (req) => {
   if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)

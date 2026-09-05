@@ -1,7 +1,6 @@
 import type { CollectionConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
-import { platformApiKeyAware } from '@/access/siteApiKey'
 
 /** Immutable operational trace. Provider tokens, request headers and provider
  * response bodies are intentionally never written here; `summary` is generated
@@ -11,7 +10,7 @@ export const CdnEvents: CollectionConfig<'cdn-events'> = {
   access: {
     create: () => false,
     delete: platformAdmin,
-    read: platformApiKeyAware(platformAdmin),
+    read: platformAdmin,
     update: () => false,
   },
   admin: {
