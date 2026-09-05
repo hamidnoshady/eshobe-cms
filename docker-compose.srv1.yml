@@ -1,0 +1,87 @@
+# srv1.eshobe.com deployment -- the compose file Komodo deploys from.
+#
+# The Komodo stack `eshobe-cms` is a Git Repo stack pointed at this repo and
+# branch with "Pre Build Images" enabled, so pressing Deploy in the Komodo UI
+# pulls the latest commit on main, rebuilds the image on the host and
+# recreates the containers. That is why this file lives in the repo rather
+# than only on the server: a repo-backed stack reads its compose from the
+# clone. Keep `project_name: eshobe-cms` on the Komodo side -- the pgdata and
+# media_uploads volumes are named from it.
+#
+# No secrets here: every value is a ${VAR} reference, and Komodo writes the
+# real values into a .env beside this file at deploy time.
+#
+# Do NOT use docker-compose.prod.yml's bundled
+# `caddy` service here -- it binds host 80/443, which belongs to
+# OpenLiteSpeed/DirectAdmin on this box and must never be taken by a
+# container (see /root/CLAUDE.md). Real customer-domain on-demand TLS (the
+# app's own Caddyfile) is out of scope for this deployment: only the
+# control-plane host is exposed, reverse-proxied by DirectAdmin -> the shared
+# host Caddy at /opt/caddy -> web on 127.0.0.1:3001.
+services:
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
+    restart: unless-stopped
+    mem_limit: 512m          # security audit 2026-09-05: cap so one
+    pids_limit: 256            # container cannot OOM the host and take
+    memswap_limit: 512m      # the live DirectAdmin sites down with it
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET}
+      PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
+      NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      JOBS_AUTORUN: ${JOBS_AUTORUN:-true}
+    ports:
+      - '127.0.0.1:3001:3000'
+    scale: 1
+    volumes:
+      - media_uploads:/app/media
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/api/domain-check').then(() => process.exit(0), () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 384m          # security audit 2026-09-05: cap so one
+    pids_limit: 128            # container cannot OOM the host and take
+    memswap_limit: 384m      # the live DirectAdmin sites down with it
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eshobe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-eshobe}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-eshobe} -d ${POSTGRES_DB:-eshobe}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  pgdata:
+  media_uploads:
