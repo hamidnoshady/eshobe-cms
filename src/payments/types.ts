@@ -2,6 +2,7 @@ import type { PayloadRequest } from 'payload'
 
 import type { CurrencyCode } from '@/lib/money'
 import type { Site } from '@/payload-types'
+import type { GatewayId } from './gateways/types'
 
 /**
  * The slice of an order a gateway needs. Deliberately not the whole document: the
@@ -30,6 +31,20 @@ export type CheckoutOrder = {
 
 export type PaymentInitiation = {
   /**
+   * Which environment the attempt was made in, snapshotted onto `orders.payment.mode`.
+   * Only the four PSPs set it — `bank` and `http` have no sandbox — and it is a snapshot
+   * because the gateway row can be flipped to `live` afterwards, and an order taken in
+   * sandbox has to keep saying so.
+   */
+  mode?: 'live' | 'sandbox'
+  /**
+   * Facts the provider wants kept on the order for reconciliation — Digipay's ticket,
+   * ZarinPal's authority and fee, Snapp!Pay's `orderId`. Written to
+   * `orders.payment.gatewayData` (staff-readable JSON), because "the PSP's panel says paid
+   * and we say pending" is unanswerable without them.
+   */
+  data?: Record<string, null | number | string | undefined>
+  /**
    * The gateway's own id for the attempt, kept on the order so a discrepancy can be
    * reconciled against the PSP's panel later.
    */
@@ -42,6 +57,9 @@ export type PaymentInitiation = {
 }
 
 export type PaymentConfirmation = {
+  /** See `PaymentInitiation.data`. On a refusal this holds what the provider said, which
+   * is the only record of *why* an order is still `pending`. */
+  data?: Record<string, null | number | string | undefined>
   /** Only ever `true` after the gateway has been asked, server to server. */
   ok: boolean
   paymentReference?: string
@@ -49,8 +67,27 @@ export type PaymentConfirmation = {
   reason?: string
 }
 
-/** Which way a site takes money. The value stored on `store.paymentProvider`. */
-export type PaymentProviderName = 'bank' | 'http'
+/**
+ * What the buyer's browser, or the PSP's callback server, handed back.
+ *
+ * Passed to `confirm` so an adapter can look the attempt up (`authority`, `trackingCode`)
+ * and cross-check it (`amount`, `providerId`) — and read for nothing else. `CLAUDE.md`'s
+ * rule and every adapter's header comment say the same thing: a value from a query string
+ * is not evidence that money moved.
+ */
+export type PaymentCallback = { body: Record<string, unknown>; query: Record<string, unknown> }
+
+/**
+ * Which way a site takes money. The value stored on `store.paymentProvider` and on
+ * `orders.payment.provider`.
+ *
+ * Two of these are methods (`bank`, `http`) and four are Iranian PSPs, one per gateway in
+ * `src/payments/gateways/registry.ts`. They share a type because they share a lifecycle: an
+ * order names one, the checkout endpoint resolves one, and the callback verifies against the
+ * one the order named. Keeping the gateways out of this union would have meant a second
+ * parallel field on every order and two code paths through the same lifecycle.
+ */
+export type PaymentProviderName = 'bank' | 'http' | GatewayId
 
 /**
  * One way for a site to take money.
@@ -71,6 +108,8 @@ export type PaymentProvider = {
    * otherwise would mean trusting the buyer's redirect.
    */
   confirm?: (args: {
+    /** What came back from the gateway or the buyer. Lookups and cross-checks only. */
+    callback?: PaymentCallback
     order: CheckoutOrder
     paymentReference?: string
     req: PayloadRequest

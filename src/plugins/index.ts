@@ -200,6 +200,11 @@ export const plugins: Plugin[] = [
       // Wave 7. A product and an order are as much a site's rows as a page is; an
       // unregistered collection is *shared* between every customer, silently.
       orders: {},
+      // Wave 10. A gateway row holds a merchant's credentials *and* which site they
+      // belong to, so this is the one collection where an unregistered entry would not
+      // merely leak content — it would hand every tenant a form for every other tenant's
+      // PSP account.
+      'payment-gateways': {},
       pages: {},
       posts: {},
       products: {},

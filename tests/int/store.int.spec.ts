@@ -8,6 +8,7 @@ import { createServer, type Server } from 'node:http'
 import type { Where } from 'payload'
 
 import type { CurrencyCode } from '@/lib/money'
+import type { PaymentProviderName } from '@/payments'
 
 import type { Order, Product, Site } from '@/payload-types'
 
@@ -152,7 +153,7 @@ describe('store', () => {
 
   type StoreFields = {
     currency: CurrencyCode
-    paymentProvider: 'bank' | 'http'
+    paymentProvider: PaymentProviderName
   }
 
   beforeAll(async () => {
@@ -827,7 +828,7 @@ describe('store', () => {
    */
   async function setStoreSettings(settings: {
     currency?: CurrencyCode
-    paymentProvider: 'bank' | 'http'
+    paymentProvider: PaymentProviderName
   }) {
     const { docs } = await payload.find({
       collection: 'store',

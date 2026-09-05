@@ -12,7 +12,9 @@ Vazirmatn is the only typeface, and every date renders in Shamsi (Jalali).
 - The rules that bind the code → [`CLAUDE.md`](./CLAUDE.md)
 - Per-wave operational notes → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS, migrations),
   [`WAVE-7.md`](./WAVE-7.md) (the store: the ecommerce-plugin spike, its decision, and money),
-  [`WAVE-9.md`](./WAVE-9.md) (the headless contract for a separately deployed site builder)
+  [`WAVE-9.md`](./WAVE-9.md) (the headless contract for a separately deployed site builder),
+  [`WAVE-10.md`](./WAVE-10.md) (Iranian payment gateways: ZarinPal, Digipay, Snapp!Pay, Torob Pay)
+- Payment gateway operator & headless guide → [`docs/payment-gateways.md`](./docs/payment-gateways.md)
 - Waves are tracked as GitHub issues #1–#9 under #10
 
 ## Getting started
