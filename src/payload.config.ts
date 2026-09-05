@@ -12,6 +12,10 @@ import { ApiKeys } from './collections/ApiKeys'
 import { Categories } from './collections/Categories'
 import { CdnEvents } from './collections/CdnEvents'
 import { CdnZones } from './collections/CdnZones'
+import { DomainResellerProducts } from './collections/DomainResellerProducts'
+import { ResellerDomainEvents } from './collections/ResellerDomainEvents'
+import { ResellerDomainOperations } from './collections/ResellerDomainOperations'
+import { ResellerDomains } from './collections/ResellerDomains'
 import { Media } from './collections/Media'
 import { Orders } from './collections/Orders'
 import { PaymentGateways } from './collections/PaymentGateways'
@@ -22,6 +26,7 @@ import { Sites } from './collections/Sites'
 import { Store } from './collections/Store'
 import { Theme } from './collections/Theme'
 import { Users } from './collections/Users'
+import { DomainReseller } from './globals/DomainReseller'
 import { Payments } from './globals/Payments'
 import { Footer } from './Footer/config'
 import { Header } from './Header/config'
@@ -35,6 +40,7 @@ import { apiKeysEndpoints } from './endpoints/apiKeys'
 import { checkoutEndpoints } from './endpoints/checkout'
 import { cdnEndpoints } from './endpoints/cdn'
 import { domainCheck } from './endpoints/domainCheck'
+import { domainResellerEndpoints } from './endpoints/domainReseller'
 import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
@@ -78,6 +84,7 @@ export default buildConfig({
     siteDescriptor,
     updateSiteDomain,
     ...siteDomainsEndpoints,
+    ...domainResellerEndpoints,
     provisionSiteEndpoint,
     handoffEndpoint,
     handoffPostEndpoint,
@@ -90,6 +97,7 @@ export default buildConfig({
     ...cdnEndpoints,
   ],
   globals: [
+    DomainReseller,
     /**
      * The only Payload global in this codebase. Everything else that looks like a
      * singleton (`store`, `theme`, `header`, `footer`) is a collection registered
@@ -170,6 +178,10 @@ export default buildConfig({
     PaymentGateways,
     CdnZones,
     CdnEvents,
+    DomainResellerProducts,
+    ResellerDomains,
+    ResellerDomainOperations,
+    ResellerDomainEvents,
   ],
   /**
    * Origins allowed to call the API with credentials. The deployment origin is the

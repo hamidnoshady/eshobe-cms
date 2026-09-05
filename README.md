@@ -10,6 +10,7 @@ Vazirmatn is the only typeface, and every date renders in Shamsi (Jalali).
 - Architecture and phasing → [`PLAN.md`](./PLAN.md)
 - Production deployment → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS) and [`WAVE-6.md`](./WAVE-6.md) (R2, SEO, jobs, backups)
 - Tenant domain, subdomain and alias operations → [`docs/domains.md`](./docs/domains.md)
+- Built-in IRPower / ResellerArea domain-reseller setup and tenant API → [`docs/domain-reseller.md`](./docs/domain-reseller.md)
 - The rules that bind the code → [`CLAUDE.md`](./CLAUDE.md)
 - Per-wave operational notes → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS, migrations),
   [`WAVE-7.md`](./WAVE-7.md) (the store: the ecommerce-plugin spike, its decision, and money),

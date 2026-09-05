@@ -83,6 +83,10 @@ export interface Config {
     'payment-gateways': PaymentGateway;
     'cdn-zones': CdnZone;
     'cdn-events': CdnEvent;
+    'domain-reseller-products': DomainResellerProduct;
+    'reseller-domains': ResellerDomain;
+    'reseller-domain-operations': ResellerDomainOperation;
+    'reseller-domain-events': ResellerDomainEvent;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -116,6 +120,10 @@ export interface Config {
     'payment-gateways': PaymentGatewaysSelect<false> | PaymentGatewaysSelect<true>;
     'cdn-zones': CdnZonesSelect<false> | CdnZonesSelect<true>;
     'cdn-events': CdnEventsSelect<false> | CdnEventsSelect<true>;
+    'domain-reseller-products': DomainResellerProductsSelect<false> | DomainResellerProductsSelect<true>;
+    'reseller-domains': ResellerDomainsSelect<false> | ResellerDomainsSelect<true>;
+    'reseller-domain-operations': ResellerDomainOperationsSelect<false> | ResellerDomainOperationsSelect<true>;
+    'reseller-domain-events': ResellerDomainEventsSelect<false> | ResellerDomainEventsSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -132,9 +140,11 @@ export interface Config {
   };
   fallbackLocale: ('false' | 'none' | 'null') | false | null | ('fa' | 'en') | ('fa' | 'en')[];
   globals: {
+    'domain-reseller': DomainReseller;
     payments: Payment;
   };
   globalsSelect: {
+    'domain-reseller': DomainResellerSelect<false> | DomainResellerSelect<true>;
     payments: PaymentsSelect<false> | PaymentsSelect<true>;
   };
   locale: 'fa' | 'en';
@@ -1615,6 +1625,164 @@ export interface CdnEvent {
   createdAt: string;
 }
 /**
+ * قیمت پایهٔ سالانهٔ هر پسوند نزد registrar. مستند ResellerArea قیمت را از API برنمی‌گرداند؛ قیمت نهایی هر درخواست با درصد سود سراسریِ «نمایندگی دامنه» محاسبه و snapshot می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller-products".
+ */
+export interface DomainResellerProduct {
+  id: string;
+  /**
+   * بدون نقطهٔ آغازین؛ نمونه: ir، com، co.ir.
+   */
+  tld: string;
+  enabled?: boolean | null;
+  currency: 'IRT' | 'IRR' | 'USD' | 'EUR';
+  registrationCost: number;
+  transferCost: number;
+  renewalCost: number;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * دامنه‌های ثبت یا منتقل‌شده با حساب نمایندگی پلتفرم. «پذیرفته‌شده توسط registrar» به معنی فعال بودن قطعی دامنه نیست؛ API ارائه‌شده endpoint وضعیت/انقضا ندارد و تأیید عملیاتی جداست.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domains".
+ */
+export interface ResellerDomain {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * نام کامل دامنه، بدون پروتکل، مسیر یا پورت.
+   */
+  domain: string;
+  tld?: string | null;
+  /**
+   * فقط اپراتور پلتفرم تغییر می‌دهد. API مستندشدهٔ ResellerArea وضعیت سفارش یا انقضای دامنه را نمی‌دهد؛ پاسخ موفق فقط «پذیرفته‌شدن» را ثبت می‌کند.
+   */
+  state: 'requested' | 'providerAccepted' | 'active' | 'failed' | 'external' | 'cancelled';
+  /**
+   * منبع ثبت‌شدهٔ CMS؛ تغییر واقعی با endpoint مدیریت registrar انجام می‌شود.
+   */
+  nameservers?:
+    | {
+        hostname: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * شیء contact مستند ResellerArea. شامل first_name، last_name، company_name، email، phone، fax، address، city، state، postcode و country. فقط مالک همان سایت به آن دسترسی دارد.
+   */
+  registrationContact?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * شیء دارای registrant، administrative، technical و billing برای UpdateDomainWhoisInfo. اطلاعات فقط برای مالک سایت و registrar ارسال می‌شود.
+   */
+  contacts?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * برای دامنه‌های .ir: irnic_holder_handle، irnic_admin_handle، irnic_tech_handle و irnic_bill_handle. این اطلاعات جایگزین رابطهٔ مالکیت در IRNIC نمی‌شود.
+   */
+  irnicHandles?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * شیء fields مستند registrar؛ مثلاً شناسه‌های IRNIC برای .ir.
+   */
+  customFields?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  providerLastSeenAt?: string | null;
+  providerNote?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * ردّ هر درخواست قابل‌صورتحساب. مبلغ و درصد سود در زمان درخواست snapshot می‌شوند. تا اتصال پلتفرم پرداخت، وضعیت پرداخت عمداً «در انتظار اتصال» باقی می‌ماند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-operations".
+ */
+export interface ResellerDomainOperation {
+  id: string;
+  site?: (string | null) | Site;
+  domain: string | ResellerDomain;
+  operation: 'register' | 'transfer' | 'renew';
+  status: 'submitting' | 'providerAccepted' | 'failed' | 'cancelled';
+  period: number;
+  catalogueCost: number;
+  marginPercentage: number;
+  quoteAmount: number;
+  currency: 'IRT' | 'IRR' | 'USD' | 'EUR';
+  /**
+   * این CMS هنوز درگاه پرداخت/تأیید وجه این عملیات را ندارد. پاسخ registrar نیز پرداخت را تأیید نمی‌کند.
+   */
+  paymentState: 'pendingIntegration';
+  providerSubmittedAt?: string | null;
+  providerRespondedAt?: string | null;
+  safeDetail?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * گزارش امن عملیات registrar. رمز انتقال، کلید API، هدرها، پاسخ خام و اطلاعات تماس هرگز در این گزارش ذخیره نمی‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-events".
+ */
+export interface ResellerDomainEvent {
+  id: string;
+  site?: (string | null) | Site;
+  domain: string | ResellerDomain;
+  operation:
+    | 'register'
+    | 'transfer'
+    | 'renew'
+    | 'nameserversGet'
+    | 'nameserversUpdate'
+    | 'lockGet'
+    | 'lockUpdate'
+    | 'transferCodeGet'
+    | 'childNameserverAdd'
+    | 'childNameserverUpdate'
+    | 'childNameserverRemove'
+    | 'irnicContactGet'
+    | 'transferValidate'
+    | 'whoisGet'
+    | 'whoisUpdate';
+  ok: boolean;
+  summary: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects".
  */
@@ -1870,6 +2038,22 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'cdn-events';
         value: string | CdnEvent;
+      } | null)
+    | ({
+        relationTo: 'domain-reseller-products';
+        value: string | DomainResellerProduct;
+      } | null)
+    | ({
+        relationTo: 'reseller-domains';
+        value: string | ResellerDomain;
+      } | null)
+    | ({
+        relationTo: 'reseller-domain-operations';
+        value: string | ResellerDomainOperation;
+      } | null)
+    | ({
+        relationTo: 'reseller-domain-events';
+        value: string | ResellerDomainEvent;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -2746,6 +2930,78 @@ export interface CdnEventsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller-products_select".
+ */
+export interface DomainResellerProductsSelect<T extends boolean = true> {
+  tld?: T;
+  enabled?: T;
+  currency?: T;
+  registrationCost?: T;
+  transferCost?: T;
+  renewalCost?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domains_select".
+ */
+export interface ResellerDomainsSelect<T extends boolean = true> {
+  site?: T;
+  domain?: T;
+  tld?: T;
+  state?: T;
+  nameservers?:
+    | T
+    | {
+        hostname?: T;
+        id?: T;
+      };
+  registrationContact?: T;
+  contacts?: T;
+  irnicHandles?: T;
+  customFields?: T;
+  providerLastSeenAt?: T;
+  providerNote?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-operations_select".
+ */
+export interface ResellerDomainOperationsSelect<T extends boolean = true> {
+  site?: T;
+  domain?: T;
+  operation?: T;
+  status?: T;
+  period?: T;
+  catalogueCost?: T;
+  marginPercentage?: T;
+  quoteAmount?: T;
+  currency?: T;
+  paymentState?: T;
+  providerSubmittedAt?: T;
+  providerRespondedAt?: T;
+  safeDetail?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "reseller-domain-events_select".
+ */
+export interface ResellerDomainEventsSelect<T extends boolean = true> {
+  site?: T;
+  domain?: T;
+  operation?: T;
+  ok?: T;
+  summary?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects_select".
  */
 export interface RedirectsSelect<T extends boolean = true> {
@@ -3024,6 +3280,44 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   createdAt?: T;
 }
 /**
+ * پیکربندی حساب نمایندگی دامنهٔ IRPower برای کل پلتفرم. کلید API فقط روی سرور و به‌صورت رمزنگاری‌شده نگهداری می‌شود؛ مشتریان هرگز آن را نمی‌بینند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller".
+ */
+export interface DomainReseller {
+  id: string;
+  /**
+   * تا وقتی خاموش است، سایت‌ها فقط می‌توانند قیمت کاتالوگ را ببینند و هیچ درخواست یا تغییر دامنه‌ای به registrar ارسال نمی‌شود.
+   */
+  enabled: boolean;
+  /**
+   * مطابق مستند ResellerArea. در صورت ارائهٔ endpoint اختصاصی IRPower، همان نشانی HTTPS را وارد کنید.
+   */
+  apiEndpoint: string;
+  /**
+   * درصد سود روی قیمت پایهٔ هر TLD در «کاتالوگ TLDها» اعمال می‌شود. این درصدها سراسری‌اند، نه برای هر سایت یا مشتری.
+   */
+  margins: {
+    registrationPercent: number;
+    transferPercent: number;
+    renewalPercent: number;
+  };
+  /**
+   * کلید فقط هنگام تایپ قابل مشاهده است. با ذخیره شدن AES-256-GCM رمزنگاری می‌شود و بعد از آن از پنل، REST و GraphQL بازگردانده نمی‌شود. خالی گذاشتن در ویرایش یعنی نگه‌داشتن کلید قبلی.
+   */
+  credentials?: {
+    apiKey?: string | null;
+  };
+  /**
+   * برای پاک‌سازی قطعی تیک بزنید و ذخیره کنید.
+   */
+  clearCredentials?: boolean | null;
+  credentialsSummary?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
  * کلید روشن/خاموشِ ماژول درگاه‌های پرداخت برای همهٔ سایت‌ها، و فهرست درگاه‌هایی که سکو اجازهٔ استفاده از آن‌ها را می‌دهد.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -3045,6 +3339,31 @@ export interface Payment {
   notes?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "domain-reseller_select".
+ */
+export interface DomainResellerSelect<T extends boolean = true> {
+  enabled?: T;
+  apiEndpoint?: T;
+  margins?:
+    | T
+    | {
+        registrationPercent?: T;
+        transferPercent?: T;
+        renewalPercent?: T;
+      };
+  credentials?:
+    | T
+    | {
+        apiKey?: T;
+      };
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
