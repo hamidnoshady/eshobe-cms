@@ -60,7 +60,7 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 - A `virtual: true` field gets `admin.readOnly = true` unless explicitly overridden and never persists. For a write-only secret that is the wrong tool: use a real column holding ciphertext and mask it on read (see *Payment gateways*).
 - `admin.style` is a CSS properties object, not a widget name. There is no password input for a `text` field, so a secret renders in cleartext *while being typed*; the protection is at rest and on read, and the collection says so in its help text rather than implying a mask that does not exist.
 - Payload validates `required` fields even when `admin.condition` hides them. A required field on one variant of a conditional group makes every other variant unsavable — which is why no `payment-gateways` credential column is `required` and `assertGatewayUsable` enforces "complete" per gateway instead.
-- Env var is `DATABASE_URL`, not `DATABASE_URI`.
+- Runtime env var is `DATABASE_URL`, not `DATABASE_URI`: in production it belongs to the restricted `eshobe_app` role. **Never give web `MIGRATE_DATABASE_URL`, use a privileged runtime URL, or restore `prodMigrations`.** The one-shot `pnpm migrate` command uses `MIGRATE_DATABASE_URL` (owner role `eshobe`) exclusively, with no fallback; dev push behaviour is unchanged. See [srv1 deployment in README](./README.md#production-deployment-srv1--komodo).
 - Keep `i18n.supportedLanguages` to `fa` and `en`. Each one adds to the admin bundle.
 - There is no publish permission. `getDocumentPermissions` probes `update` access twice — once with `data._status: 'draft'`, once with `'published'` — and hides the Publish button on the second answer. So `writeUnlessPublishing()` in `src/access/publish.ts` gates the button *and* the REST/Local API in one function; a custom admin component would be dead code.
 - The block library and its per-site-type gating live in `src/blocks/index.ts`: a typed registry table (`{ block, siteTypes }[]`), not a `custom` key per block — a misspelt site type in `custom` silently hides a block from every site, the table does not compile. `allowedBlocks` (a `blocks` field `filterOptions`) reads the site's `type` and returns the allowed slugs; Payload re-checks it on save, so it gates the Local/REST API, not just the picker. A block added here with no entry in `RenderBlocks.tsx` saves fine and renders nothing — `tests/int/blocks.int.spec.ts` checks the two lists against each other.
@@ -86,12 +86,23 @@ ZarinPal, Digipay, Snapp!Pay, Torob Pay. Design decisions in `WAVE-10.md`, opera
 - `payment-gateways` **is** in the multi-tenant plugin's `collections` map. This is the one collection where an unregistered entry would not merely leak content — it would hand every tenant a form for every other tenant's PSP account.
 - Rotating `PAYMENT_GATEWAYS_KEY` or `PAYLOAD_SECRET` invalidates every stored credential and there is no re-encryption job. A row whose secrets no longer decrypt is *refused*, not errored, so the symptom is "the gateway disappeared from the storefront".
 
+## srv1 / Komodo deployment invariants
+
+- Deploy only `docker-compose.srv1.yml`, never the generic `docker-compose.prod.yml`/Caddy stack on this shared host. OpenLiteSpeed owns 80/443; web publishes **127.0.0.1:3001 only**.
+- Keep project **eshobe-cms**, shared image **eshobe-cms-web**, and volume keys **pgdata / media_uploads** unchanged. No `down -v` in production. Keep memory, swap, PID and `no-new-privileges` limits on every service, including the one-shot migrator.
+- `web.depends_on.migrate.condition` must remain **service_completed_successfully**. `migrate` has `restart: 'no'`; failure must block a new web start. This is not a supervisor for already-running web containers: stop the old web process first for crash-loop recovery/maintenance.
+- All Compose environment values are `${VAR}` references and each service has an explicit allowlist. No `env_file` on web: it would leak the privileged migration credential. No database credentials in Docker build args, image layers, or source.
+- The shared image keeps full dependencies/source under `/app/migrator`; standalone `node server.js` does not contain the CLI by itself. This costs image size but guarantees one app/migrator build. `scripts/migrate.ts` uses Payload's transactional runner, rejects push-created databases and destructive drop flags, never starts jobs, and exits non-zero on failure.
+- The privileged creating role needs default DML/sequence grants for `eshobe_app` on future tables, not just grants on the old schema. See the SQL and recovery procedure in README; never solve ownership errors by elevating the runtime role.
+- Komodo logs expanded Compose config **in plaintext**, including `MIGRATE_DATABASE_URL`. Include it in the credential rotation list; restrict log access and do not paste config/env dumps into tickets. Changing `POSTGRES_PASSWORD` does not rotate an existing database role automatically.
+
 ## Commands
 
 ```bash
 pnpm dev                     # Next + Payload
 pnpm payload migrate:create  # after config changes, before deploy
-pnpm payload migrate:status  # check before touching a shared DB
+pnpm payload migrate:status  # read status via DATABASE_URL
+pnpm migrate                 # one-shot, requires MIGRATE_DATABASE_URL (never web)
 docker compose up -d db      # local Postgres
 ```
 

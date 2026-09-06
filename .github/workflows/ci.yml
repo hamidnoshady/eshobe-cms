@@ -79,10 +79,14 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          tags: eshobe-cms-web
           build-args: |
             NEXT_PUBLIC_SERVER_URL=http://localhost:3000
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify srv1 migration gate and restricted runtime
+        run: bash tests/deployment/compose-smoke.sh
 
   # ---------- Integration tests (Vitest + real Postgres) ----------
   test-int:

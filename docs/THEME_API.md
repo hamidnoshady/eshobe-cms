@@ -1366,7 +1366,8 @@ idType: "uuid"                          // non-enumerable across tenants
 localization: { locales:[{code:"fa",rtl:true},{code:"en"}], defaultLocale:"fa", fallback:true }
 cors: [getServerSideURL(), ...API_CORS_ORIGINS.split(",")]
 admin language: i18n.fallbackLanguage:"fa", supported:{fa,en}
-db: postgresAdapter({ prodMigrations })
+db: postgresAdapter(runtimeDatabaseOptions()) // DATABASE_URL only; no boot migrations
+// Separate `pnpm migrate` step uses MIGRATE_DATABASE_URL before web starts.
 editor: lexical (richText)
 ```
 

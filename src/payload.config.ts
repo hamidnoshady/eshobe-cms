@@ -30,9 +30,9 @@ import { DomainReseller } from './globals/DomainReseller'
 import { Payments } from './globals/Payments'
 import { Footer } from './Footer/config'
 import { Header } from './Header/config'
+import { runtimeDatabaseOptions } from './lib/database'
 import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
 import { defaultLocale, locales } from './lib/locales'
-import { migrations } from './migrations'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
@@ -140,16 +140,10 @@ export default buildConfig({
   },
   // This config helps us configure global or default features that the other editors can inherit
   editor: defaultLexical,
-  db: postgresAdapter({
-    // uuid, not serial: tenants share one database, so IDs must not be enumerable
-    idType: 'uuid',
-    pool: {
-      connectionString: process.env.DATABASE_URL,
-    },
-    // The production image runs `node server.js` with no Payload CLI, so
-    // pending migrations run on init (production only — dev keeps push mode).
-    prodMigrations: migrations,
-  }),
+  // Runtime uses DATABASE_URL only. No boot-time migrations: the one-shot
+  // `pnpm migrate` entrypoint uses MIGRATE_DATABASE_URL before web starts.
+  // Development keeps Payload's existing push mode unchanged.
+  db: postgresAdapter(runtimeDatabaseOptions()),
   collections: [
     Pages,
     Posts,
@@ -360,8 +354,8 @@ export default buildConfig({
   },
   /**
    * Last line of defence for the values that only bite in production. Deliberately
-   * in `onInit`: it runs on a real boot (and on `payload migrate`), never during
-   * `next build`, which the Dockerfile deliberately runs with placeholder secrets.
+   * in `onInit`: it runs on a real app boot, never during `next build` (which
+   * uses placeholder secrets) or the one-shot migrator (disableOnInit: true).
    */
   onInit: () => {
     assertProductionEnv()

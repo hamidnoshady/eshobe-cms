@@ -15,6 +15,8 @@ WORKDIR /app
 # pnpm-workspace.yaml carries pnpm 11's build-script approvals (allowBuilds);
 # without it native postinstalls (sharp, esbuild) are silently skipped.
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
+# Required for the root's workspace:* dependency, including in the migrator.
+COPY packages/site-runtime/package.json ./packages/site-runtime/package.json
 RUN \
   if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
   elif [ -f package-lock.json ]; then npm ci; \
@@ -22,6 +24,17 @@ RUN \
   else echo "Lockfile not found." && exit 1; \
   fi
 
+
+# The standalone output does not contain Payload's CLI or its TS loader. Keep a
+# separate tool tree with complete dependencies + source for the one-shot command.
+# It is copied into the SAME final image as web so schema and app cannot drift.
+# Tradeoff: a larger image than standalone-only (including dev dependencies), but
+# one build/tag for Komodo and no downloads or package installation at startup.
+FROM deps AS migration-tools
+COPY tsconfig.json ./
+COPY src ./src
+COPY packages ./packages
+COPY scripts/migrate.ts ./scripts/migrate.ts
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -79,6 +92,11 @@ RUN chown nextjs:nodejs .next
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Deliberately isolated from the standalone module tree. Both services run as
+# nextjs, but only `migrate` gets MIGRATE_DATABASE_URL. No .env files or build-time
+# dummy DATABASE_URL/PAYLOAD_SECRET are inherited from a build stage.
+COPY --from=migration-tools /app /app/migrator
 
 USER nextjs
 
