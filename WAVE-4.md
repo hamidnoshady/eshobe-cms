@@ -11,12 +11,17 @@ Do not enter `https://`, a port, or a path. Wait for DNS propagation before mark
 
 ## Production deployment
 
+**On srv1 / Komodo use [README's deployment procedure](./README.md#production-deployment-srv1--komodo)
+and `docker-compose.srv1.yml` only.** The generic Caddy deployment described here
+is for a dedicated host; it must not bind 80/443 on srv1 alongside OpenLiteSpeed.
+
 Set these values in the production environment:
 
 ```dotenv
 CONTROL_PLANE_HOST=admin.example.com
 ACME_EMAIL=ops@example.com
-DATABASE_URL=postgres://eshobe:password@db:5432/eshobe
+DATABASE_URL=postgres://eshobe_app:<runtime-password>@db:5432/eshobe
+MIGRATE_DATABASE_URL=postgres://eshobe:<owner-password>@db:5432/eshobe
 PAYLOAD_SECRET=long-random-secret
 POSTGRES_PASSWORD=another-long-random-secret
 CRON_SECRET=long-random-secret-2
@@ -37,7 +42,16 @@ Caddy calls `http://web:3000/api/domain-check?domain=...` before on-demand issua
 
 ## Database migrations
 
-Development keeps Payload's push mode, but the production image runs `node server.js` with no CLI step, so the Postgres adapter is configured with `prodMigrations`: in production, pending migrations from `src/migrations` run automatically on startup before the app serves traffic. After any schema change, regenerate the migration set:
+Development keeps Payload's push mode. Production **never runs migrations during
+app startup**: web runs `node server.js` with the restricted `DATABASE_URL`, and
+the separate `pnpm migrate` command uses the privileged `MIGRATE_DATABASE_URL`
+without any fallback. On srv1, Compose runs the one-shot `migrate` service from
+the same image and blocks web until it exits successfully. On other deployments,
+run the migration command in a separate step before starting web; the generic
+Caddy compose file does not orchestrate this for you. See README for the two-role
+grants, image tradeoff and failure/retry procedure.
+
+After any schema change, regenerate the migration set:
 
 ```sh
 pnpm payload migrate:create <name>

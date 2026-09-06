@@ -8,8 +8,10 @@
 # clone. Keep `project_name: eshobe-cms` on the Komodo side -- the pgdata and
 # media_uploads volumes are named from it.
 #
-# No secrets here: every value is a ${VAR} reference, and Komodo writes the
-# real values into a .env beside this file at deploy time.
+# No secrets here: all environment values are ${VAR} references, and Komodo
+# writes the real values into a .env beside this file at deploy time. Never
+# use env_file on web: MIGRATE_DATABASE_URL must only reach the one-shot job.
+# Komodo logs resolved compose config in plaintext; rotate that credential too.
 #
 # Do NOT use docker-compose.prod.yml's bundled
 # `caddy` service here -- it binds host 80/443, which belongs to
@@ -18,21 +20,26 @@
 # app's own Caddyfile) is out of scope for this deployment: only the
 # control-plane host is exposed, reverse-proxied by DirectAdmin -> the shared
 # host Caddy at /opt/caddy -> web on 127.0.0.1:3001.
+name: eshobe-cms
+
 services:
   web:
+    # One build, shared by web and migrate. Keep this existing deployment tag.
+    image: eshobe-cms-web
+    pull_policy: build
     build:
       context: .
       args:
         NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
     restart: unless-stopped
-    mem_limit: 512m          # security audit 2026-09-05: cap so one
-    pids_limit: 256            # container cannot OOM the host and take
-    memswap_limit: 512m      # the live DirectAdmin sites down with it
+    mem_limit: 512m # security audit 2026-09-05: cap so one
+    pids_limit: 256 # container cannot OOM the host and take
+    memswap_limit: 512m # the live DirectAdmin sites down with it
     security_opt:
       - no-new-privileges:true
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      DATABASE_URL: ${DATABASE_URL:?set restricted DATABASE_URL}
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET:?set PAYLOAD_SECRET}
       CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET}
       PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
       NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
@@ -52,7 +59,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000/api/domain-check').then(() => process.exit(0), () => process.exit(1))",
+          "fetch('http://localhost:3000/api/domain-check').then((r) => process.exit(r.status === 404 ? 0 : 1), () => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
@@ -61,12 +68,33 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+  migrate:
+    image: eshobe-cms-web
+    # Built by web above, never pulled as an unrelated registry image.
+    pull_policy: never
+    working_dir: /app/migrator
+    command: ['node', 'node_modules/payload/bin.js', 'run', 'scripts/migrate.ts']
+    restart: 'no'
+    mem_limit: 512m
+    pids_limit: 256
+    memswap_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      MIGRATE_DATABASE_URL: ${MIGRATE_DATABASE_URL:?set privileged MIGRATE_DATABASE_URL}
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET:?set PAYLOAD_SECRET}
+      NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
+    depends_on:
+      db:
+        condition: service_healthy
   db:
     image: postgres:16-alpine
     restart: unless-stopped
-    mem_limit: 384m          # security audit 2026-09-05: cap so one
-    pids_limit: 128            # container cannot OOM the host and take
-    memswap_limit: 384m      # the live DirectAdmin sites down with it
+    mem_limit: 384m # security audit 2026-09-05: cap so one
+    pids_limit: 128 # container cannot OOM the host and take
+    memswap_limit: 384m # the live DirectAdmin sites down with it
     security_opt:
       - no-new-privileges:true
     environment:

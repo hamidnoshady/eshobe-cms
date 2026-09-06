@@ -46,7 +46,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      # First boot runs every migration before listening; give it room.
+      # Apply migrations separately before starting web (see README); allow cold startup.
       start_period: 60s
     depends_on:
       db:
