@@ -131,6 +131,8 @@ jobs:
         run: pnpm seed
       - name: Vitest integration suites
         run: pnpm test:int
+      - name: Ownership replay (normalisation + gate on a scratch database)
+        run: pnpm exec tsx tests/deployment/ownership.ts
 
   # ---------- End-to-end tests (Playwright against `pnpm dev`) ----------
   test-e2e:

@@ -135,6 +135,9 @@ importers:
       '@types/node':
         specifier: 24.12.3
         version: 24.12.3
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
@@ -156,6 +159,9 @@ importers:
       jsdom:
         specifier: 28.0.0
         version: 28.0.0(supports-color@7.2.0)
+      pg:
+        specifier: 8.20.0
+        version: 8.20.0
       postcss:
         specifier: ^8.4.38
         version: 8.5.26

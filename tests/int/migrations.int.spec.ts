@@ -1,11 +1,17 @@
 // @vitest-environment node
+// The DB-backed replay of the srv1 ownership incident (normalisation, gate,
+// idempotence, fail-closed drift detection) lives in tests/deployment/ownership.ts
+// and runs as its own CI step: it needs its own throwaway database and roles,
+// and adding it to this parallel spec pool perturbs which files share workers
+// — the int suites share one seeded database and are sensitive to that.
 import type { PostgresAdapter } from '@payloadcms/db-postgres'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { BasePayload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { migrationDatabaseOptions, runtimeDatabaseOptions } from '@/lib/database'
+import { runtimeDatabaseOptions, migrationDatabaseOptions } from '@/lib/database'
+import { resolveRuntimeRole } from '@/lib/database-ownership'
 
 const runtimeURL = 'postgres://eshobe_app:runtime-test-only@127.0.0.1:1/eshobe'
 const migrateURL = 'postgres://eshobe:migration-test-only@127.0.0.1:1/eshobe'
@@ -121,5 +127,72 @@ describe('one-shot entrypoint fails closed', () => {
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Refusing to migrate with PAYLOAD_DROP_DATABASE=true')
+  })
+
+  it('exits non-zero when the runtime role cannot be determined', () => {
+    // A plain object with the two role sources stripped, cast for spawnSync:
+    // this repo's ProcessEnv augmentation makes DATABASE_URL a required key.
+    const env = {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(
+          (entry): entry is [string, string] =>
+            !['DATABASE_URL', 'APP_DATABASE_ROLE'].includes(entry[0]) && entry[1] !== undefined,
+        ),
+      ),
+      NODE_ENV: 'production',
+      MIGRATE_DATABASE_URL: migrateURL,
+    } as unknown as NodeJS.ProcessEnv
+    const result = spawnSync(
+      process.execPath,
+      ['node_modules/payload/bin.js', 'run', 'scripts/migrate.ts'],
+      { cwd: path.resolve(import.meta.dirname, '../..'), env, encoding: 'utf8', timeout: 30_000 },
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Cannot determine the runtime database role')
+    expect(result.stderr).not.toContain('runtime-test-only')
+  })
+})
+
+describe('runtime role resolution', () => {
+  it('prefers an explicit APP_DATABASE_ROLE (trimmed) over DATABASE_URL', () => {
+    expect(
+      resolveRuntimeRole({ APP_DATABASE_ROLE: '  eshobe_app  ', DATABASE_URL: runtimeURL }),
+    ).toBe('eshobe_app')
+  })
+
+  it('derives the role from the DATABASE_URL username when no explicit role is set', () => {
+    expect(resolveRuntimeRole({ DATABASE_URL: runtimeURL })).toBe('eshobe_app')
+    expect(
+      resolveRuntimeRole({ DATABASE_URL: 'postgresql://runtime%40role:pw@db:5432/eshobe' }),
+    ).toBe('runtime@role')
+  })
+
+  it.each([undefined, '', '   ', 'postgres://db/eshobe', 'https://user:pw@db/eshobe'])(
+    'refuses to guess a role name for APP_DATABASE_ROLE/DATABASE_URL = %j',
+    (databaseURL) => {
+      expect(() => resolveRuntimeRole({ DATABASE_URL: databaseURL })).toThrow(
+        'Cannot determine the runtime database role',
+      )
+    },
+  )
+
+  it('never echoes the connection URL or its credentials in the refusal', () => {
+    // A malformed URL and a URL with no username are the two refusal paths
+    // that can carry a credential; neither may surface in the message.
+    for (const databaseURL of [
+      'not a url://super-secret-pw',
+      'postgres://:super-secret-pw@db:5432/eshobe',
+    ]) {
+      let error: unknown
+      try {
+        resolveRuntimeRole({ DATABASE_URL: databaseURL })
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(Error)
+      expect(String(error)).toContain('Cannot determine the runtime database role')
+      expect(String(error)).not.toContain('super-secret-pw')
+    }
   })
 })

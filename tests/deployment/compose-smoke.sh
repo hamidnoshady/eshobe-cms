@@ -28,6 +28,8 @@ export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 export DATABASE_URL="postgres://eshobe_app:$(openssl rand -hex 24)@db:5432/$POSTGRES_DB"
 export MIGRATE_DATABASE_URL="postgres://eshobe:$POSTGRES_PASSWORD@db:5432/$POSTGRES_DB"
 export TEST_DATABASE_URL="$DATABASE_URL"
+# The one-shot derives the owning runtime role from this, never from a guess.
+export APP_DATABASE_ROLE=eshobe_app
 export PAYLOAD_SECRET="$(openssl rand -hex 32)"
 export CRON_SECRET="$(openssl rand -hex 24)" PREVIEW_SECRET="$(openssl rand -hex 24)"
 export CONTROL_PLANE_HOST=admin.example.com JOBS_AUTORUN=false
@@ -82,6 +84,12 @@ try:
     assert migrate['restart'] == 'no'
     assert 'MIGRATE_DATABASE_URL' not in web['environment']
     assert 'DATABASE_URL' not in migrate['environment']
+    # The runtime role reaches the one-shot explicitly, never via DATABASE_URL.
+    assert migrate['environment']['APP_DATABASE_ROLE'] == 'eshobe_app'
+    assert raw['services']['migrate']['environment']['APP_DATABASE_ROLE'].startswith(
+        '${APP_DATABASE_ROLE'
+    )
+    assert 'APP_DATABASE_ROLE' not in web['environment']
     assert len(web['ports']) == 1
     assert web['ports'][0]['host_ip'] == '127.0.0.1'
     assert str(web['ports'][0]['published']) == '3001'
@@ -166,4 +174,4 @@ dc exec -T web node -e '
 # A subsequent one-shot run must be a no-op, not a second application of the DDL.
 dc run --rm --no-deps -T migrate
 fixture assert-current
-printf '\nMigration failure gate, four-migration upgrade, runtime isolation and rerun OK\n'
+printf '\nMigration failure gate, four-migration upgrade, runtime isolation, ownership normalisation and rerun OK\n'
