@@ -32,7 +32,9 @@ The API key is AES-256-GCM encrypted at rest. Its form field is write-only after
 
 ## Tenant API
 
-Every route below requires `Authorization: Bearer <site API key>`. A platform key is deliberately not accepted; no request accepts a `site` id in its body.
+Every route below requires `Authorization: Bearer <site API key>`. No request accepts a `site` id in its body — the key names the tenant.
+
+One deliberate exception, and only one: **`GET …/quote` also accepts a platform key.** A quote places no order, writes no row, and returns the platform's own catalogue price plus the platform's own margin, so it is the same answer for every caller. The builder (the POS/accounting platform) prices a domain at the first step of its site-building wizard — before the site, and therefore its site key, exists at all. A platform key gets the coarser availability answer, because `managedHere` ("this site already manages this domain") has nothing to compare against without a site. Ordering, listing and management stay site-key only: pricing is widened, committing is not.
 
 ### Quote/search workflow
 
@@ -128,3 +130,29 @@ A registrar request does not give Caddy/TLS permission to serve a hostname. Afte
 - `domain-reseller-products` and the `domain-reseller` global are platform-admin only; a site's key sees a derived quote, never wholesale catalogue rows or margins.
 - Management calls run only on the server and use `POST` JSON plus `x-api-key`, as prescribed by the provider document. Provider request bodies are not logged and cross-origin redirects are rejected rather than forwarding the API key.
 - `DOMAIN_RESELLER_TIMEOUT_MS` limits a provider call (default 10 seconds; allowed range 1–60 seconds). A timeout becomes a failed local request that an operator can investigate safely.
+
+## The site's CDN zone, from the tenant's side
+
+Two read-mostly routes exist alongside the registrar ones, for the same caller and
+the same reason — the builder walks an owner through putting their new site behind
+ArvanCloud and needs facts it cannot invent:
+
+```http
+GET  /api/site/cdn          # this site's zone: provider, status, nameservers, records
+POST /api/site/cdn/purge    # empty this site's own edge cache ({ "urls": [...] } optional)
+```
+
+Both require this site's own key (a platform key is refused: a zone belongs to one
+tenant, and only that tenant reads it). `GET` selects a narrow projection rather than
+the document, so adding a credential field to `cdn-zones` later cannot make it
+observable here; a site with no zone answers `configured: false` rather than 404,
+because "is there a zone yet?" is exactly the question being asked.
+
+Creating a zone and writing DNS, TLS or WAF state at the provider stay platform-staff
+work behind a superadmin session (`POST /api/cdn/sync`, which refuses every API key
+including a platform one). Purge is the one CDN write a tenant gets, and only on an
+active zone: it drops cached copies of that site's own pages and touches nothing else.
+
+Neither route is carved out in the `Caddyfile`, exactly like the registrar routes: they
+are reached from the builder's server against the control-plane origin, never from a
+customer domain, so they fall through to `@control_plane_paths` there and 404.
