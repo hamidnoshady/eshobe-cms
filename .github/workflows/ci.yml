@@ -1,16 +1,27 @@
+# Manual-only copy of the checklist a contributor runs locally (lint, typecheck,
+# build, integration tests, E2E, and the srv1 Compose/migration gate). It does
+# NOT run on a pull request, on a push to main, or after a merge — start it from
+# the Actions tab (workflow_dispatch) when you want a run.
+#
+# Deployment is deliberately NOT affected by this. `publish.yml` still runs on
+# every push to main: it re-runs lint/typecheck/build as its own `gates` job and
+# then pushes the image to GHCR, which is what the srv1 Komodo stack pulls
+# (through the ghcr-mirror.liara.ir cache — see docker-compose.srv1.yml). So a
+# merge still produces a deployable image with its own gate in front of it;
+# what stops happening automatically is this checklist.
+#
+# What follows from that: run the checklist yourself before every commit, and
+# don't report a change as done on the strength of a run nobody dispatched.
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
-  # On PRs: cancel previous runs when a new commit is pushed.
-  # On main: let every push run to completion (no cancellation).
+  # Manual runs only, so there is no PR superseding to cancel: let each
+  # dispatched run finish.
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

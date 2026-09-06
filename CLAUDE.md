@@ -96,6 +96,32 @@ ZarinPal, Digipay, Snapp!Pay, Torob Pay. Design decisions in `WAVE-10.md`, opera
 - The database runs the **owner-only** model: `eshobe_app` owns everything in schema `public`, there are no grants and no default ACLs. Never introduce a GRANT-based model next to it. After migrations, the one-shot reassigns all public tables/sequences/views/types to `APP_DATABASE_ROLE` (never hardcoded or guessed — derived from `DATABASE_URL` only when that env is present) and then a verification gate fails the step (so `web` never starts) if anything in `public` is not owned by / accessible to the runtime role. This also reassigns the pre-existing enums, removing the original `ALTER TYPE` root cause. Never solve ownership errors by elevating the runtime role.
 - Komodo logs expanded Compose config **in plaintext**, including `MIGRATE_DATABASE_URL`. Include it in the credential rotation list; restrict log access and do not paste config/env dumps into tickets. Changing `POSTGRES_PASSWORD` does not rotate an existing database role automatically.
 
+## CI is manual; publishing is not
+
+`.github/workflows/ci.yml` is **`workflow_dispatch` only** — it does not run on
+a pull request, on a push to `main`, or after a merge. Nothing checks a branch
+unless somebody starts it from the Actions tab, so **run the checks yourself
+before every commit** (`pnpm lint`, `pnpm typecheck`, `pnpm build`,
+`pnpm test:int`) and never report a change as done on the strength of a run
+nobody dispatched. Don't re-add the `pull_request` / `push` triggers: manual-only
+is the decision, and it matches the sibling `cafe-restaurant-pos` repo.
+
+`.github/workflows/publish.yml` is the opposite and must stay that way: it runs
+on every push to `main` because **that is what deployment consumes**. It pushes
+`ghcr.io/<owner>/<repo>:latest` (plus the long sha tag), and the srv1 Komodo
+stack pulls exactly that image through the `ghcr-mirror.liara.ir` cache
+(`docker-compose.srv1.yml` — the tag is literal because Komodo resolves the
+reference without variable interpolation). Making it manual would mean a merge
+produces no image and Komodo silently keeps deploying a stale `latest`. It is
+not ungated either: its `gates` job re-runs lint/typecheck/build on the exact
+merge commit before the image is built.
+
+Its `npm-publish` job (`@eshobe/site-runtime`) is a separate concern from the
+image and currently fails on `main` for want of a working `NPM_TOKEN` — that
+red X does not mean the GHCR image is missing; the `docker-publish` job has
+been succeeding. Check the job, not the workflow's overall conclusion, before
+concluding a deploy has nothing to pull.
+
 ## Commands
 
 ```bash
