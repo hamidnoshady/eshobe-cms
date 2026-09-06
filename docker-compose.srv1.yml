@@ -1,12 +1,28 @@
 # srv1.eshobe.com deployment -- the compose file Komodo deploys from.
 #
 # The Komodo stack `eshobe-cms` is a Git Repo stack pointed at this repo and
-# branch with "Pre Build Images" enabled, so pressing Deploy in the Komodo UI
-# pulls the latest commit on main, rebuilds the image on the host and
-# recreates the containers. That is why this file lives in the repo rather
-# than only on the server: a repo-backed stack reads its compose from the
-# clone. Keep `project_name: eshobe-cms` on the Komodo side -- the pgdata and
+# branch. It no longer builds on the host: the image is the one GitHub Actions
+# (.github/workflows/publish.yml) builds and pushes to GHCR on every push to
+# main. Pressing Deploy in the Komodo UI pulls the latest commit for this file,
+# pulls the current CI image and recreates the containers. Keep
+# `project_name: eshobe-cms` on the Komodo side -- the pgdata and
 # media_uploads volumes are named from it.
+#
+# ghcr.io itself is DPI-blocked from srv1 (TLS handshake to any ghcr.io host
+# times out), so the image is pulled through the Liara GHCR pull-through cache
+# at ghcr-mirror.liara.ir. Same content, same digests, reachable host. This
+# requires the GHCR package to be PUBLIC -- the mirror has no upstream
+# credentials, and a private package returns 404 through it.
+#
+# The tag is written out literally on purpose. Komodo's "update available"
+# check resolves the image reference straight out of this file WITHOUT compose
+# variable interpolation, so a `${TAG:-latest}` here makes the registry lookup
+# fail and the Update button never appears in the UI.
+#
+# NEXT_PUBLIC_* values are baked into the client bundle at BUILD time, so the
+# real origin comes from the repository variable NEXT_PUBLIC_SERVER_URL
+# (https://cms.eshobe.com), read by the publish workflow. Changing the runtime
+# env below is not enough -- the variable has to be right when CI builds.
 #
 # No secrets here: all environment values are ${VAR} references, and Komodo
 # writes the real values into a .env beside this file at deploy time. Never
@@ -24,13 +40,11 @@ name: eshobe-cms
 
 services:
   web:
-    # One build, shared by web and migrate. Keep this existing deployment tag.
-    image: eshobe-cms-web
-    pull_policy: build
-    build:
-      context: .
-      args:
-        NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST:?set CONTROL_PLANE_HOST}
+    # One CI-built image, shared by web and migrate. Literal tag -- see header.
+    image: ghcr-mirror.liara.ir/hamidnoshady/eshobe-cms:latest
+    # Always re-pull so Deploy actually moves to the newest CI image rather
+    # than silently reusing a cached :latest.
+    pull_policy: always
     restart: unless-stopped
     mem_limit: 512m # security audit 2026-09-05: cap so one
     pids_limit: 256 # container cannot OOM the host and take
@@ -71,9 +85,9 @@ services:
       migrate:
         condition: service_completed_successfully
   migrate:
-    image: eshobe-cms-web
-    # Built by web above, never pulled as an unrelated registry image.
-    pull_policy: never
+    # Byte-identical to web: same image reference, same tag, one pull.
+    image: ghcr-mirror.liara.ir/hamidnoshady/eshobe-cms:latest
+    pull_policy: always
     working_dir: /app/migrator
     command: ['node', 'node_modules/payload/bin.js', 'run', 'scripts/migrate.ts']
     restart: 'no'
