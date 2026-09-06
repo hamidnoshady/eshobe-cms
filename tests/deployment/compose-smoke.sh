@@ -67,37 +67,43 @@ docker compose --env-file /dev/null -f "$root/docker-compose.srv1.yml" \
 docker compose --env-file /dev/null -f "$root/docker-compose.srv1.yml" \
   config --no-interpolate --format json >"$tmp/raw-config.json"
 python3 - "$tmp" <<'PY'
-import json, pathlib, sys
-root = pathlib.Path(sys.argv[1])
-cfg = json.loads((root / 'config.json').read_text())
-raw = json.loads((root / 'raw-config.json').read_text())
-assert cfg['name'] == 'eshobe-cms'
-assert set(cfg['services']) == {'web', 'migrate', 'db'}
-web, migrate, db = (cfg['services'][name] for name in ('web', 'migrate', 'db'))
-assert web['image'] == migrate['image'] == 'eshobe-cms-web'
-assert web['depends_on']['migrate']['condition'] == 'service_completed_successfully'
-assert migrate['depends_on']['db']['condition'] == 'service_healthy'
-assert migrate['restart'] == 'no'
-assert 'MIGRATE_DATABASE_URL' not in web['environment']
-assert 'DATABASE_URL' not in migrate['environment']
-assert len(web['ports']) == 1
-assert web['ports'][0]['host_ip'] == '127.0.0.1'
-assert str(web['ports'][0]['published']) == '3001'
-assert web['ports'][0]['target'] == 3000
-assert not migrate.get('ports') and not db.get('ports')
-assert set(cfg['volumes']) == {'pgdata', 'media_uploads'}
-assert cfg['volumes']['pgdata']['name'] == 'eshobe-cms_pgdata'
-assert cfg['volumes']['media_uploads']['name'] == 'eshobe-cms_media_uploads'
-assert web['volumes'][0]['source'] == 'media_uploads'
-assert db['volumes'][0]['source'] == 'pgdata'
-assert not migrate.get('volumes')
-for name, service in cfg['services'].items():
-    assert not service.get('env_file')
-    assert service['mem_limit'] == service['memswap_limit'] == (384 if name == 'db' else 512) * 1024**2
-    assert service['pids_limit'] == (128 if name == 'db' else 256)
-    assert 'no-new-privileges:true' in service['security_opt']
-    assert all('${' in value for value in raw['services'][name]['environment'].values())
-print('srv1 Compose topology, hardening and credential allowlists OK')
+import traceback
+try:
+    import json, pathlib, sys
+    root = pathlib.Path(sys.argv[1])
+    cfg = json.loads((root / 'config.json').read_text())
+    raw = json.loads((root / 'raw-config.json').read_text())
+    assert cfg['name'] == 'eshobe-cms'
+    assert set(cfg['services']) == {'web', 'migrate', 'db'}
+    web, migrate, db = (cfg['services'][name] for name in ('web', 'migrate', 'db'))
+    assert web['image'] == migrate['image'] == 'eshobe-cms-web'
+    assert web['depends_on']['migrate']['condition'] == 'service_completed_successfully'
+    assert migrate['depends_on']['db']['condition'] == 'service_healthy'
+    assert migrate['restart'] == 'no'
+    assert 'MIGRATE_DATABASE_URL' not in web['environment']
+    assert 'DATABASE_URL' not in migrate['environment']
+    assert len(web['ports']) == 1
+    assert web['ports'][0]['host_ip'] == '127.0.0.1'
+    assert str(web['ports'][0]['published']) == '3001'
+    assert web['ports'][0]['target'] == 3000
+    assert not migrate.get('ports') and not db.get('ports')
+    assert set(cfg['volumes']) == {'pgdata', 'media_uploads'}
+    assert cfg['volumes']['pgdata']['name'] == 'eshobe-cms_pgdata'
+    assert cfg['volumes']['media_uploads']['name'] == 'eshobe-cms_media_uploads'
+    assert web['volumes'][0]['source'] == 'media_uploads'
+    assert db['volumes'][0]['source'] == 'pgdata'
+    assert not migrate.get('volumes')
+    for name, service in cfg['services'].items():
+        assert not service.get('env_file')
+        assert service['mem_limit'] == service['memswap_limit'] == (384 if name == 'db' else 512) * 1024**2
+        assert service['pids_limit'] == (128 if name == 'db' else 256)
+        assert 'no-new-privileges:true' in service['security_opt']
+        assert all('${' in value for value in raw['services'][name]['environment'].values())
+    print('srv1 Compose topology, hardening and credential allowlists OK')
+except Exception:
+    detail = traceback.format_exc().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print(f'::error file=tests/deployment/compose-smoke.sh::Compose validation failed: {detail}', flush=True)
+    raise
 PY
 
 fixture() {
