@@ -93,11 +93,18 @@ try:
     assert web['volumes'][0]['source'] == 'media_uploads'
     assert db['volumes'][0]['source'] == 'pgdata'
     assert not migrate.get('volumes')
+    def memory_bytes(value):
+        # Compose versions serialize ByteValue as either a number or a string.
+        text = str(value).lower()
+        units = {'k': 1024, 'm': 1024**2, 'g': 1024**3}
+        return int(text[:-1]) * units[text[-1]] if text[-1] in units else int(text)
     for name, service in cfg['services'].items():
         assert not service.get('env_file')
-        assert service['mem_limit'] == service['memswap_limit'] == (384 if name == 'db' else 512) * 1024**2
-        assert service['pids_limit'] == (128 if name == 'db' else 256)
-        assert 'no-new-privileges:true' in service['security_opt']
+        expected_memory = (384 if name == 'db' else 512) * 1024**2
+        assert memory_bytes(service['mem_limit']) == expected_memory, f'{name}: memory limit changed'
+        assert memory_bytes(service['memswap_limit']) == expected_memory, f'{name}: swap limit changed'
+        assert int(service['pids_limit']) == (128 if name == 'db' else 256)
+        assert 'no-new-privileges:true' in [opt.replace('=', ':') for opt in service['security_opt']]
         assert all('${' in value for value in raw['services'][name]['environment'].values())
     print('srv1 Compose topology, hardening and credential allowlists OK')
 except Exception:
