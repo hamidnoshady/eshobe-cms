@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { BasePayload, readMigrationFiles } from 'payload'
 
 import { migrationDatabaseOptions } from '../src/lib/database'
+import {
+  assertPublicOwnershipForRuntime,
+  normalizePublicOwnership,
+  resolveRuntimeRole,
+} from '../src/lib/database-ownership'
 
 /**
  * One-shot production entrypoint, run through `payload run` for its TS loader.
@@ -17,6 +22,9 @@ const migrate = async (): Promise<void> => {
   if (process.env.PAYLOAD_DROP_DATABASE === 'true') {
     throw new Error('Refusing to migrate with PAYLOAD_DROP_DATABASE=true.')
   }
+  // Resolve before connecting: a deploy missing the role configuration must
+  // fail fast and loudly, never run DDL and then guess who should own it.
+  const runtimeRole = resolveRuntimeRole()
 
   // Set before importing app config: even a direct `payload run` invocation must
   // not push a schema, generate types, start jobs or enable development HMR.
@@ -65,6 +73,23 @@ const migrate = async (): Promise<void> => {
     if (!migrations.length) throw new Error('No committed migrations found. Refusing to continue.')
     await payload.db.migrate({ migrations })
     payload.logger.info('All migrations completed successfully.')
+
+    // The migrator connects as the privileged role, so everything it just
+    // created — and, on this database, the enums earlier deploys left owned by
+    // the privileged role — is invisible to the runtime role, which owns the
+    // whole schema with no grants anywhere. Hand schema public over to the
+    // runtime role (owner-only model), then prove it: if anything is left
+    // inaccessible, exit non-zero so compose never starts web against it.
+    const changes = await normalizePublicOwnership(payload.db.pool, runtimeRole)
+    payload.logger.info(
+      `Ownership normalised to runtime role "${runtimeRole}" (already-owned objects skipped): ` +
+        `${changes.tables} tables, ${changes.sequences} sequences, ${changes.views} views, ` +
+        `${changes.types} types reassigned.`,
+    )
+    await assertPublicOwnershipForRuntime(payload.db.pool, runtimeRole)
+    payload.logger.info(
+      `Ownership gate passed: everything in schema public is owned by and accessible to "${runtimeRole}".`,
+    )
   } finally {
     if (payload.db) await payload.destroy()
   }

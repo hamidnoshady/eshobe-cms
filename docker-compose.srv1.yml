@@ -84,6 +84,10 @@ services:
       - no-new-privileges:true
     environment:
       MIGRATE_DATABASE_URL: ${MIGRATE_DATABASE_URL:?set privileged MIGRATE_DATABASE_URL}
+      # The runtime role that must own schema public after migrating (the
+      # DATABASE_URL username on srv1). The migrator never receives DATABASE_URL
+      # itself; without this it cannot know the role and refuses to run.
+      APP_DATABASE_ROLE: ${APP_DATABASE_ROLE:?set APP_DATABASE_ROLE (runtime role, e.g. the DATABASE_URL username)}
       PAYLOAD_SECRET: ${PAYLOAD_SECRET:?set PAYLOAD_SECRET}
       NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
     depends_on:

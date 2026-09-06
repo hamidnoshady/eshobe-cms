@@ -26,11 +26,38 @@ RUN \
 
 
 # The standalone output does not contain Payload's CLI or its TS loader. Keep a
-# separate tool tree with complete dependencies + source for the one-shot command.
-# It is copied into the SAME final image as web so schema and app cannot drift.
-# Tradeoff: a larger image than standalone-only (including dev dependencies), but
-# one build/tag for Komodo and no downloads or package installation at startup.
-FROM deps AS migration-tools
+# separate tool tree with source + dependencies for the one-shot command. It is
+# copied into the SAME final image as web so schema and app cannot drift.
+# Installed with --prod from the same lockfile: the migrator only loads
+# payload.config.ts (server code), so runtime dependencies suffice — payload
+# ships its own tsx loader. Carrying the full dev tree here (playwright,
+# vitest, typescript, eslint, …) previously grew the image 411MB -> 1.68GB on a
+# host that also serves the live sites. Still zero downloads/installs at
+# container start: everything is baked into this layer.
+FROM base AS migration-tools
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
+# Required for the root's workspace:* dependency, including in the migrator.
+COPY packages/site-runtime/package.json ./packages/site-runtime/package.json
+RUN \
+  if [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile --prod; \
+  else echo "Lockfile not found." && exit 1; \
+  fi
+
+# Prune next's OPTIONAL tooling, which the migrator never loads: @next/swc only
+# compiles (the image is already built) and next 16's optional @playwright/test
+# tree is test-only. Both are optional dependencies, so next runs without them.
+# sharp's optional platform binaries are NOT pruned — sharp resolves its native
+# binding at import time and the config graph imports it eagerly.
+# compose-smoke.sh exercises this image's real migrator twice (plus a failure
+# path), so an over-eager prune fails CI before any deploy.
+RUN rm -rf node_modules/.pnpm/@next+swc-* \
+           node_modules/.pnpm/playwright@* \
+           node_modules/.pnpm/playwright-core@* \
+           node_modules/.pnpm/@playwright+test@*
+
 COPY tsconfig.json ./
 COPY src ./src
 COPY packages ./packages

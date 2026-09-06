@@ -81,39 +81,57 @@ Both URLs target the **same database** (`db:5432/eshobe` inside Compose):
 | `DATABASE_URL`         | restricted `eshobe_app`   | `web` only     | Runtime data access, not schema ownership    |
 | `MIGRATE_DATABASE_URL` | owner/privileged `eshobe` | `migrate` only | Apply committed schema migrations, then exit |
 
-Set both in Komodo's deployment environment, together with the existing secrets
-and `CONTROL_PLANE_HOST` (see `.env.example`). URL-encode passwords in connection
-URLs. **Never replace web's `DATABASE_URL` with the privileged URL**, pass the
-whole deployment `.env` through `env_file`, or pass either URL as a build arg.
-The new variable is required: neither connection silently falls back to the other.
+Set both in Komodo's deployment environment, together with the existing secrets,
+`CONTROL_PLANE_HOST` and **`APP_DATABASE_ROLE`** (the runtime role's name, e.g.
+`eshobe_app` — see below). URL-encode passwords in connection URLs. **Never
+replace web's `DATABASE_URL` with the privileged URL**, pass the whole
+deployment `.env` through `env_file`, or pass either URL as a build arg. Both
+variables are required: neither connection silently falls back to the other.
 
-`eshobe` must own (or have the authority to alter) the existing schema objects,
-including `enum_orders_payment_provider` and `enum_store_payment_provider`.
+`eshobe` must own (or have the authority to alter) the existing schema objects.
 Do not fix ownership errors by making `eshobe_app` a superuser, granting it
-membership in `eshobe`, or transferring schema ownership to it.
+membership in `eshobe`, or elevating it to `CREATEDB`/`CREATEROLE`.
 
-For an already-provisioned `eshobe_app`, verify these grants once in an
-administrator SQL session connected to the application database. This gives it
-DML access to existing **and future** tables created by `eshobe`, without DDL or
-ownership rights:
+### Ownership model: the runtime role owns schema `public`
 
-```sql
-GRANT CONNECT ON DATABASE eshobe TO eshobe_app;
-GRANT USAGE ON SCHEMA public TO eshobe_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO eshobe_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO eshobe_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE eshobe IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO eshobe_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE eshobe IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO eshobe_app;
-```
+The srv1 database has **no explicit grants anywhere**: every pre-existing table
+is owned by `eshobe_app`, `relacl` is NULL (owner-only access) and
+`pg_default_acl` is empty. Keep that model — do not adopt a parallel GRANT-based
+one. The one-shot migrator therefore finishes every successful run by handing
+the whole of schema `public` to the runtime role:
 
-Default privileges are **per creating role**, not global. Without them migrations
-can succeed while runtime queries against the new tables fail. Provision any new
-runtime login separately as `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
-NOBYPASSRLS`, and set its password via a secure admin session (e.g. psql's
-`\password`), not a committed SQL file. The migrator does not create roles,
-change ownership, or grant privileges automatically.
+- **`APP_DATABASE_ROLE`** tells the migrate step which role that is. It is never
+  hardcoded or guessed: compose passes it explicitly (the `DATABASE_URL`
+  username on srv1), while a bare `pnpm migrate` can export `DATABASE_URL`
+  alongside `MIGRATE_DATABASE_URL` and let the role be derived from its
+  username. If neither is available the step refuses to run.
+- After Payload's transactional runner finishes, the step reassigns **tables,
+  sequences, views (incl. materialised) and types** in `public` to the runtime
+  role — including the **pre-existing enum types** still owned by the privileged
+  role, which were the original reason migrations had to run privileged
+  (`ALTER TYPE … ADD VALUE` needs ownership). Indexes and array/row types follow
+  their owning object automatically. Objects already owned by the runtime role
+  are skipped, so a re-run with nothing changed issues no DDL at all.
+- A **verification gate** then fails the step (non-zero exit, so compose never
+  starts `web`) if anything in `public` is left inaccessible to the runtime
+  role — `SELECT` on tables/views, `USAGE`+`SELECT` on sequences, `USAGE` on
+  types — or not owned by it. In particular this must stay 0:
+
+  ```sql
+  SELECT count(*) FROM pg_tables WHERE schemaname = 'public'
+    AND NOT has_table_privilege('<runtime role>', schemaname || '.' || tablename, 'SELECT');
+  ```
+
+- With the enums runtime-owned after the first normalised deploy, the root cause
+  is gone: the restricted role could `ALTER TYPE` again. Migrations still run
+  privileged by design — that is what lets the migrator fix ownership in the
+  first place.
+
+Provision any new runtime login separately as `NOSUPERUSER NOCREATEDB
+NOCREATEROLE NOREPLICATION NOBYPASSRLS`, and set its password via a secure admin
+session (e.g. psql's `\password`), not a committed SQL file. The migrator does
+not create roles or grant privileges; it only reassigns ownership of objects in
+`public`.
 
 ### Deploy / recover the crash-loop
 
@@ -124,7 +142,8 @@ change ownership, or grant privileges automatically.
    COMPOSE_FILE=docker-compose.srv1.yml ./scripts/backup-postgres.sh
    ```
 
-2. Set `MIGRATE_DATABASE_URL` in Komodo, retaining the restricted `DATABASE_URL`.
+2. Set `MIGRATE_DATABASE_URL` and `APP_DATABASE_ROLE=eshobe_app` in Komodo,
+   retaining the restricted `DATABASE_URL`.
    Keep **Pre Build Images** enabled. For recovery or a maintenance deploy, stop
    the old/crash-looping web container first, leaving the database and volumes in
    place. Compose dependency conditions gate **new starts**; they do not stop an
@@ -140,7 +159,9 @@ change ownership, or grant privileges automatically.
    restart policy, no published ports, no media mount, and the same resource/
    `no-new-privileges` limits as web. On the pre-wave10 database it applies
    `wave10_payment_gateways`, `tenant_domain_aliases`, `cdn_integration`, and
-   `domain_reseller`, in order. Already-recorded migrations are skipped.
+   `domain_reseller`, in order, then normalises `public` ownership to
+   `APP_DATABASE_ROLE` and runs the accessibility gate. Already-recorded
+   migrations are skipped; a re-run with nothing new reassigns nothing.
 
 3. Verify completion and health without printing container credentials:
 
@@ -170,12 +191,17 @@ interactive prompt, and refuses `PAYLOAD_DROP_DATABASE=true`.
 
 **Image tradeoff:** Next's standalone `node server.js` output alone has no Payload
 CLI/TypeScript loader. The Dockerfile packages a separate `/app/migrator` tree
-from the `migration-tools` stage with full dependencies, source, workspace
-packages, and the entrypoint. Both services use the exact same final image; only
-the one-shot process receives the privileged credential. This intentionally
-increases image size (including development tooling) in exchange for one build/
-tag and no runtime downloads or mismatched migrator/app releases. The default
-command is still `node server.js`; it never launches migrations.
+from the `migration-tools` stage with **production dependencies only** (the full
+dev tree — playwright, vitest, typescript, eslint — once took the image from
+411MB to 1.68GB on a host that also serves the live sites), source, workspace
+packages, and the entrypoint; next's optional compile/test tooling
+(`@next/swc`, `@playwright/test`) is pruned after install. Both services use the
+exact same final image; only the one-shot process receives the privileged
+credential. This still costs image size in exchange for one build/tag and no
+runtime downloads or mismatched migrator/app releases — the remaining mass is
+the genuine runtime graph (next, monaco via `@payloadcms/ui`, sharp, the Payload
+ecosystem). The default command is still `node server.js`; it never launches
+migrations.
 
 To run the Docker acceptance smoke test yourself, use a **clean CI/staging host,
 never srv1**: build `eshobe-cms-web` with this Dockerfile, then run
