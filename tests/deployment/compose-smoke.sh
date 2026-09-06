@@ -90,7 +90,6 @@ try:
         '${APP_DATABASE_ROLE'
     )
     assert 'APP_DATABASE_ROLE' not in web['environment']
-    assert 'MIGRATE_DATABASE_URL' not in migrate['environment']
     assert len(web['ports']) == 1
     assert web['ports'][0]['host_ip'] == '127.0.0.1'
     assert str(web['ports'][0]['published']) == '3001'

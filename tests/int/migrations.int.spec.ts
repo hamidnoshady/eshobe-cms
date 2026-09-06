@@ -1,17 +1,17 @@
 // @vitest-environment node
+// The DB-backed replay of the srv1 ownership incident (normalisation, gate,
+// idempotence, fail-closed drift detection) lives in tests/deployment/ownership.ts
+// and runs as its own CI step: it needs its own throwaway database and roles,
+// and adding it to this parallel spec pool perturbs which files share workers
+// — the int suites share one seeded database and are sensitive to that.
 import type { PostgresAdapter } from '@payloadcms/db-postgres'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
-import { Client, Pool } from 'pg'
 import { BasePayload } from 'payload'
-import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { runtimeDatabaseOptions, migrationDatabaseOptions } from '@/lib/database'
-import {
-  findPublicOwnershipViolations,
-  normalizePublicOwnership,
-  resolveRuntimeRole,
-} from '@/lib/database-ownership'
+import { resolveRuntimeRole } from '@/lib/database-ownership'
 
 const runtimeURL = 'postgres://eshobe_app:runtime-test-only@127.0.0.1:1/eshobe'
 const migrateURL = 'postgres://eshobe:migration-test-only@127.0.0.1:1/eshobe'
@@ -194,210 +194,5 @@ describe('runtime role resolution', () => {
       expect(String(error)).toContain('Cannot determine the runtime database role')
       expect(String(error)).not.toContain('super-secret-pw')
     }
-  })
-})
-
-/**
- * The srv1 incident, replayed against a real server: privileged migrations
- * create objects owned by the privileged role, on a database with NO grants
- * whose tables are already owned by the restricted runtime role. What must
- * come out of the one-shot step is pinned here so it cannot regress.
- */
-describe.skipIf(!process.env.DATABASE_URL)('post-migration ownership normalisation', () => {
-  const adminURL = process.env.DATABASE_URL
-  const scratchDB = 'eshobe_ownership_test'
-  const runtimeRole = 'eshobe_app'
-  const runtimePassword = 'int-ownership-test-only'
-
-  let admin: Pool
-  let scratch: Pool
-  let createdRole: boolean
-
-  beforeAll(async () => {
-    // CI and the local compose stack both expose the privileged superuser here.
-    // The error listeners are the documented pg pattern for idle-client
-    // terminations during teardown; without one, closing sockets can crash
-    // the worker as an "uncaught" error after the suite already passed.
-    admin = new Pool({ connectionString: adminURL })
-    admin.on('error', () => undefined)
-    const superuser = await admin.query<{ rolsuper: boolean }>(
-      'SELECT rolsuper FROM pg_roles WHERE rolname = current_user',
-    )
-    expect(superuser.rows[0]?.rolsuper, 'this suite needs the privileged CI role').toBe(true)
-
-    await admin.query(`DROP DATABASE IF EXISTS ${scratchDB} WITH (FORCE)`)
-    await admin.query(`CREATE DATABASE ${scratchDB}`)
-
-    const existingRole = await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [
-      runtimeRole,
-    ])
-    createdRole = existingRole.rowCount === 0
-    if (createdRole) {
-      await admin.query(
-        `CREATE ROLE ${runtimeRole} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-           NOREPLICATION NOBYPASSRLS PASSWORD '${runtimePassword}'`,
-      )
-    }
-
-    const url = new URL(adminURL!)
-    url.pathname = `/${scratchDB}`
-    scratch = new Pool({ connectionString: url.toString() })
-    scratch.on('error', () => undefined)
-
-    // The production pre-state: runtime-owned tables (owner-only ACLs, no
-    // grants, no default ACLs), enums still owned by the privileged role —
-    // the original reason migrations run privileged — plus what a privileged
-    // migration deploy leaves behind: everything below owned by `eshobe`.
-    await scratch.query(`
-        CREATE TYPE public.enum_channel_pre AS ENUM ('web');
-        CREATE TABLE public.orders_pre (id uuid PRIMARY KEY, channel public.enum_channel_pre);
-        CREATE SEQUENCE public.orders_pre_seq;
-        ALTER TABLE public.orders_pre OWNER TO ${runtimeRole};
-        ALTER SEQUENCE public.orders_pre_seq OWNER TO ${runtimeRole};
-
-        CREATE TYPE public.enum_channel_new AS ENUM ('web');
-        CREATE TYPE public.composite_new AS (a int);
-        CREATE DOMAIN public.domain_new AS text;
-        CREATE TABLE public.payments_new (
-          id uuid PRIMARY KEY,
-          channel public.enum_channel_new,
-          tag public.domain_new,
-          extra public.composite_new
-        );
-        CREATE SEQUENCE public.payments_new_seq;
-        CREATE VIEW public.payments_new_view AS SELECT id FROM public.payments_new;
-        CREATE MATERIALIZED VIEW public.payments_new_mv AS SELECT id FROM public.payments_new;
-        REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-      `)
-    expect(
-      (
-        await scratch.query('SELECT has_schema_privilege($1, $2, $3) AS ok', [
-          runtimeRole,
-          'public',
-          'CREATE',
-        ])
-      ).rows[0].ok,
-    ).toBe(false)
-  })
-
-  afterAll(async () => {
-    await scratch?.end().catch(() => undefined)
-    if (admin) {
-      await admin.query(`DROP DATABASE IF EXISTS ${scratchDB} WITH (FORCE)`).catch(() => undefined)
-      if (createdRole) {
-        await admin.query(`DROP ROLE IF EXISTS ${runtimeRole}`).catch(() => undefined)
-      }
-      await admin.end().catch(() => undefined)
-    }
-  })
-
-  it('normalises every public object to the runtime role in one pass', async () => {
-    const changes = await normalizePublicOwnership(scratch, runtimeRole)
-    expect(changes).toEqual({ tables: 1, sequences: 1, views: 2, types: 4 })
-
-    const owners = await scratch.query<{ kind: string; name: string; owner: string }>(`
-        SELECT c.relkind AS kind, c.relname AS name, pg_get_userbyid(c.relowner) AS owner
-        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'f', 'S', 'v', 'm', 'i')
-        ORDER BY c.relname
-      `)
-    // Indexes and array/row types follow their table automatically; the
-    // rehearsal counted 59 indexes that would otherwise stay privileged.
-    expect(owners.rows.length).toBeGreaterThan(6)
-    expect(owners.rows.filter((row) => row.owner !== runtimeRole)).toEqual([])
-
-    const typeOwners = await scratch.query<{ name: string; owner: string }>(`
-        SELECT t.typname AS name, pg_get_userbyid(t.typowner) AS owner
-        FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-        LEFT JOIN pg_class rc ON rc.oid = t.typrelid
-        WHERE n.nspname = 'public' AND t.typisdefined
-          AND (t.typtype IN ('e', 'd', 'r', 'm') OR rc.relkind = 'c')
-        ORDER BY t.typname
-      `)
-    expect(typeOwners.rows.map((row) => row.name)).toEqual([
-      'composite_new',
-      'domain_new',
-      'enum_channel_new',
-      'enum_channel_pre',
-    ])
-    expect(typeOwners.rows.filter((row) => row.owner !== runtimeRole)).toEqual([])
-  })
-
-  it('keeps the owner-only model: no ACLs are written anywhere', async () => {
-    const relations = await scratch.query<{ relacl: unknown }>(`
-        SELECT c.relacl FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'f', 'S', 'v', 'm')
-      `)
-    expect(relations.rows.every((row) => row.relacl === null)).toBe(true)
-    const types = await scratch.query<{ typacl: unknown }>(`
-        SELECT t.typacl FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-        LEFT JOIN pg_class rc ON rc.oid = t.typrelid
-        WHERE n.nspname = 'public' AND t.typisdefined
-          AND (t.typtype IN ('e', 'd', 'r', 'm') OR rc.relkind = 'c')
-      `)
-    expect(types.rows.every((row) => row.typacl === null)).toBe(true)
-  })
-
-  it('passes the runtime accessibility gate, including the incident query itself', async () => {
-    await expect(findPublicOwnershipViolations(scratch, runtimeRole)).resolves.toEqual([])
-    // Exactly the query from the srv1 rehearsal; must be 0 for web to start.
-    const inaccessible = await scratch.query<{ n: number }>(`
-        SELECT count(*)::int AS n FROM pg_tables
-        WHERE schemaname = 'public'
-          AND NOT has_table_privilege('${runtimeRole}', schemaname || '.' || tablename, 'SELECT')
-      `)
-    expect(inaccessible.rows[0].n).toBe(0)
-  })
-
-  it('gives the runtime role back the ALTER TYPE rights that caused all this', async () => {
-    const url = new URL(adminURL!)
-    url.pathname = `/${scratchDB}`
-    url.username = runtimeRole
-    url.password = runtimePassword
-    const app = new Client({ connectionString: url.toString() })
-    await app.connect()
-    try {
-      await app.query("ALTER TYPE public.enum_channel_new ADD VALUE 'added_by_runtime'")
-      await app.query('SELECT count(*) FROM public.payments_new')
-      await app.query(
-        "INSERT INTO public.orders_pre (id, channel) VALUES (gen_random_uuid(), 'web')",
-      )
-      await app.query("SELECT nextval('public.payments_new_seq')")
-    } finally {
-      await app.end()
-    }
-  })
-
-  it('is idempotent: re-running with nothing changed issues no DDL', async () => {
-    await expect(normalizePublicOwnership(scratch, runtimeRole)).resolves.toEqual({
-      tables: 0,
-      sequences: 0,
-      views: 0,
-      types: 0,
-    })
-    await expect(findPublicOwnershipViolations(scratch, runtimeRole)).resolves.toEqual([])
-  })
-
-  it('fails the gate on drift the normaliser has not covered yet', async () => {
-    await scratch.query('CREATE TABLE public.stray_table (id int)')
-    const violations = await findPublicOwnershipViolations(scratch, runtimeRole)
-    expect(violations.some((v) => v.name === 'public.stray_table')).toBe(true)
-    expect(
-      violations.some((v) => v.name === 'public.stray_table' && /owned by/.test(v.problem)),
-    ).toBe(true)
-    // And the normaliser repairs it:
-    await expect(normalizePublicOwnership(scratch, runtimeRole)).resolves.toMatchObject({
-      tables: 1,
-    })
-    await expect(findPublicOwnershipViolations(scratch, runtimeRole)).resolves.toEqual([])
-  })
-
-  it('refuses an unknown role instead of guessing or half-running', async () => {
-    await expect(normalizePublicOwnership(scratch, 'eshobe_no_such_role')).rejects.toThrow(
-      'Runtime database role "eshobe_no_such_role" does not exist',
-    )
-    await expect(findPublicOwnershipViolations(scratch, 'eshobe_no_such_role')).rejects.toThrow(
-      'does not exist',
-    )
   })
 })
