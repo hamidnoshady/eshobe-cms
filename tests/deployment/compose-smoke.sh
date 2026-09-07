@@ -33,7 +33,7 @@ export APP_DATABASE_ROLE=eshobe_app
 export PAYLOAD_SECRET="$(openssl rand -hex 32)"
 export CRON_SECRET="$(openssl rand -hex 24)" PREVIEW_SECRET="$(openssl rand -hex 24)"
 export CONTROL_PLANE_HOST=admin.example.com JOBS_AUTORUN=false
-unset R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY COMPOSE_PROJECT_NAME
+unset COMPOSE_PROJECT_NAME
 
 cat >"$tmp/compose.yml" <<'YAML'
 services:

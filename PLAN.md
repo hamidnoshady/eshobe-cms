@@ -34,7 +34,7 @@ is an INSERT, not a deploy.
 | Per-site singletons | `isGlobal: true` collections | Payload *globals* cannot be tenant-scoped — see §4.1 |
 | Custom domains | Caddy on-demand TLS + `ask` endpoint | ~8 lines of Caddyfile vs. a cert/domain-API integration |
 | Hosting | VPS + Docker Compose (web, postgres, caddy) | On-demand TLS needs a long-lived process; also makes the jobs queue trivial |
-| Media | `@payloadcms/storage-s3` → Cloudflare R2, per-site prefix | S3-compatible, no egress fees |
+| Media | ArvanCloud Object Storage, per-site prefix, configured by a superadmin in the `storage-connections` collection | S3-compatible, no tenant configuration |
 | Provisioning | Internal "New site" action, agency-operated | See §2 |
 | Store | `@payloadcms/plugin-ecommerce` (Beta) | Wave 7, highest risk — see §7 |
 | Billing | `@payloadcms/plugin-stripe` | Wave 8, deferred — not on the critical path |
@@ -562,9 +562,9 @@ certificate on first request and an unknown domain is refused;
 
 ```
 @payloadcms/plugin-multi-tenant   @payloadcms/db-postgres
-@payloadcms/plugin-seo            @payloadcms/storage-s3
-@payloadcms/plugin-redirects      @payloadcms/live-preview-react
-@payloadcms/plugin-form-builder   @payloadcms/plugin-stripe
+@payloadcms/plugin-seo            @payloadcms/plugin-cloud-storage
+@payloadcms/plugin-redirects      @aws-sdk/client-s3
+@payloadcms/plugin-form-builder   @payloadcms/live-preview-react
 @payloadcms/plugin-search         @payloadcms/translations
 
 Dropped after the Wave 7 spike: @payloadcms/plugin-ecommerce (Beta) and `stripe` —

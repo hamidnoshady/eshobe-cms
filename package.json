@@ -22,6 +22,7 @@
     "seed": "cross-env NODE_OPTIONS=--no-deprecation payload run scripts/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1118.0",
     "@payloadcms/admin-bar": "3.88.0",
     "@payloadcms/db-postgres": "3.88.0",
     "@payloadcms/email-nodemailer": "3.88.0",
@@ -34,7 +35,7 @@
     "@payloadcms/plugin-search": "3.88.0",
     "@payloadcms/plugin-seo": "3.88.0",
     "@payloadcms/richtext-lexical": "3.88.0",
-    "@payloadcms/storage-s3": "3.88.0",
+    "@payloadcms/plugin-cloud-storage": "3.88.0",
     "@payloadcms/translations": "3.88.0",
     "@payloadcms/ui": "3.88.0",
     "@radix-ui/react-checkbox": "^1.0.4",

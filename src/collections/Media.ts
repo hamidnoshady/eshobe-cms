@@ -53,7 +53,8 @@ export const Media: CollectionConfig = {
     },
   ],
   hooks: {
-    // Namespaces the file's key in R2 by site. No-op while uploads are local.
+    // Namespaces the file's key in the object-storage bucket by site. No-op while
+    // uploads are local.
     beforeChange: [setMediaPrefix],
   },
   upload: {

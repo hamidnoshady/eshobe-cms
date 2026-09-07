@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setMediaPrefix, sitePrefix } from '@/hooks/mediaPrefix'
 import { tryRevalidate } from '@/hooks/revalidate'
 import { jobsAutoRunEnabled, productionEnvProblems, shouldCheckEnv } from '@/lib/env'
-import { r2Configured, r2Endpoint } from '@/plugins/storage'
 
 /**
  * Wave 6's production posture: where files land, whether the queue runs, and
@@ -41,30 +40,6 @@ describe('per-site media prefix', () => {
 
   it('writes nothing at the bucket root when there is no site', () => {
     expect(run({ data: { alt: 'x' } })).toEqual({ alt: 'x' })
-  })
-})
-
-describe('R2 configuration', () => {
-  const full = {
-    R2_ACCESS_KEY_ID: 'key',
-    R2_ACCOUNT_ID: 'acct',
-    R2_BUCKET: 'bucket',
-    R2_SECRET_ACCESS_KEY: 'secret',
-  }
-
-  it('treats a partial credential set as not configured', () => {
-    // The dangerous middle state: the adapter takes over the media collection and
-    // then fails on every single upload.
-    expect(r2Configured(full)).toBe(true)
-    expect(r2Configured({ ...full, R2_SECRET_ACCESS_KEY: undefined })).toBe(false)
-    expect(r2Configured({})).toBe(false)
-  })
-
-  it('derives the account endpoint, and lets it be overridden', () => {
-    expect(r2Endpoint(full)).toBe('https://acct.r2.cloudflarestorage.com')
-    expect(r2Endpoint({ ...full, R2_ENDPOINT: 'https://cdn.example.com' })).toBe(
-      'https://cdn.example.com',
-    )
   })
 })
 

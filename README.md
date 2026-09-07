@@ -9,7 +9,7 @@ Vazirmatn is the only typeface, and every date renders in Shamsi (Jalali).
 
 - Architecture and phasing → [`PLAN.md`](./PLAN.md)
 - **srv1 / Komodo deployment** → [Production deployment](#production-deployment-srv1--komodo) below
-- Other production infrastructure → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS) and [`WAVE-6.md`](./WAVE-6.md) (R2, SEO, jobs, backups)
+- Other production infrastructure → [`WAVE-4.md`](./WAVE-4.md) (domains, TLS) and [`WAVE-6.md`](./WAVE-6.md) (object storage, SEO, jobs, backups)
 - Tenant domain, subdomain and alias operations → [`docs/domains.md`](./docs/domains.md)
 - Built-in IRPower / ResellerArea domain-reseller setup and tenant API → [`docs/domain-reseller.md`](./docs/domain-reseller.md)
 - The rules that bind the code → [`CLAUDE.md`](./CLAUDE.md)
@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File scripts/dev-hosts.ps1
 | `pnpm payload migrate:status`  | Read migration status via the runtime URL                |
 | `pnpm migrate`                 | Apply pending migrations via `MIGRATE_DATABASE_URL` only |
 | `./scripts/backup-postgres.sh` | Nightly database dump (production host)                  |
-| `./scripts/backup-r2.sh`       | Nightly media copy to a second bucket                    |
+| `./scripts/backup-object-storage.sh` | Nightly media copy to a second bucket              |
 
 Scaffolded from Payload's `website` template at v3.88.0, with the Mongo adapter
 replaced by Postgres and the Latin-only fonts replaced by Vazirmatn.

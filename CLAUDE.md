@@ -46,7 +46,7 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 - A `platformAdmin` skips every tenant constraint (`userHasAccessToAllTenants` short-circuits the plugin's access wrapper). An isolation test whose fixture user is accidentally an admin passes vacuously — assert the fixture's `role` before anything else.
 - `Users.beforeChange` promotes an account to `platformAdmin` when the database has none. Create the admin before any tenant user, or the first customer owner gets the platform.
 - `revalidatePath` calls include domain and locale: `/{domain}/{locale}/{slug}`.
-- Media in R2 is namespaced per site (`sites/<id>/media/<filename>`, set by `src/hooks/mediaPrefix.ts`). Filenames are unique per collection, not per tenant, so without it two customers' `logo.png` are one object. The prefix is stamped once at create and never re-derived — the file already sits at the old key.
+- Media in object storage is namespaced per site (`sites/<id>/media/<filename>`, set by `src/hooks/mediaPrefix.ts`). Filenames are unique per collection, not per tenant, so without it two customers' `logo.png` are one object. The prefix is stamped once at create and never re-derived — the file already sits at the old key.
 - `@payloadcms/plugin-ecommerce` is not used, and `customers`-as-`users` cannot work here at all: an account with no tenant is denied its own cart, and a tenant member reads the site's drafts. The reasoning and the measurements are in `WAVE-7.md` — re-read it before re-proposing the plugin.
 
 ## Payload
@@ -85,6 +85,35 @@ ZarinPal, Digipay, Snapp!Pay, Torob Pay. Design decisions in `WAVE-10.md`, opera
 - A row's `gateway` is immutable after create: it decides which adapter runs and which columns its ciphertext lives in, so changing it would attribute one provider's encrypted secret to another's field.
 - `payment-gateways` **is** in the multi-tenant plugin's `collections` map. This is the one collection where an unregistered entry would not merely leak content — it would hand every tenant a form for every other tenant's PSP account.
 - Rotating `PAYMENT_GATEWAYS_KEY` or `PAYLOAD_SECRET` invalidates every stored credential and there is no re-encryption job. A row whose secrets no longer decrypt is *refused*, not errored, so the symptom is "the gateway disappeared from the storefront".
+
+## Object storage (ArvanCloud)
+
+Media is written to ArvanCloud Object Storage, configured by a superadmin — not by
+environment variables. Design in `WAVE-6.md`, adapter in `src/storage/adapter.ts`,
+plugin glue in `src/plugins/storage.ts`.
+
+- **The connection lives in `storage-connections`, a platform-admin-only collection, and is
+  deliberately *not* in the multi-tenant plugin's `collections` map** — it is shared
+  infrastructure (like `ApiKeys`), not a site's own content. A tenant never sees or
+  configures it; every site's files land in one bucket under `sites/<id>/media/`.
+- **The secret key is never returned.** AES-256-GCM at rest (`enc:v1:…`,
+  `src/storage/crypto.ts`), field access locked to `platformAdmin`, and an `afterRead` hook
+  that blanks it unless `req.context[STORAGE_SECRET_READ_CONTEXT_KEY]` is set — the same
+  three-layer pattern as payment gateways. `src/storage/connection.ts` is the only reader.
+- **An empty secret field means "unchanged", never "delete".** `clearCredentials` is the
+  explicit door for wiping it.
+- **Only one connection may be `enabled`** (`assertSingleEnabledConnection`); the resolver
+  reads "the enabled row", not a list. `assertConnectionUsable` refuses to enable a
+  connection with no readable key.
+- **The plugin runs with `disableLocalStorage: false`**, so Payload also writes to
+  `Media.staticDir`. With no enabled connection the adapter no-ops on upload and its static
+  handler returns `undefined` so Payload serves from disk (the dev default); with one
+  enabled, files also go to ArvanCloud and are served from there.
+- ArvanCloud specifics that must stay: `forcePathStyle` on, `region: 'default'`, no ACL
+  (the bucket stays private; everything is served through `/api/media/file/*`). The
+  endpoint default is `https://s3.ir-thr-at1.arvanstorage.ir`.
+- Rotating `OBJECT_STORAGE_KEY` or `PAYLOAD_SECRET` invalidates the stored secret key with
+  no re-encryption job; re-enter it in the admin UI.
 
 ## srv1 / Komodo deployment invariants
 
@@ -167,7 +196,7 @@ docker compose up -d db      # local Postgres
 
 ## Working style
 
-- Read `PLAN.md` before starting a wave; deployment specifics live in `WAVE-4.md` (domains, TLS), `WAVE-6.md` (R2, SEO, jobs, backups), `WAVE-7.md` (the store and why `@payloadcms/plugin-ecommerce` is not used), `WAVE-9.md` (the headless contract) and `WAVE-10.md` (Iranian payment gateways). Waves are tracked as GitHub issues #1–#9 under #10.
+- Read `PLAN.md` before starting a wave; deployment specifics live in `WAVE-4.md` (domains, TLS), `WAVE-6.md` (object storage, SEO, jobs, backups), `WAVE-7.md` (the store and why `@payloadcms/plugin-ecommerce` is not used), `WAVE-9.md` (the headless contract) and `WAVE-10.md` (Iranian payment gateways). Waves are tracked as GitHub issues #1–#9 under #10.
 - Wave 1 gates everything: do not start Wave 2 until its cross-tenant and draft-leak tests pass.
 - When adding a collection, add its cross-tenant leak test in the same change.
 

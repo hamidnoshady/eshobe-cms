@@ -163,8 +163,9 @@ export const siteDescriptor: Endpoint = {
       ...(resolvedByApiKey ? { domainVerified: Boolean(site.domainVerified), id: siteId } : {}),
       // Where uploads resolve. Local storage serves them relative
       // (`/api/media/file/x.png`), which is meaningless off-domain: a consumer
-      // builds `new URL(media.url, media.origin)`. Moves to the R2 bucket URL when
-      // the storage adapter lands (WAVE-9.md §4).
+      // builds `new URL(media.url, media.origin)`. Media is served through the CMS
+      // proxy (`/api/media/file/*`), not from the bucket URL, so the bucket stays
+      // private.
       media: { basePath: '/api/media/file', origin: siteOrigin(site, req.origin) },
       name: site.name,
       slug: site.slug,

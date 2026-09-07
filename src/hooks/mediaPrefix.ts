@@ -3,7 +3,7 @@ import type { CollectionBeforeChangeHook } from 'payload'
 /**
  * Where one site's files live in the bucket.
  *
- * Every tenant shares one R2 bucket, so the key has to carry the tenant or two
+ * Every tenant shares one object-storage bucket, so the key has to carry the tenant or two
  * customers who both upload `logo.png` overwrite each other — the filename is
  * unique per collection in Postgres, not per site. The prefix also makes the
  * per-site operations possible at all: a lifecycle rule, a `rclone sync` of one

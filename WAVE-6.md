@@ -1,35 +1,32 @@
 # Wave 6 — production hardening
 
 Wave 4 put the stack on a VPS behind Caddy ([`WAVE-4.md`](./WAVE-4.md)). Wave 6 makes
-it deployable, observable and correct across a restart: media on R2, per-site SEO
-documents, the jobs queue actually running, and a boot that refuses to serve traffic
-with a placeholder secret.
+it deployable, observable and correct across a restart: media on object storage,
+per-site SEO documents, the jobs queue actually running, and a boot that refuses to
+serve traffic with a placeholder secret.
 
-## Media on Cloudflare R2
+## Media on ArvanCloud Object Storage
 
-`@payloadcms/storage-s3` is pointed at R2 in [`src/plugins/storage.ts`](./src/plugins/storage.ts).
-Set all four variables to switch a deployment over; leave them unset and uploads stay
-on the local volume, which is what development does.
+Media is written to ArvanCloud Object Storage by the adapter in
+[`src/storage/adapter.ts`](./src/storage/adapter.ts), wired through
+`@payloadcms/plugin-cloud-storage` in [`src/plugins/storage.ts`](./src/plugins/storage.ts).
+Originally this was Cloudflare R2 driven by `R2_*` environment variables; it is now a
+**superadmin connection system**: a platform admin creates the connection once in the
+admin UI («زیرساخت → اتصالات ذخیره‌سازی» — endpoint, bucket, region, access key and an
+AES-256-GCM-encrypted secret key, stored in the `storage-connections` collection). Every
+site writes its media there transparently; a tenant needs no configuration of its own.
 
-```dotenv
-R2_ACCOUNT_ID=...
-R2_BUCKET=eshobe-media
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-# only if the bucket is not at https://<account>.r2.cloudflarestorage.com
-# R2_ENDPOINT=
-```
+With no enabled connection, uploads stay on the local volume — the development default.
 
-**All four or none.** A partial set is treated as "not configured": the dangerous
-middle state is an adapter that takes over the media collection and then fails on
-every upload.
-
-Three R2 specifics the adapter has to respect, all of which fail at upload time
+Three ArvanCloud specifics the adapter has to respect, all of which fail at upload time
 rather than at boot:
 
-- `region: 'auto'` — R2 has no regions, but the AWS SDK will not sign without one.
-- **No ACL.** R2 rejects `x-amz-acl`; a bucket is public or it is not.
-- `forcePathStyle` — the bucket is the first path segment, not a subdomain.
+- `region: 'default'` — ArvanCloud has no real regions, but the AWS SDK will not sign
+  without one; `default` is what ArvanCloud's own SDK examples use.
+- **No ACL.** The bucket is public or it is not. It stays private; everything is served
+  through the CMS proxy.
+- `forcePathStyle` — the bucket is the first path segment, never a subdomain
+  (`https://s3.ir-thr-at1.arvanstorage.ir`).
 
 ### Files are namespaced per site
 
@@ -51,7 +48,7 @@ media keeps working, and `next/image` keeps treating them as local images. The
 `?prefix=` query the plugin appends is matched by the existing `localPatterns` entry —
 an entry with no `search` key matches any query string.
 
-The schema carries the `prefix` column whether or not R2 is configured
+The schema carries the `prefix` column whether or not a storage connection is configured
 (`alwaysInsertFields: true`), so the committed migration describes both environments.
 
 ## Per-site SEO
@@ -160,14 +157,14 @@ editor and makes every encrypted field unreadable.
 
 | What              | Script                                                       | Where it lives         |
 | ----------------- | ------------------------------------------------------------ | ---------------------- |
-| Postgres          | [`scripts/backup-postgres.sh`](./scripts/backup-postgres.sh) | `pgdata` volume        |
-| R2 media          | [`scripts/backup-r2.sh`](./scripts/backup-r2.sh)             | R2 bucket              |
-| Uploads before R2 | in the Postgres backup's sibling volume                      | `media_uploads` volume |
-| TLS certificates  | Caddy re-issues them; nothing to restore                     | `caddy_data` volume    |
+| Postgres                 | [`scripts/backup-postgres.sh`](./scripts/backup-postgres.sh) | `pgdata` volume        |
+| Object-storage media     | [`scripts/backup-object-storage.sh`](./scripts/backup-object-storage.sh) | ArvanCloud bucket |
+| Uploads before storage   | in the Postgres backup's sibling volume                      | `media_uploads` volume |
+| TLS certificates         | Caddy re-issues them; nothing to restore                     | `caddy_data` volume    |
 
 ```crontab
-0  3 * * *  cd /srv/eshobe-cms && ./scripts/backup-postgres.sh >> /var/log/eshobe-backup.log 2>&1
-30 3 * * *  cd /srv/eshobe-cms && ./scripts/backup-r2.sh      >> /var/log/eshobe-backup.log 2>&1
+0  3 * * *  cd /srv/eshobe-cms && ./scripts/backup-postgres.sh           >> /var/log/eshobe-backup.log 2>&1
+30 3 * * *  cd /srv/eshobe-cms && ./scripts/backup-object-storage.sh     >> /var/log/eshobe-backup.log 2>&1
 ```
 
 The database dump is `pg_dump -Fc` (restorable object by object, resumable) written to

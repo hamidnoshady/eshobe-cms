@@ -23,6 +23,7 @@ import { Products } from './collections/Products'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
 import { Sites } from './collections/Sites'
+import { StorageConnections } from './collections/StorageConnections'
 import { Store } from './collections/Store'
 import { Theme } from './collections/Theme'
 import { Users } from './collections/Users'
@@ -45,6 +46,7 @@ import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { siteDescriptor } from './endpoints/siteDescriptor'
+import { storageConnectionEndpoints } from './endpoints/storageConnections'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
 import { siteDomainsEndpoints } from './endpoints/siteDomains'
 
@@ -95,6 +97,7 @@ export default buildConfig({
     // `src/endpoints/paymentGateways.ts` for who may call which.
     ...paymentGatewayEndpoints,
     ...cdnEndpoints,
+    ...storageConnectionEndpoints,
   ],
   globals: [
     DomainReseller,
@@ -155,6 +158,11 @@ export default buildConfig({
     // plugin's `collections` map (src/plugins/index.ts): a key is credential
     // material, the same shape as `Users`, not a site's own content.
     ApiKeys,
+    // Object storage — platform-admin only and platform-wide, not in the multi-tenant
+    // plugin's map for the same reason as `ApiKeys`: it holds the ArvanCloud bucket
+    // credentials every site's media writes through, so it is shared infrastructure,
+    // not a site's own content.
+    StorageConnections,
     Theme,
     Header,
     Footer,

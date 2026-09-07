@@ -74,6 +74,7 @@ export interface Config {
     users: User;
     sites: Site;
     'api-keys': ApiKey;
+    'storage-connections': StorageConnection;
     theme: Theme;
     header: Header;
     footer: Footer;
@@ -111,6 +112,7 @@ export interface Config {
     users: UsersSelect<false> | UsersSelect<true>;
     sites: SitesSelect<false> | SitesSelect<true>;
     'api-keys': ApiKeysSelect<false> | ApiKeysSelect<true>;
+    'storage-connections': StorageConnectionsSelect<false> | StorageConnectionsSelect<true>;
     theme: ThemeSelect<false> | ThemeSelect<true>;
     header: HeaderSelect<false> | HeaderSelect<true>;
     footer: FooterSelect<false> | FooterSelect<true>;
@@ -1152,6 +1154,57 @@ export interface ApiKey {
   createdAt: string;
 }
 /**
+ * اتصال ذخیره‌سازی ArvanCloud که همهٔ رسانه‌های سایت‌ها در آن ذخیره می‌شود. فقط یک اتصال می‌تواند فعال باشد؛ کلید رمزنگاری‌شده ذخیره می‌شود و هرگز از API برگردانده نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "storage-connections".
+ */
+export interface StorageConnection {
+  id: string;
+  /**
+   * برای خودتان؛ مثلاً «تولید — تهران» یا «باکت اصلی رسانه».
+   */
+  name: string;
+  /**
+   * اتصالی که آپلودها به آن می‌روند. فقط یکی می‌تواند فعال باشد؛ بدون اتصال فعال، فایل‌ها روی دیسک محلی می‌مانند.
+   */
+  enabled?: boolean | null;
+  /**
+   * نشانی S3 آروان‌کلود؛ معمولاً https://s3.ir-thr-at1.arvanstorage.ir (بدون اسلش انتهایی).
+   */
+  endpoint: string;
+  /**
+   * نام باکت در پنل Object Storage آروان‌کلود.
+   */
+  bucket: string;
+  /**
+   * آروان‌کلود در نمونه‌های SDK مقدار «default» می‌پذیرد؛ تغییرش معمولاً لازم نیست.
+   */
+  region?: string | null;
+  /**
+   * آروان‌کلود باکت را به‌صورت path-style آدرس‌دهی می‌کند (باکت در مسیر، نه زیردامنه). روشن بماند.
+   */
+  forcePathStyle?: boolean | null;
+  /**
+   * شناسهٔ Access Key از پنل Object Storage آروان‌کلود.
+   */
+  accessKeyId: string;
+  /**
+   * کلید رمز در پنل Object Storage آروان‌کلود. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و بعد از آن هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده».
+   */
+  secretAccessKey?: string | null;
+  /**
+   * فقط همراه ذخیره‌سازی استفاده کنید؛ بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».
+   */
+  clearCredentials?: boolean | null;
+  credentialsSummary?: string | null;
+  lastSelfTestOk?: boolean | null;
+  lastSelfTestDetail?: string | null;
+  lastSelfTestAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "theme".
  */
@@ -2004,6 +2057,10 @@ export interface PayloadLockedDocument {
         value: string | ApiKey;
       } | null)
     | ({
+        relationTo: 'storage-connections';
+        value: string | StorageConnection;
+      } | null)
+    | ({
         relationTo: 'theme';
         value: string | Theme;
       } | null)
@@ -2636,6 +2693,27 @@ export interface ApiKeysSelect<T extends boolean = true> {
   keyPrefix?: T;
   disabledAt?: T;
   lastUsedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "storage-connections_select".
+ */
+export interface StorageConnectionsSelect<T extends boolean = true> {
+  name?: T;
+  enabled?: T;
+  endpoint?: T;
+  bucket?: T;
+  region?: T;
+  forcePathStyle?: T;
+  accessKeyId?: T;
+  secretAccessKey?: T;
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  lastSelfTestOk?: T;
+  lastSelfTestDetail?: T;
+  lastSelfTestAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
