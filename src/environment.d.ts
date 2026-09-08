@@ -10,16 +10,13 @@ declare global {
       /** Absolute upload dir in production (volume mount); unset in dev. */
       MEDIA_DIR?: string
       /**
-       * Cloudflare R2. All four or none — `r2Configured()` treats a partial set as
-       * "not configured" and keeps uploads on local disk, because a half-configured
-       * bucket takes over the media collection and then fails on every upload.
+       * Optional dedicated key that seals the ArvanCloud object-storage secret key at
+       * rest. The connection itself (endpoint, bucket, region, access key, encrypted
+       * secret key) is configured by a superadmin in the `storage-connections`
+       * collection — never through environment variables. When unset, PAYLOAD_SECRET
+       * is used; rotating either requires re-entering the secret key.
        */
-      R2_ACCESS_KEY_ID?: string
-      R2_ACCOUNT_ID?: string
-      R2_BUCKET?: string
-      R2_SECRET_ACCESS_KEY?: string
-      /** Overrides the derived `https://<account>.r2.cloudflarestorage.com`. */
-      R2_ENDPOINT?: string
+      OBJECT_STORAGE_KEY?: string
       /**
        * `'true'` runs the jobs cron in this container, `'false'` never does; unset
        * means "in production only". Must be `'false'` on more than one web replica.

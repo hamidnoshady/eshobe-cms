@@ -228,7 +228,7 @@ When resolved via **site API key** (not Host), two extra fields appear (pinned b
 - `blocks` → same allowlist the admin picker uses; warn in theme if layout contains unknown `blockType`.
 - `store.currency` → the unit label (`تومان` vs `Toman`) and math.
 - `theme` → emit as CSS variables (see §9).
-- `media.origin` → `new URL(media.url, site.media.origin)` until R2 lands with absolute URLs.
+- `media.origin` → `new URL(media.url, site.media.origin)`. `media.url` is always relative (`/api/media/file/…`), served through the CMS proxy so the object-storage bucket stays private.
 
 ### cURL
 ```bash
@@ -439,13 +439,13 @@ With site key or logged-in user, `paymentInstructions` appears. On `GET /api/sit
 See §9 for how to emit.
 
 ### `media` — uploads
-`access: read = scopedPublicRead(anyone)` (public, Host-scoped). Tenant-isolated via `setMediaPrefix` (R2 key `sites/<id>/media/<filename>`). Local dev serves from `public/media` or `MEDIA_DIR`.
+`access: read = scopedPublicRead(anyone)` (public, Host-scoped). Tenant-isolated via `setMediaPrefix` (object-storage key `sites/<id>/media/<filename>`). Local dev serves from `public/media` or `MEDIA_DIR`.
 
 | Field | Type |
 |-------|------|
 | `alt` | text, localized |
 | `caption` | richText lexical, localized |
-| `prefix` | text, auto (R2 namespace) |
+| `prefix` | text, auto (object-storage namespace) |
 | `folder` | relation `payload-folders` |
 | `url`, `thumbnailURL`, `filename`, `mimeType`, `filesize`, `width`, `height`, `sizes` | auto (Payload upload) |
 
@@ -1016,7 +1016,7 @@ Recreate headlessly by mirroring that switch — same locale guard, same `resolv
 
 ## 12. Media
 
-Uploads are tenant-namespaced (`sites/<siteId>/media/<filename>` via `setMediaPrefix` hook, stored in R2/S3 in prod, `public/media` in dev).
+Uploads are tenant-namespaced (`sites/<siteId>/media/<filename>` via `setMediaPrefix` hook, stored in ArvanCloud Object Storage in prod, `public/media` in dev).
 
 REST:
 ```bash
@@ -1035,7 +1035,9 @@ const url = new URL(media.url!, origin).toString()
 const thumb = media.sizes?.thumbnail?.url ? new URL(media.sizes.thumbnail.url, origin).toString() : url
 ```
 
-After R2 migration (WAVE-6, env `S3_BUCKET`), `media.url` is already absolute (`https://bucket.r2.../sites/<id>/media/...`) — `new URL(url, origin)` still works (absolute stays absolute).
+`media.url` stays relative in every environment: the object-storage bucket is private and files
+are always streamed through the CMS proxy (`/api/media/file/*`), so `new URL(url, origin)` is
+always how a renderer builds the absolute URL.
 
 Caddy carve-out: `/api/media/file/*` is allowed on customer domains (others 404).
 
@@ -1100,7 +1102,7 @@ Usage in theme head:
 | Crafted `POST /api/checkout` body with `site:OTHER` | Ignored — `siteFromRequest(req)` is authoritative, and `overrideAccess:true` create uses that id |
 | `POST /api/form-submissions` with `site:OTHER` | `beforeValidate` derives site from `form.site` |
 | Draft exfiltration via `GET /api/pages?draft=true` | `scopedPublishedRead` returns `{_status:published}` constraint for anonymous; logged-in narrowed to own sites |
-| R2 media of another site | Key prefix `sites/<id>/media/`; serving route checks site scope |
+| Object-storage media of another site | Key prefix `sites/<id>/media/`; serving route checks site scope |
 | Customer reads another's theme/store | `scopedPublicRead` with Host — one theme/store per Host |
 
 **What is still fail-open (and why):** when `Host` resolves to no site (control plane `cms.example.com`, CLI, jobs, Local API in tests), `siteConstraint` returns `null` and adds nothing. Closing it in the access layer would break `findForSite`'s own Local calls (they also have no real Host). Close is at **Caddy** (deny anonymous `/api/*` on control-plane Host) + per-site API keys. For a theme, this means: always fetch with a Host or key, never rely on anonymous unscoped fallback.

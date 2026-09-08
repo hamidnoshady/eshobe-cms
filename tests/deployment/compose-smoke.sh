@@ -33,12 +33,21 @@ export APP_DATABASE_ROLE=eshobe_app
 export PAYLOAD_SECRET="$(openssl rand -hex 32)"
 export CRON_SECRET="$(openssl rand -hex 24)" PREVIEW_SECRET="$(openssl rand -hex 24)"
 export CONTROL_PLANE_HOST=admin.example.com JOBS_AUTORUN=false
-unset R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY COMPOSE_PROJECT_NAME
+unset COMPOSE_PROJECT_NAME
 
 cat >"$tmp/compose.yml" <<'YAML'
 services:
   web:
     # Exercise the image just built by CI, not a second build with different args.
+    # `docker-compose.srv1.yml` pins the ghcr-mirror pull-through tag for Komodo; the
+    # smoke test must override it back to the image docker-build-push-action just
+    # built and loaded, or compose pulls `latest` from the mirror and the topology
+    # assertions below compare against the wrong image.
+    image: eshobe-cms-web
+    pull_policy: never
+  migrate:
+    # Byte-identical to web in production; keep it so against the locally-built image.
+    image: eshobe-cms-web
     pull_policy: never
 YAML
 
@@ -78,7 +87,11 @@ try:
     assert cfg['name'] == 'eshobe-cms'
     assert set(cfg['services']) == {'web', 'migrate', 'db'}
     web, migrate, db = (cfg['services'][name] for name in ('web', 'migrate', 'db'))
-    assert web['image'] == migrate['image'] == 'eshobe-cms-web'
+    # web and migrate must stay byte-identical, and that image is the literal
+    # ghcr-mirror tag docker-compose.srv1.yml pins for Komodo (see its header — the
+    # tag is written out literally on purpose). The test-only override in
+    # $tmp/compose.yml swaps this back to the locally-built `eshobe-cms-web`.
+    assert web['image'] == migrate['image'] == 'ghcr-mirror.liara.ir/hamidnoshady/eshobe-cms:latest'
     assert web['depends_on']['migrate']['condition'] == 'service_completed_successfully'
     assert migrate['depends_on']['db']['condition'] == 'service_healthy'
     assert migrate['restart'] == 'no'

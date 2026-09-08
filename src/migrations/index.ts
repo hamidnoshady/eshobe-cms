@@ -7,6 +7,7 @@ import * as migration_20260905_003232_wave10_payment_gateways from './20260905_0
 import * as migration_20260905_120000_tenant_domain_aliases from './20260905_120000_tenant_domain_aliases'
 import * as migration_20260905_130000_cdn_integration from './20260905_130000_cdn_integration'
 import * as migration_20260905_150000_domain_reseller from './20260905_150000_domain_reseller'
+import * as migration_20260907_000000_storage_connections from './20260907_000000_storage_connections'
 
 export const migrations = [
   {
@@ -53,5 +54,10 @@ export const migrations = [
     up: migration_20260905_150000_domain_reseller.up,
     down: migration_20260905_150000_domain_reseller.down,
     name: '20260905_150000_domain_reseller',
+  },
+  {
+    up: migration_20260907_000000_storage_connections.up,
+    down: migration_20260907_000000_storage_connections.down,
+    name: '20260907_000000_storage_connections',
   },
 ]

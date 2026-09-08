@@ -79,7 +79,7 @@ constraint, and it is why this is a considered change rather than a wrapper appl
 
 The `Caddyfile` has no `encode` directive, and `/api/media/file/*` is
 `reverse_proxy web:3000` with no `Cache-Control` — so uploaded images are served through Node,
-uncached, on every request when R2 is not configured.
+uncached, on every request when no object-storage connection is configured.
 
 ```
 # Caddyfile — once, at the proxy, not in the app
@@ -151,7 +151,7 @@ Admin-side only, which is why it is P2 — but it is a one-word change.
   `output: 'standalone'` build on `node:24-alpine` running `node server.js` — all three of which
   the POS deployment does *not* do (see its own audit doc, finding 11).
 - **Uploads generate seven sizes once at upload**, with a content-sniffed `mimeTypes` allowlist,
-  R2 via `@payloadcms/storage-s3`, and per-site key prefixes.
+  ArvanCloud Object Storage via `@payloadcms/plugin-cloud-storage`, and per-site key prefixes.
 - **Side-effect hooks are best-effort, not awaited-fatal** — `tryRevalidate`, `void` + log, with
   the at-most-once cost stated in the file.
 - **`PAYMENT_GATEWAY_TIMEOUT_MS` is read per call**, not captured at module load, and defaults
