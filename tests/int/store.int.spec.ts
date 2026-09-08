@@ -379,6 +379,10 @@ describe('store', () => {
         // tenant's derived quote.
         'cdn-events',
         'domain-reseller-products',
+        // The object-storage connection every site's media writes through, configured once
+        // by a superadmin. Same shape as `users`/`api-keys`: shared credential material,
+        // not a site's own content (see src/collections/StorageConnections.ts).
+        'storage-connections',
         // Payload's own tables: no tenant to scope by.
         'payload-jobs',
         'payload-kv',
