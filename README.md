@@ -222,8 +222,11 @@ in Komodo together. No credential rotation is performed by this repo change.
 
 Two GitHub Actions workflows live under `.github/workflows/`:
 
-- **`ci.yml`** — runs on every pull request to `main` and on every push to
-  `main`. Jobs:
+- **`ci.yml`** — **manual only** (`workflow_dispatch`). It does *not* run on a
+  pull request, on a push to `main`, or after a merge; start it from the
+  Actions tab when you want a run. It is the same checklist a contributor runs
+  locally, so run that yourself before every commit rather than waiting on a
+  run nobody dispatched. Jobs:
   - `lint` — `pnpm lint`
   - `typecheck` — `pnpm typecheck`
   - `build` — `pnpm build` with placeholder build-time env (matches the
@@ -239,9 +242,13 @@ Two GitHub Actions workflows live under `.github/workflows/`:
     dev/push mode before tests (separate from the migrated Docker smoke database)
   - `test-e2e` — Playwright suites (`tests/e2e/**`) against `pnpm dev`;
     uploads the Playwright HTML report as an artifact on failure
-- **`publish.yml`** — runs after every merge to `main`, on `v*` tags, and on
-  `workflow_dispatch`. Re-runs the lint/typecheck/build gates on the exact
-  merge commit, then:
+- **`publish.yml`** — **automatic**, and deliberately so: it runs after every
+  merge to `main`, on `v*` tags, and on `workflow_dispatch`. This is the
+  workflow deployment depends on — the srv1 Komodo stack pulls the GHCR image
+  it pushes (through the `ghcr-mirror.liara.ir` cache, see
+  `docker-compose.srv1.yml`), so a merge must keep producing one. Its own
+  `gates` job re-runs lint/typecheck/build on the exact merge commit first, so
+  making `ci.yml` manual did not leave the image ungated. Then:
   - **Docker** — builds and pushes the image to
     `ghcr.io/<owner>/<repo>:<sha>` (long) and `ghcr.io/<owner>/<repo>:latest`
     on `main`. `vX.Y.Z` tags additionally push `X.Y.Z`, `X.Y`, and `X`.

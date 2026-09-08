@@ -139,4 +139,45 @@ describe('domain reseller tenant endpoints', () => {
       ],
     })
   })
+
+  it('prices a domain for a platform key, so a site can be quoted before it exists', async () => {
+    // The builder's site-building wizard asks "what does this domain cost?" at
+    // its first step — before the site, and therefore its site key, exists.
+    requestApiKey.mockResolvedValue({ role: 'platform', siteId: null })
+    const { req } = request({
+      productDocs: [
+        {
+          currency: 'IRT',
+          enabled: true,
+          id: 'product-ir',
+          registrationCost: 100_000,
+          renewalCost: 90_000,
+          tld: 'ir',
+          transferCost: 80_000,
+        },
+      ],
+      query: { domain: 'example.ir', operation: 'register', period: '1' },
+    })
+
+    const response = await endpoint('get', '/site/registrar/quote')(req as never)
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      // No site in the request, so there is nothing for `managedHere` to mean.
+      availability: 'unknown',
+      quote: { price: 110_000 },
+    })
+  })
+
+  it('still refuses to ORDER a domain on a platform key — pricing is widened, committing is not', async () => {
+    requestApiKey.mockResolvedValue({ role: 'platform', siteId: null })
+    const req = {
+      context: {},
+      json: async () => ({ domain: 'example.ir', operation: 'register', period: 1 }),
+      payload: { find: vi.fn(), findByID: vi.fn(), logger: { error: vi.fn() } },
+      query: {},
+    }
+
+    const response = await endpoint('post', '/site/registrar/domains')(req as never)
+    expect(response.status).toBe(403)
+  })
 })

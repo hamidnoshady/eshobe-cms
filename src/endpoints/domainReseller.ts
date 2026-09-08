@@ -18,6 +18,8 @@ import {
   type ResellerProduct,
 } from '@/domain-reseller/service'
 
+import { requestApiKey } from '@/access/siteApiKey'
+
 import { siteForDomainKey } from './updateSiteDomain'
 
 const noStore = { 'cache-control': 'no-store' }
@@ -240,8 +242,25 @@ const publicOperation = (operation: {
  * honest `unknown` provider state; it never claims a domain is globally available merely
  * because it is absent from this CMS. Price comes from the superadmin's manual TLD catalog.
  */
+/**
+ * GET /api/site/registrar/quote
+ *
+ * A price, and nothing else: no order is placed, no row is written, and the answer
+ * is the same for every caller because it is the platform's own catalogue price
+ * plus the platform's own margin. That is why a **platform** key is accepted here
+ * alongside a site key, and only here: the builder prices a domain at the first
+ * step of its site-building wizard, before the site — and therefore its site key —
+ * exists at all. Refusing that call would push the same question into a screen
+ * that has to guess a number, which is the one outcome worse than answering it.
+ *
+ * A platform key gets the *coarser* availability answer on purpose: `managedHere`
+ * means "this site already manages this domain", and with no site in the request
+ * there is no such thing to say. Ordering (`POST /api/site/registrar/domains`)
+ * remains site-key only, so nothing that commits a business is widened by this.
+ */
 export const domainResellerQuote: Endpoint['handler'] = async (req) => {
-  const site = await siteKeyRequired(req)
+  const key = await requestApiKey(req)
+  const site = key?.role === 'platform' ? null : await siteKeyRequired(req)
   if (site instanceof Response) return site
 
   const domain = typeof req.query.domain === 'string' ? normalizeDomain(req.query.domain) : ''
@@ -266,7 +285,7 @@ export const domainResellerQuote: Endpoint['handler'] = async (req) => {
   const existing = await existingDomain(req, domain)
   const existingSiteId = existing ? idOf(existing.site) : null
   const availability =
-    existing && existingSiteId === String(site.id)
+    existing && site && existingSiteId === String(site.id)
       ? 'managedHere'
       : existing
         ? 'reservedInPlatform'
