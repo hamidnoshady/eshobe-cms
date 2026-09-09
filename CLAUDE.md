@@ -86,6 +86,44 @@ ZarinPal, Digipay, Snapp!Pay, Torob Pay. Design decisions in `WAVE-10.md`, opera
 - `payment-gateways` **is** in the multi-tenant plugin's `collections` map. This is the one collection where an unregistered entry would not merely leak content — it would hand every tenant a form for every other tenant's PSP account.
 - Rotating `PAYMENT_GATEWAYS_KEY` or `PAYLOAD_SECRET` invalidates every stored credential and there is no re-encryption job. A row whose secrets no longer decrypt is *refused*, not errored, so the symptom is "the gateway disappeared from the storefront".
 
+## The platform control surface (`/api/platform/*`)
+
+Every superadmin function and every fleet-wide report of this deployment is reachable
+over the API, because the operator's console is not here: it is the «سایت‌ساز» section
+of the sibling `cafe-restaurant-pos` super-admin console, holding a CMS address and one
+`role: "platform"` key. Code in `src/endpoints/platformControl.ts` +
+`src/platform/{report,events,snapshot}.ts` + `src/lib/platform-control.ts`; the full
+contract is [`docs/platform-control-api.md`](./docs/platform-control-api.md).
+
+- **Platform-admin session or a `role: "platform"` key, never a site key.** Same
+  boundary as `provision-site` and `api-keys/issue`. A platform key's reach now includes
+  reading any site's content through the snapshot export — which is not a new authority,
+  because it could already issue itself a site key for any site. The boundary that
+  matters is unchanged: a *site* key still reaches exactly one site.
+- **Deliberately no Caddy carve-out.** These routes are called with the control plane's
+  own `Host`, so they route there already; carving them onto customer domains would put
+  "list every customer, export their content" one `curl` away from a shop's homepage.
+  Same decision as `POST /api/payments/self-test`.
+- **`domain` is not in the site patch** (`parseSitePatch` is an allowlist). Its one write
+  path stays `PATCH /api/site/domain`, which resets `domainVerified` and re-checks
+  uniqueness across primaries *and* aliases.
+- **A report never scans an unbounded table.** Counts come from `payload.count`; money is
+  summed row by row (no aggregate, and raw SQL stays in migrations), so every sum is
+  windowed *and* capped by `ORDER_SCAN_CAP`, answering `revenueTruncated: true` rather
+  than under-reporting. Sums stay per currency and in minor units — an order snapshots
+  its own currency, so adding them together invents a number.
+- **A snapshot carries content, never identity.** `id`/`site`/timestamps are stripped and
+  the import sets `site` from the URL, the same rule as `forceApiKeySite`; `_status` is
+  kept, because a restore that silently unpublished a live site is the worse outcome.
+  Nested row ids survive, and the site's default locale is written first — that is what
+  makes a second-locale write a translation and not a rewrite.
+- **An import refuses another site's snapshot unless forced**: its relationship values are
+  the source site's document ids. `media` is not in `SNAPSHOT_COLLECTIONS` at all — a JSON
+  snapshot cannot carry the files, and pretending otherwise reads as a backup.
+- The three staff endpoints the console needs (`payments/status`, `payments/self-test`,
+  `storage-connections/self-test`) and the platform-wide CDN trio accept a platform key.
+  **`payments/cancel` does not** — a refund moves a buyer's money.
+
 ## Object storage (ArvanCloud)
 
 Media is written to ArvanCloud Object Storage, configured by a superadmin — not by

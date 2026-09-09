@@ -3,6 +3,7 @@ import type { Endpoint, PayloadRequest } from 'payload'
 import { addDataAndFileToRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { isUuid } from '@/lib/ids'
 import {
   cdnZoneInput,
@@ -25,9 +26,15 @@ const body = async (req: PayloadRequest): Promise<Record<string, unknown>> => {
   return (req.data ?? {}) as Record<string, unknown>
 }
 
+/**
+ * Staff, for the platform-wide CDN operations (`/cdn/status`, `/cdn/sync`, `/cdn/purge`).
+ * A `role: "platform"` key counts, so the operator console that drives the rest of this
+ * deployment over the API (`src/endpoints/platformControl.ts`) can drive these too. The
+ * per-site pair further down is site-key work and is unchanged.
+ */
 const allowed = async (req: PayloadRequest): Promise<boolean> => {
   const { user } = await req.payload.auth({ headers: req.headers, req })
-  return isPlatformAdmin(user)
+  return isPlatformAdminOrPlatformKey(req, isPlatformAdmin(user))
 }
 
 /** Reads the one field that is write-only everywhere else. A request-context flag
