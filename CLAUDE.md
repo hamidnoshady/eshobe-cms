@@ -183,11 +183,6 @@ produces no image and Komodo silently keeps deploying a stale `latest`. It is
 not ungated either: its `gates` job re-runs lint/typecheck/build on the exact
 merge commit before the image is built.
 
-Its `npm-publish` job (`@eshobe/site-runtime`) is a separate concern from the
-image and currently fails on `main` for want of a working `NPM_TOKEN` — that
-red X does not mean the GHCR image is missing; the `docker-publish` job has
-been succeeding. Check the job, not the workflow's overall conclusion, before
-concluding a deploy has nothing to pull.
 
 ## Commands
 

@@ -260,9 +260,6 @@ Two GitHub Actions workflows live under `.github/workflows/`:
 
 ### Required repository configuration
 
-- **Secrets**
-  - `NPM_TOKEN` — an npm _Automation_ token with publish access to the
-    `@eshobe` scope (needed by `publish.yml` → `npm-publish`).
 - **Variables** (optional, under Settings → Variables → Actions)
   - `NEXT_PUBLIC_SERVER_URL` — the public control-plane URL baked into the
     Docker image at build time. Defaults to `http://localhost:3000` when
