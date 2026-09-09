@@ -2,6 +2,7 @@ import { HeadBucketCommand } from '@aws-sdk/client-s3'
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { STORAGE_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/storageConnectionSecrets'
 import { isUuid } from '@/lib/ids'
 import { decryptStorageSecret } from '@/storage/crypto'
@@ -69,7 +70,9 @@ const readConnection = async (
 
 export const storageSelfTest: Endpoint['handler'] = async (req) => {
   const { user } = await req.payload.auth({ headers: req.headers, req })
-  if (!isPlatformAdmin(user)) {
+  // Same widening as the payment self-test: a `role: "platform"` key is the operator,
+  // and «سایت‌ساز» in the POS console probes object storage from there.
+  if (!(await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(user)))) {
     return json({ message: 'فقط کارکنان سکو می‌توانند خودآزمایی اجرا کنند.', ok: false }, 403)
   }
 

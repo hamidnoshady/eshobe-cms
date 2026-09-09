@@ -135,6 +135,15 @@ https:// {
         reverse_proxy web:3000
     }
 
+    # Everything else under /api on a customer domain is a 404, and two families are
+    # deliberately left here rather than carved out above:
+    #   - POST /api/payments/self-test and /api/payments/cancel — staff endpoints;
+    #   - /api/platform/* (src/endpoints/platformControl.ts) — the operator surface the
+    #     sibling POS's super-admin console drives this deployment through. It is called
+    #     with the CONTROL PLANE's own Host (the POS client only forwards a site's domain
+    #     on site-scoped calls), so it lands on the control-plane block and needs nothing
+    #     here. Carving it out would put "list every customer, export their content" one
+    #     `curl` away from anybody standing on a shop's homepage.
     @control_plane_paths path /admin* /api*
     handle @control_plane_paths {
         respond 404

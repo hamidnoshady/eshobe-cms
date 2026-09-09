@@ -45,6 +45,7 @@ import { domainResellerEndpoints } from './endpoints/domainReseller'
 import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
+import { platformControlEndpoints } from './endpoints/platformControl'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { storageConnectionEndpoints } from './endpoints/storageConnections'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
@@ -98,6 +99,13 @@ export default buildConfig({
     ...paymentGatewayEndpoints,
     ...cdnEndpoints,
     ...storageConnectionEndpoints,
+    // The operator surface: one credential and a base URL, and the sibling POS's
+    // super-admin console administers and reports on this whole deployment
+    // («سایت‌ساز» — docs/eshobe-cms-integration.md §7). Platform-admin session or a
+    // `role: "platform"` key only, and deliberately left behind
+    // `@control_plane_paths` in the Caddyfile: it is staff-only, so it must not be
+    // routable from a customer domain.
+    ...platformControlEndpoints,
   ],
   globals: [
     DomainReseller,

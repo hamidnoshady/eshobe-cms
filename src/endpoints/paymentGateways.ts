@@ -3,6 +3,7 @@ import type { Endpoint, PayloadRequest } from 'payload'
 import { addDataAndFileToRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { toCheckoutOrder } from '@/lib/checkout'
 import { isUuid } from '@/lib/ids'
 import { readOrderDocs } from '@/lib/order-receipt'
@@ -133,7 +134,11 @@ export const paymentSelfTest: Endpoint['handler'] = async (req) => {
   const data = await body(req)
   const { user } = await req.payload.auth({ headers: req.headers, req })
 
-  if (!isPlatformAdmin(user)) {
+  // A `role: "platform"` key counts as staff here: this is the operator's own
+  // diagnostic, and it is what the POS console's «سایت‌ساز» section runs it from.
+  // `paymentCancel` below deliberately does NOT accept one — a refund moves a buyer's
+  // money and stays an admin-session action.
+  if (!(await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(user)))) {
     return json({ message: 'فقط کارکنان سکو می‌توانند خودآزمایی اجرا کنند.', ok: false }, 403)
   }
 
@@ -322,7 +327,9 @@ export const paymentCancel: Endpoint['handler'] = async (req) => {
 export const paymentStatus: Endpoint['handler'] = async (req) => {
   const { user } = await req.payload.auth({ headers: req.headers, req })
 
-  if (!isPlatformAdmin(user)) return json({ message: 'forbidden', ok: false }, 403)
+  if (!(await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(user)))) {
+    return json({ message: 'forbidden', ok: false }, 403)
+  }
 
   const state = await paymentsModuleState(req)
   const counts = await Promise.all(
