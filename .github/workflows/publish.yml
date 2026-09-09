@@ -83,6 +83,12 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Trigger Coolify redeploy
+        run: |
+          curl -sf -X POST \
+            "https://manage.eshobe.com/api/v1/services/ltabipqxfaajai7jeuc3g5eb/restart?latest=true" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
+
   # ---------- Publish workspace npm package(s) ----------
   #
   # `packages/site-runtime` ships as @eshobe/site-runtime (its
