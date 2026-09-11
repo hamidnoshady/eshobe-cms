@@ -1,6 +1,7 @@
 import type { CollectionConfig, FieldAccess, Validate } from 'payload'
 
 import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { storageConnectionEndpoints } from '@/endpoints/storageConnections'
 
 import {
   STORAGE_SECRET_READ_CONTEXT_KEY,
@@ -191,6 +192,14 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
       ],
     },
   ],
+  /**
+   * The self-test lives on the collection so `/api/storage-connections/self-test`
+   * actually routes: an API path whose first segment is a collection slug is
+   * dispatched against that collection's endpoints only, never the top-level
+   * `endpoints` array — where this sat, unreachable, answering 404 to the POS
+   * console. See `src/endpoints/storageConnections.ts` for the rule.
+   */
+  endpoints: storageConnectionEndpoints,
   hooks: {
     // Order matters: encryption first, so `assertConnectionUsable` inspects the same
     // ciphertext that is about to be written.
