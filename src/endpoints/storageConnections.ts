@@ -17,6 +17,12 @@ import type { StorageConnection } from '@/storage/types'
  * The result is written back onto the row so the next admin to look at it knows whether the
  * credentials were ever known to work — the only way to tell "the secret key was mistyped"
  * from "ArvanCloud is down".
+ *
+ * A **collection endpoint** (`StorageConnections.endpoints`, path relative to
+ * `/api/storage-connections`): the first segment of an API path names the routing table,
+ * and `storage-connections` is a collection slug — a top-level endpoint at
+ * `/storage-connections/…` is unreachable by construction (404), which is exactly what
+ * this was while it sat in `config.endpoints`. See `src/endpoints/apiKeys.ts` for the rule.
  */
 
 const noStore = { 'cache-control': 'no-store' }
@@ -128,5 +134,5 @@ export const storageSelfTest: Endpoint['handler'] = async (req) => {
 }
 
 export const storageConnectionEndpoints: Endpoint[] = [
-  { handler: storageSelfTest, method: 'post', path: '/storage-connections/self-test' },
+  { handler: storageSelfTest, method: 'post', path: '/self-test' },
 ]

@@ -116,6 +116,24 @@ describe('issuing a key', () => {
     expect(response.status).toBe(403)
   })
 
+  it('refuses a direct create even for a platform admin — only the issuer can mint', async () => {
+    // A key created through the collection's own create route (REST, GraphQL, the
+    // admin form) is a credential nobody can ever read back: the mint happens in a
+    // hook and only `/issue` hands the raw value out. `access.create` is therefore
+    // `false` outright — and this is the Local-API half of that pin;
+    // `tests/e2e/api-keys.e2e.spec.ts` holds the HTTP half.
+    const req = await reqAsAdmin()
+
+    await expect(
+      payload.create({
+        collection: 'api-keys',
+        data: { name: 'must not exist', role: 'platform' },
+        overrideAccess: false,
+        req,
+      }),
+    ).rejects.toThrow()
+  })
+
   it('mints a site key, returns the raw value once, and never stores it', async () => {
     const issued = await issueKey({ name: 'POS test key', role: 'site', siteId: siteId.acme })
 

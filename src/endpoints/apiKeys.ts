@@ -9,7 +9,20 @@ import { idOf } from '@/lib/ids'
  * only, the same boundary `provisionSiteEndpoint` draws: issuing or revoking a
  * credential is an operator action, never something a site's own key can do to
  * itself or to another site's key.
+ *
+ * ## Where these are registered — a Payload routing rule
+ *
+ * These are **collection endpoints** (`ApiKeys.endpoints`, paths relative to
+ * `/api/api-keys`), not top-level `config.endpoints`. The first segment of an API
+ * path decides the routing table: if it names a collection slug, `handleEndpoints`
+ * searches *that collection's* endpoints only and never falls back to the global
+ * list. A top-level endpoint whose path starts with `/api-keys/` is therefore
+ * unreachable — every one of these answered 404 "Route not found" while the int
+ * suite (which calls the handlers directly, no router) stayed green. Registering
+ * them on the collection keeps the same public URLs (`/api/api-keys/issue` …)
+ * while actually routing. The same applies to `storage-connections/self-test`.
  */
+
 const requireOperator = async (req: PayloadRequest): Promise<boolean> =>
   isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user))
 
@@ -17,7 +30,7 @@ const noStore = { 'cache-control': 'no-store' }
 
 /** `POST /api/api-keys/issue` — the raw key comes back exactly once, in this response. */
 export const issueApiKeyEndpoint: Endpoint = {
-  path: '/api-keys/issue',
+  path: '/issue',
   method: 'post',
   handler: async (req) => {
     if (!(await requireOperator(req))) {
@@ -74,7 +87,7 @@ export const issueApiKeyEndpoint: Endpoint = {
 
 /** `GET /api/api-keys/list?siteId=` — masked summaries, never the raw key. */
 export const listApiKeysEndpoint: Endpoint = {
-  path: '/api-keys/list',
+  path: '/list',
   method: 'get',
   handler: async (req) => {
     if (!(await requireOperator(req))) {
@@ -113,7 +126,7 @@ export const listApiKeysEndpoint: Endpoint = {
 
 /** `POST /api/api-keys/revoke` — disables a key; the row stays, for audit. */
 export const revokeApiKeyEndpoint: Endpoint = {
-  path: '/api-keys/revoke',
+  path: '/revoke',
   method: 'post',
   handler: async (req) => {
     if (!(await requireOperator(req))) {

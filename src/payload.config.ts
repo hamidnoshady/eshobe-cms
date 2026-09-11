@@ -37,7 +37,6 @@ import { defaultLocale, locales } from './lib/locales'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
-import { apiKeysEndpoints } from './endpoints/apiKeys'
 import { checkoutEndpoints } from './endpoints/checkout'
 import { cdnEndpoints } from './endpoints/cdn'
 import { domainCheck } from './endpoints/domainCheck'
@@ -47,7 +46,6 @@ import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { platformControlEndpoints } from './endpoints/platformControl'
 import { siteDescriptor } from './endpoints/siteDescriptor'
-import { storageConnectionEndpoints } from './endpoints/storageConnections'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
 import { siteDomainsEndpoints } from './endpoints/siteDomains'
 
@@ -92,13 +90,16 @@ export default buildConfig({
     handoffEndpoint,
     handoffPostEndpoint,
     ...checkoutEndpoints,
-    ...apiKeysEndpoints,
-    // Wave 10 — the payment-gateway module's API. `methods` is public (a headless
-    // renderer draws the buyer's picker from it) and the rest are staff-only; see
-    // `src/endpoints/paymentGateways.ts` for who may call which.
+    // The api-keys lifecycle trio (`/issue`, `/list`, `/revoke`) and
+    // `/storage-connections/self-test` are **not** here — they are collection
+    // endpoints, on `ApiKeys` and `StorageConnections` respectively. Payload
+    // dispatches `/api/<first-segment>/…` against that collection's own endpoints
+    // whenever the first segment is a collection slug, and never falls back to this
+    // list: a top-level endpoint whose path starts with a collection slug is
+    // unreachable by construction (404 "Route not found"). Both of these lived here
+    // once and answered 404 to every caller, including the POS console.
     ...paymentGatewayEndpoints,
     ...cdnEndpoints,
-    ...storageConnectionEndpoints,
     // The operator surface: one credential and a base URL, and the sibling POS's
     // super-admin console administers and reports on this whole deployment
     // («سایت‌ساز» — docs/eshobe-cms-integration.md §7). Platform-admin session or a
