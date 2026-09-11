@@ -12,7 +12,7 @@ http:// {
     redir https://{host}{uri} permanent
 }
 
-# The control plane keeps Payload admin and API access on its own host.
+# The control plane keeps Payload admin and authenticated API access on its own host.
 https://{$CONTROL_PLANE_HOST} {
     # The ask endpoint is Caddy-internal (reached as web:3000 over the Docker
     # network); never expose it publicly, or anyone can enumerate customer domains.
@@ -20,6 +20,46 @@ https://{$CONTROL_PLANE_HOST} {
     handle @domain_check {
         respond 404
     }
+
+    # WAVE-9 §9.4 — close the control-plane fail-open at the edge as well as in
+    # collection access. A visitor on admin.example.com has no tenant; anonymous
+    # REST/GraphQL reads there used to be the one URL that could enumerate every
+    # customer's public content. Authenticated admin API calls and site/platform
+    # API keys are carved out first; this block only catches anonymous reads.
+    @handoff path /api/handoff
+    handle @handoff {
+        reverse_proxy web:3000
+    }
+
+    @api_with_bearer {
+        path /api*
+        header Authorization *
+    }
+    handle @api_with_bearer {
+        reverse_proxy web:3000
+    }
+
+    @api_with_session {
+        path /api*
+        header Cookie *payload-token*
+    }
+    handle @api_with_session {
+        reverse_proxy web:3000
+    }
+
+    @anonymous_control_plane_graphql path /api/graphql /api/graphql-playground
+    handle @anonymous_control_plane_graphql {
+        respond 403
+    }
+
+    @anonymous_control_plane_api_reads {
+        method GET HEAD
+        path /api/site /api/pages /api/pages/* /api/posts /api/posts/* /api/products /api/products/* /api/categories /api/categories/* /api/media /api/media/* /api/theme /api/theme/* /api/header /api/header/* /api/footer /api/footer/* /api/store /api/store/* /api/search /api/search/* /api/redirects /api/redirects/* /api/forms /api/forms/* /api/payments/methods
+    }
+    handle @anonymous_control_plane_api_reads {
+        respond 403
+    }
+
     handle {
         reverse_proxy web:3000
     }

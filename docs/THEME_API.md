@@ -1105,7 +1105,7 @@ Usage in theme head:
 | Object-storage media of another site | Key prefix `sites/<id>/media/`; serving route checks site scope |
 | Customer reads another's theme/store | `scopedPublicRead` with Host — one theme/store per Host |
 
-**What is still fail-open (and why):** when `Host` resolves to no site (control plane `cms.example.com`, CLI, jobs, Local API in tests), `siteConstraint` returns `null` and adds nothing. Closing it in the access layer would break `findForSite`'s own Local calls (they also have no real Host). Close is at **Caddy** (deny anonymous `/api/*` on control-plane Host) + per-site API keys. For a theme, this means: always fetch with a Host or key, never rely on anonymous unscoped fallback.
+**Fail-closed behavior:** when an HTTP request's `Host` resolves to no site (control plane `cms.example.com` or an unknown domain) and it has neither a Payload session nor a site API key, public collection access returns `false`; production Caddy also denies anonymous public REST/GraphQL reads on the control-plane vhost before they reach Node. Non-HTTP Local API calls (seed, jobs, hooks and `findForSite`) remain exempt because they carry no `Host` and already name their tenant in the query. For a theme, always fetch with a tenant Host or a site key — never rely on an unscoped fallback.
 
 ### Publishing Gate
 No `publish` permission. `writeUnlessPublishing({collection})` returns `false` when `data._status==='published'` and caller is not `owner|platformAdmin` → Publish button hidden, REST publish rejected. Editor role may draft, not publish.

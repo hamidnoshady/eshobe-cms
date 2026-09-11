@@ -54,17 +54,14 @@ on the control-plane host) plus per-site API keys, which is slice 9.4 — config
 another hook.
 
 **Per-site API keys landed** (`src/access/siteApiKey.ts`) — see §9.4 below.
-**The proxy half is still open.** An attempt to close it in the access function
-instead (deny an anonymous, unscoped `scopedPublicRead`/`scopedPublishedRead`
-outright rather than falling through) was tried and reverted: `findForSite()`'s
-own render-path calls are *also* anonymous and *also* resolve no site from a
-Local API call with no real `Host`, and rely on exactly this fallback plus
-their own explicit `{ site: { equals } }` `where` — closing the fallback broke
-the app's own page rendering (`tenancy.int.spec.ts`, `store.int.spec.ts`).
-Closing it at Caddy, as originally scoped, needs verifying against the real
-deployment's Caddy version/config (matcher support for "has *some*
-`payload-token` cookie or `Authorization` header" is the shape that would not
-also break the admin UI's own `/api/*` calls) — left for whoever can test that.
+**The proxy half has now landed too** (`Caddyfile`, pinned by
+`tests/int/caddyfile.int.spec.ts`): authenticated API calls (`Authorization` or a
+Payload session cookie) and `/api/handoff` pass through first, then anonymous
+control-plane reads of the public REST collections, `/api/site`, payment-method
+metadata and GraphQL get a `403` at Caddy. The access layer still keeps the
+same fail-closed guard for defense in depth, while non-HTTP Local API calls
+(seed, jobs, hooks and `findForSite`) remain exempt because they carry no `Host`
+header at all and already name their tenant in the query.
 
 ## 2. `GET /api/site` — what a renderer needs before first paint
 
@@ -176,11 +173,11 @@ to be designed, not discovered:
 |---|---|---|
 | ~~9.2~~ | Revalidation webhook — **shipped** (§4b). Retry-via-jobs-queue is the upgrade if at-most-once ever stops being enough. | done |
 | ~~9.3~~ | ~~Media on R2~~ — **in flight in #15** (Wave 6), which also replaces `next-sitemap` with per-site `sitemap.xml`/`robots.txt` route handlers, `hreflang` and OG images. After it lands: drop `media.basePath` from `/api/site` and re-check this file's §3.3 | — |
-| ~~9.4~~ | ~~Close the fail-open~~ — **per-site/platform API keys shipped** (`src/access/siteApiKey.ts`, `src/collections/ApiKeys.ts`, `src/endpoints/apiKeys.ts`): a headless builder (cafe-restaurant-pos's `/dashboard/website`) authenticates from a non-customer origin, reads its own site's drafts, writes its own products, and moves its own orders' status. **Still open**: denying anonymous `/api/*` reads on the control-plane host at Caddy — see the note in §1 above for why an access-layer attempt at this broke the app's own rendering, and what a correct proxy-level fix needs. | S |
+| ~~9.4~~ | ~~Close the fail-open~~ — **done**: per-site/platform API keys (`src/access/siteApiKey.ts`, `src/collections/ApiKeys.ts`, `src/endpoints/apiKeys.ts`) let a headless builder authenticate from a non-customer origin, read its own site's drafts, write its own products, and move its own orders' status; the control-plane Caddy vhost now denies anonymous public REST/GraphQL reads before Node sees them (`tests/int/caddyfile.int.spec.ts`). | done |
 | ~~9.5~~ | `search` and `redirects` wrapped through the plugins' `overrides.access` — **shipped** (§4b). | done |
-| 9.6 | **Preview handoff** (§4.2) + the builder-side `/next/preview` contract written as a test fixture. | M |
-| 9.7 | **Contract hygiene**: `ETag`/`Last-Modified` on `/api/site`, a `contractVersion` field, and publishing `@eshobe/site-runtime` (format/money/theme/blocks) from the existing `pnpm-workspace.yaml` — which has no `packages:` key yet. | S |
-| — | Carried from Wave 7, still open: **no rate limiting on `POST /api/checkout`**, email receipts, product pages. | M |
+| ~~9.6~~ | ~~Preview handoff~~ — **done**: `GET|POST /api/handoff` and the builder-side `/next/preview` fixture (`tests/fixtures/previewHandoff.ts`) pin the redirect/cookie contract. | done |
+| ~~9.7~~ | ~~Contract hygiene~~ — **done**: `GET /api/site` returns `contractVersion`, `ETag`, `Last-Modified`, `Vary: Host` and `304`, and `@eshobe/site-runtime` is published as a workspace package. | done |
+| — | Carried from Wave 7 — **done for the scoped follow-up**: checkout rate limiting, buyer email receipts and product detail pages are implemented. Cart and variants remain explicitly deferred with the original Wave 7 spike. | done/deferred |
 
 ## 5b. Overlap with the open waves — read before merging
 
@@ -210,7 +207,7 @@ depend on either, while the starter-content follow-up depends on #14's shape.
 
 ## 7. Verification
 
-`tests/int/headless.int.spec.ts` (12) · `tests/int/site-route.int.spec.ts` (12, the resolver + both guards + the webhook signature against a real receiver) · full integration suite **121 passing** ·
+`tests/int/headless.int.spec.ts` (12) · `tests/int/site-route.int.spec.ts` (12, the resolver + both guards + the webhook signature against a real receiver) · `tests/int/preview-handoff.int.spec.ts` · `tests/int/caddyfile.int.spec.ts` · full integration suite **121 passing** ·
 `tsc --noEmit` clean · `eslint` 0 errors. The scoping tests were checked for vacuity:
 un-wrapping `pages` makes *"see only that host's pages"* and *"cannot be redirected to
 another tenant"* fail, and restoring them turns the suite green again.

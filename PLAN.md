@@ -511,7 +511,7 @@ tenant returns nothing, and a publish invalidates the builder's cache.
 | Risk | Handling |
 |---|---|
 | Cross-tenant data leak via Local API (§4.2) | Single query funnel + tests in Wave 1, before any breadth |
-| A second renderer bypasses the query funnel | Wave 9.1: the tenant scope moved into the collections' `read` access, derived from `Host`; a client filter may narrow, never widen. Anonymous reads on the control-plane host are still unscoped — close it at the proxy (WAVE-9 §1, §5) |
+| A second renderer bypasses the query funnel | Wave 9.1/9.4: the tenant scope moved into the collections' `read` access, derived from `Host`; a client filter may narrow, never widen. Anonymous HTTP reads with no tenant fail closed in the access layer and are also blocked at the control-plane Caddy vhost; API keys carry the tenant for off-origin builders. |
 | A site route added as a static folder under `[domain]` | It answers the unprefixed URL and 404s the locale-prefixed one. Every site route goes through `resolveSiteRoute` in `[domain]/[[...path]]`, and its segment joins `RESERVED_PAGE_SLUGS` |
 | Two sources of truth for users | Decision #6: the builder owns accounts; the CMS has one service-token provisioning path and no auth surface (no signup, reset, or role editing) |
 | Ecommerce plugin (Beta) won't tenant-scope | Spike done — it scopes the admin, not the storefront, and its customer model cannot exist here. Fallback shipped; see `WAVE-7.md` |
