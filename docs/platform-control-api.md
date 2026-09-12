@@ -89,3 +89,168 @@ action.
 - **The event cursor is the newest record in the page, never `now`.** A record written
   while the query ran must still be reachable on the next poll — which is also why
   the shipper on the POS side dedupes on `id` and not on the window.
+
+---
+
+# The SaaS control plane
+
+> Everything above administers the **fleet** — which sites exist, what is in them.
+> Everything below administers the **business**: who is on which plan, what they owe,
+> what they are allowed to use, and what happened. Same guard, same host, same
+> `/api/platform/*` prefix, deliberately — a console that already holds a platform
+> key gets the commercial surface for free.
+
+Code: `src/endpoints/platformSaas.ts` and `src/endpoints/webhooks.ts` (HTTP),
+`src/platform/{entitlements,saas-report,webhooks,audit,usage}.ts` (services),
+`src/lib/saas/{plans,events,crypto}.ts` (the pure half),
+`tests/int/platform-saas.int.spec.ts`, `tests/int/webhooks.int.spec.ts`,
+`tests/e2e/superadmin.e2e.spec.ts`.
+
+## 5. The admin panel is split by role
+
+A platform admin opening `/admin` does **not** see pages, posts, media, products or
+orders; a customer's staff do not see plans, invoices, webhooks or the audit log.
+`src/admin/visibility.ts` is the whole mechanism (`hiddenFromOperators` /
+`hiddenFromCustomers`), and `beforeDashboard` replaces Payload's collection-count
+grid with the operator's report for platform admins only.
+
+This is **navigation, not authority.** `admin.hidden` governs the nav and the admin
+routes; REST, GraphQL and the Local API are untouched. Every real boundary is a
+collection `access` function, which is why a platform admin can still read a
+customer's content through `GET /api/platform/sites/:id/snapshot`. Nothing in
+`visibility.ts` grants or removes a permission.
+
+`PLATFORM_ADMIN_SHOW_SITE_COLLECTIONS=true` puts the content collections back for an
+operator — for hands-on support, and for `tests/e2e/admin.e2e.spec.ts`, whose fixture
+user is a platform admin and whose subject is the *editing* experience
+(`playwright.config.ts` sets it for that reason).
+
+## 6. The routes
+
+Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, Persian
+403s — with the two documented exceptions in §7.
+
+| Route | What it answers |
+|---|---|
+| `GET /api/platform/saas/overview?days=30` | The commercial report: subscriptions by status and by plan, billed/collected/outstanding **per currency**, overdue invoices, plugin and theme counts, webhook health, audit volume, and the live quota/maintenance/signup policy. |
+| `GET /api/platform/plans` | The catalogue: code, name, price, interval, limits, features, active. |
+| `GET /api/platform/subscriptions?status=&site=&limit=&page=` | Who is on what, with the period end and any limit overrides. |
+| `POST /api/platform/subscriptions` | **Upsert** one site's subscription. `{ siteId, plan, status?, currentPeriodEnd?, limitOverrides? }`; `plan` is a uuid **or** a plan `code`. 201 on create, 200 on change. |
+| `PATCH /api/platform/subscriptions/:id` | Status, period, overrides. |
+| `GET /api/platform/invoices?status=&site=&limit=&page=` | Invoices with their lines and totals. |
+| `POST /api/platform/invoices` | `{ siteId, lines[{description,quantity,unitAmount}], currency?, taxPercent?, discount?, dueAt?, subscriptionId? }`. Totals are derived, never accepted. |
+| `POST /api/platform/invoices/:id/pay` | `{ reference?, paidAt? }`. Marks paid, clears a `pastDue` subscription, **409 if already paid**. |
+| `GET /api/platform/sites/:id/entitlement` | The resolved answer for one site: plan, limits, features, `serving`, enforcement policy. |
+| `GET /api/platform/sites/:id/quota` | Usage against limits, per metric, with `over`/`warning` lists. |
+| `POST /api/platform/sites/:id/usage` | Report metered usage from outside (`{ metric, amount, period? }`). |
+| `POST /api/platform/sites/:id/features` | Force a flag on or off for one site (`{ key, enabled, reason? }`). |
+| `POST /api/platform/sites/:id/theme` | Apply a catalogue template (`{ theme }` — key or uuid). A copy, not a link. |
+| `GET /api/platform/plugins?site=` | Installed plugins. **Never their credentials.** |
+| `PATCH /api/platform/plugins/:id` | Enable, disable, reconfigure. |
+| `GET /api/platform/themes` | The template catalogue with its tokens. |
+| `GET /api/platform/features` | The feature-flag catalogue and its defaults. |
+| `GET /api/platform/audit?action=&site=&limit=&page=` | Who did what, when, from where. |
+| `GET /api/platform/settings` | Platform policy, plus `supportedEvents`. |
+| `PATCH /api/platform/settings` | Change it. **Admin session only** — see §7. |
+| `GET /api/platform/self/entitlement` | **Site key only.** A customer's own app asking "what am I allowed to do?" |
+| `POST /api/webhooks/test` | Send a real signed ping to a real URL. |
+| `POST /api/webhooks/rotate-secret` | Mint a signing secret, returned **once**. Admin session only. |
+| `POST /api/webhooks/replay` | `{ deliveryId }` — resend the stored bytes. |
+
+## 7. Two deliberate exceptions to §1
+
+- **`PATCH /api/platform/settings` refuses a platform key.** It can switch off quota
+  enforcement, open signups and turn on maintenance mode for the whole deployment at
+  once. That is root policy, and it should cost the credential a human logs in with —
+  the same reasoning that keeps `POST /api/payments/cancel` a session action.
+  `POST /api/webhooks/rotate-secret` is session-only for the same reason: a key that
+  can mint signing secrets can silently take over a customer's event stream.
+- **`GET /api/platform/self/entitlement` refuses everything but a site key.** It is
+  the one route on this surface a *customer's* app is meant to call, and it answers
+  only about the key's own site. A platform key gets 403 — its view is
+  `GET /api/platform/sites/:id/entitlement`, which names the site explicitly.
+
+## 8. Rules that are easy to break
+
+- **Endpoint order is load-bearing.** `platformSaasEndpoints` is spread **before**
+  `platformControlEndpoints` in `payload.config.ts`, because the latter declares a
+  bare `/platform/sites/:id`. Reversed, `:id` matches the literal segment `quota` and
+  `/platform/sites/<id>/quota` answers **200 with a site document** — every caller
+  parses it and silently sees no limits. `tests/e2e/superadmin.e2e.spec.ts` pins it
+  over HTTP, because a handler-level test cannot see it.
+- **The webhook routes are collection endpoints.** Payload dispatches
+  `/api/<first-segment>/…` against the matching collection and never falls back to
+  `config.endpoints`, so a top-level `/webhooks/test` would 404 forever while the int
+  suite stayed green. They live on `Webhooks.endpoints`. Same trap as
+  `/api/api-keys/issue`.
+- **Blank and zero mean unlimited.** A plan row saved with an empty `posts` box must
+  mean "we did not limit posts", never "zero posts allowed" — a new plan's boxes are
+  empty by default. `normalizeLimit` is the single implementation.
+- **Quota enforcement is off unless asked for.** The platform default is `warn`: the
+  overage is reported, nobody is blocked. `enforce` is opt-in, per site
+  (`site-entitlements.quotaEnforcement`) or platform-wide. A quota system that
+  defaults to blocking turns a half-configured plan into an outage with no
+  explanation. A platform admin is **never** blocked — support work happens over a
+  customer's limit by definition.
+- **`pastDue` keeps a site serving.** A missed payment is a conversation; suspension
+  is a separate, deliberate operator action. Paying the invoice clears the flag
+  automatically, because leaving that to a human is how a paying customer keeps
+  getting dunning emails.
+- **One live subscription per site.** `POST /platform/subscriptions` upserts.
+  "Which plan is this customer on?" must have exactly one answer, and two rows is how
+  somebody gets billed twice.
+- **Invoice totals are derived server-side.** `subtotal`, `tax`, `total` and each
+  line's `amount` have `access.update: false`, so a posted total never existed. An
+  invoice whose printed figure disagrees with its lines cannot be constructed through
+  any API here. Paying twice is a **409**, not an overwrite: the second call would
+  replace the reference of the payment that really happened.
+- **Money stays per currency, in minor units** — same rule as the fleet report, same
+  `accumulateOrderTotals`.
+- **Entitlement resolves in one place, in one order:** plan → subscription
+  `limitOverrides` → `site-entitlements` `limitOverrides`, and only non-null values
+  override. Plan *features* grant nothing unless the subscription is `serving`,
+  otherwise a cancelled customer keeps every paid feature until somebody notices.
+- **A theme template is copied, never linked.** Editing the catalogue must not
+  repaint twenty live customers, and after a copy nobody could tell which sites had
+  been customised since. `applyThemeTemplate` writes an explicit token allowlist, so
+  a token added to `theme` in a later release is left alone on templates stored
+  today rather than blanked.
+- **Secrets leave the process exactly once.** A webhook signing secret is readable
+  only in the `rotate-secret` response; a plugin credential is never returned at all.
+  Both list endpoints are built field by field rather than passing a document
+  through, because a `select`-less passthrough is how a future field starts leaking
+  the day somebody adds it. `enc:v1:` ciphertext must not cross the wire either —
+  encrypted or not, it is an offline target.
+- **Nothing waits for a receiver.** `emitPlatformEvent` awaits the audit row (a local
+  insert, and the trail is the point) and dispatches webhooks in the background. A
+  paid order or a provisioned site must not fail because somebody's Slack relay is
+  down. The cost is at-most-once delivery, which is why every attempt is recorded and
+  why replay exists.
+- **A replay resends the stored bytes.** Same event id, same timestamp inside the
+  body. A reconstruction would be a new event that never happened, and the receiver
+  would have no way to recognise the delivery it missed or to deduplicate it.
+- **`POST /api/webhooks/test` is a real delivery** — real signature, real URL — so it
+  is logged and counted through the same `recordDelivery` path as any other. A test
+  that wrote no row left the operator's replay screen empty for the request they had
+  just watched fail.
+- **The signature covers `<timestamp>.<body>`**, not the body alone, so a captured
+  delivery cannot be replayed forever against a receiver that enforces a window.
+- **A webhook scoped to a site hears only that site's events**, and never
+  platform-level ones. `site` on a webhook row is a filter, not a label — the tenant
+  leak on this surface is site B's operator receiving an event about site A.
+- **`consecutiveFailures >= webhookMaxFailures` disables the endpoint.** A dead
+  receiver is a support conversation, not an infinite queue. A success clears the
+  counter, so a fixed endpoint is not left one failure from being switched off again.
+- **The audit log is append-only and redacted.** `create`/`update` are `() => false`
+  and rows are written only through `recordAudit` with `overrideAccess`.
+  `sanitizeChanges` drops any key matching
+  `/secret|password|token|credential|apikey|api_key|keyhash|privatekey|authorization/i`,
+  truncates strings to 200 chars and keeps at most 40 fields.
+- **Catalogue collections are not tenant-scoped.** `plans`, `feature-flags`,
+  `plugins`, `theme-templates`, `webhooks` and `webhook-deliveries` are deliberately
+  absent from the multi-tenant plugin's map: the plugin's injected `site` field is
+  *required* by construction, so a platform-level row would be unsavable, and "which
+  customer owns the Pro plan?" has no answer. The per-customer half —
+  `subscriptions`, `invoices`, `site-entitlements`, `usage-records` — **is**
+  registered, and `tests/int/store.int.spec.ts` asserts the split so a new collection
+  cannot quietly join the wrong side.

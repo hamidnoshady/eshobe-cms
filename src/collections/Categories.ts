@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 
+import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '../access/anyone'
 import { scopedPublicRead } from '../access/siteRead'
 import { authenticated } from '../access/authenticated'
@@ -18,6 +19,8 @@ export const Categories: CollectionConfig = {
     update: authenticated,
   },
   admin: {
+    group: SITE_CONTENT_GROUP,
+    hidden: hiddenFromOperators,
     useAsTitle: 'title',
   },
   labels: {

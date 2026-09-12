@@ -9,6 +9,7 @@ import {
   lexicalEditor,
 } from '@payloadcms/richtext-lexical'
 
+import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
 import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../../access/siteApiKey'
@@ -32,6 +33,7 @@ import {
 } from '@payloadcms/plugin-seo/fields'
 import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
+import { enforceQuota } from '@/collections/hooks/enforceQuota'
 
 export const Posts: CollectionConfig<'posts'> = {
   slug: 'posts',
@@ -60,6 +62,8 @@ export const Posts: CollectionConfig<'posts'> = {
   },
   admin: {
     defaultColumns: ['title', 'slug', 'updatedAt'],
+    group: SITE_CONTENT_GROUP,
+    hidden: hiddenFromOperators,
     /**
      * Same contract as pages: the preview opens on the *site's* domain at the URL a
      * visitor would use (`/posts/hello`, `/en/posts/hello`), which is why `base` is
@@ -244,7 +248,7 @@ export const Posts: CollectionConfig<'posts'> = {
     // Access only checked that a site key exists — never trust the payload's own
     // `site` value on a key-authorized write.
     beforeChange: [forceApiKeySite],
-    beforeValidate: [uniqueSlugPerSite],
+    beforeValidate: [enforceQuota('posts'), uniqueSlugPerSite],
   },
   versions: {
     drafts: {

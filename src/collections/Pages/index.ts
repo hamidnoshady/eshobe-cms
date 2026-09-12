@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../../access/authenticated'
+import { enforceQuota } from '../hooks/enforceQuota'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
 import { apiKeyAware } from '../../access/siteApiKey'
 import { scopedPublishedRead } from '../../access/siteRead'
@@ -14,6 +15,7 @@ import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
 import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalidateSiteDoc'
 import { reservedPageSlug } from '../../hooks/reservedPageSlug'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
+import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 
 import {
   MetaDescriptionField,
@@ -44,6 +46,8 @@ export const Pages: CollectionConfig<'pages'> = {
   },
   admin: {
     defaultColumns: ['title', 'slug', 'updatedAt'],
+    group: SITE_CONTENT_GROUP,
+    hidden: hiddenFromOperators,
     livePreview: {
       url: ({ data, req }) => generatePreviewPath({ data, req }),
     },
@@ -136,7 +140,9 @@ export const Pages: CollectionConfig<'pages'> = {
   hooks: {
     afterChange: [revalidateSiteDoc()],
     beforeChange: [populatePublishedAt],
-    beforeValidate: [uniqueSlugPerSite, reservedPageSlug],
+    // Quota before the slug rules: "you are out of pages on this plan" is the more
+    // useful refusal, and there is no point validating a document that cannot exist.
+    beforeValidate: [enforceQuota('pages'), uniqueSlugPerSite, reservedPageSlug],
     afterDelete: [revalidateSiteDocDelete()],
   },
   versions: {

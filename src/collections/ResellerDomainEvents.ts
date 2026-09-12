@@ -3,6 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { authenticated } from '@/access/authenticated'
 import { apiKeyAware } from '@/access/siteApiKey'
 import { platformAdmin } from '@/access/platformAdmin'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 /** Audit data intentionally records only an action and a safe sentence. It never stores an
  * EPP code, X-Api-Key, unfiltered provider body, or the contacts returned by WHOIS. */
@@ -18,7 +19,8 @@ export const ResellerDomainEvents: CollectionConfig<'reseller-domain-events'> = 
     defaultColumns: ['createdAt', 'domain', 'operation', 'ok'],
     description:
       'گزارش امن عملیات registrar. رمز انتقال، کلید API، هدرها، پاسخ خام و اطلاعات تماس هرگز در این گزارش ذخیره نمی‌شوند.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'operation',
   },
   fields: [

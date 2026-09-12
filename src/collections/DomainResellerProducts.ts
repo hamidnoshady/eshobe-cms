@@ -2,6 +2,7 @@ import type { CollectionBeforeValidateHook, CollectionConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
 import { isCurrencyCode, validatePriceMinor } from '@/lib/money'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 const normalizeTld: CollectionBeforeValidateHook = ({ data }) => {
   const value = (data as { tld?: unknown } | undefined)?.tld
@@ -45,7 +46,8 @@ export const DomainResellerProducts: CollectionConfig<'domain-reseller-products'
     ],
     description:
       'قیمت پایهٔ سالانهٔ هر پسوند نزد registrar. مستند ResellerArea قیمت را از API برنمی‌گرداند؛ قیمت نهایی هر درخواست با درصد سود سراسریِ «نمایندگی دامنه» محاسبه و snapshot می‌شود.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'tld',
   },
   fields: [

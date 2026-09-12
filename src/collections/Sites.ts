@@ -13,6 +13,7 @@ import {
 } from '../lib/domains'
 import { locales } from '../lib/locales'
 import { slugifyField } from '../lib/slug'
+import { PLATFORM_GROUPS } from '@/admin/visibility'
 
 /** Same list the platform offers, in select-field shape. */
 const localeOptions = locales.map(({ code, label }) => ({ label, value: code }))
@@ -168,6 +169,13 @@ export const Sites: CollectionConfig = {
   },
   admin: {
     defaultColumns: ['name', 'domain', 'domainVerified', 'type', 'status'],
+    /**
+     * Filed with the fleet, but **not** `hidden` from anybody: a customer's staff see
+     * their own site here (the tenant plugin scopes the list), and it is where they
+     * check whether their domain has verified. The operator sees all of them, which
+     * is the console's front door.
+     */
+    group: PLATFORM_GROUPS.fleet,
     useAsTitle: 'name',
     components: {
       views: {

@@ -4,6 +4,7 @@ import { authenticated } from '@/access/authenticated'
 import { apiKeyAware } from '@/access/siteApiKey'
 import { platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
 import { validatePriceMinor } from '@/lib/money'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 /** Immutable price/payment/progress snapshot for every billable registrar command.
  * Payment is intentionally modelled as pending integration: choosing immediate provider
@@ -20,7 +21,8 @@ export const ResellerDomainOperations: CollectionConfig<'reseller-domain-operati
     defaultColumns: ['createdAt', 'domain', 'operation', 'status', 'quoteAmount', 'currency'],
     description:
       'ردّ هر درخواست قابل‌صورتحساب. مبلغ و درصد سود در زمان درخواست snapshot می‌شوند. تا اتصال پلتفرم پرداخت، وضعیت پرداخت عمداً «در انتظار اتصال» باقی می‌ماند.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'operation',
   },
   fields: [

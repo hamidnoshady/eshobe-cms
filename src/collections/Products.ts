@@ -10,10 +10,12 @@ import { writeUnlessPublishing } from '../access/publish'
 import { PRODUCTS_BASE } from '@/lib/slug'
 import { slugifyField } from '@/lib/slug'
 
+import { hiddenFromOperators } from '@/admin/visibility'
 import { generatePreviewPath } from '../utilities/generatePreviewPath'
 import { revalidateSiteDoc, revalidateSiteDocDelete } from '../hooks/revalidateSiteDoc'
 import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { validatePriceMinor } from '../lib/money'
+import { enforceQuota } from '@/collections/hooks/enforceQuota'
 
 /**
  * The catalogue of a `store` site: one product, one price, buyable straight from
@@ -49,6 +51,7 @@ export const Products: CollectionConfig<'products'> = {
     defaultColumns: ['title', 'slug', 'price', 'inventory', 'updatedAt'],
     description: 'قیمت‌ها بر حسب واحد پولِ خودِ این سایت نوشته می‌شود.',
     group: 'فروشگاه',
+    hidden: hiddenFromOperators,
     useAsTitle: 'title',
     livePreview: {
       url: ({ data, req }) => generatePreviewPath({ base: PRODUCTS_BASE, data, req }),
@@ -174,6 +177,6 @@ export const Products: CollectionConfig<'products'> = {
     // Access only checked that a site key exists — never trust the payload's own
     // `site` value on a key-authorized write.
     beforeChange: [forceApiKeySite],
-    beforeValidate: [uniqueSlugPerSite],
+    beforeValidate: [enforceQuota('products'), uniqueSlugPerSite],
   },
 }

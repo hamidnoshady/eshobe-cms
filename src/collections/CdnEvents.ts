@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 /** Immutable operational trace. Provider tokens, request headers and provider
  * response bodies are intentionally never written here; `summary` is generated
@@ -17,7 +18,8 @@ export const CdnEvents: CollectionConfig<'cdn-events'> = {
     defaultColumns: ['createdAt', 'zone', 'operation', 'ok'],
     description:
       'ردّ عملیاتی تغییرات CDN. توکن‌ها و بدنهٔ پاسخ ارائه‌دهنده هرگز در این گزارش ذخیره نمی‌شوند.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'operation',
   },
   fields: [

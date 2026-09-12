@@ -4,6 +4,7 @@ import { authenticated } from '../access/authenticated'
 import { currencyCodes, currencies } from '../lib/money'
 import { paymentProviderOptions } from '../payments'
 import { scopedPublicRead } from '../access/siteRead'
+import { hiddenFromOperators } from '@/admin/visibility'
 
 /**
  * A store site's commerce settings — one document per site, edited like a global.
@@ -26,6 +27,10 @@ export const Store: CollectionConfig<'store'> = {
     // must never see — the card number to transfer to — locks its own read below.
     read: scopedPublicRead(),
     update: authenticated,
+  },
+  admin: {
+    group: 'فروشگاه',
+    hidden: hiddenFromOperators,
   },
   labels: {
     singular: 'فروشگاه',

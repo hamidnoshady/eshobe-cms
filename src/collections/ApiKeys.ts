@@ -3,6 +3,7 @@ import type { CollectionAfterReadHook, CollectionBeforeValidateHook, CollectionC
 import { generateApiKey } from '@/lib/api-keys'
 import { platformAdmin } from '../access/platformAdmin'
 import { issueApiKeyEndpoint, listApiKeysEndpoint, revokeApiKeyEndpoint } from '@/endpoints/apiKeys'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 /**
  * WAVE-9 §9.4 — a bearer credential a headless client authenticates with, from a
@@ -70,6 +71,8 @@ export const ApiKeys: CollectionConfig<'api-keys'> = {
   },
   admin: {
     defaultColumns: ['name', 'role', 'site', 'keyPrefix', 'disabledAt'],
+    group: PLATFORM_GROUPS.fleet,
+    hidden: hiddenFromCustomers,
     description:
       'کلیدهای دسترسی برنامه‌نویسی — برای اتصال یک برنامهٔ بیرونی (مثل سامانهٔ صندوق فروش) به یک سایت یا به کل پلتفرم. کلید جدید را از «صدور کلید جدید» بسازید؛ کلید کامل فقط یک بار، در لحظهٔ صدور، نمایش داده می‌شود.',
     useAsTitle: 'name',

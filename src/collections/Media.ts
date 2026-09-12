@@ -12,6 +12,8 @@ import { anyone } from '../access/anyone'
 import { scopedPublicRead } from '../access/siteRead'
 import { authenticated } from '../access/authenticated'
 import { setMediaPrefix } from '../hooks/mediaPrefix'
+import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
+import { enforceQuota } from '@/collections/hooks/enforceQuota'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -26,6 +28,10 @@ export const Media: CollectionConfig = {
     // route is served on their domain (`/api/media/file/*` is a Caddy carve-out).
     read: scopedPublicRead(anyone),
     update: authenticated,
+  },
+  admin: {
+    group: SITE_CONTENT_GROUP,
+    hidden: hiddenFromOperators,
   },
   labels: {
     singular: 'رسانه',
@@ -56,6 +62,10 @@ export const Media: CollectionConfig = {
     // Namespaces the file's key in the object-storage bucket by site. No-op while
     // uploads are local.
     beforeChange: [setMediaPrefix],
+    // Counts files, not bytes — `mediaStorageMb` is metered separately and reported,
+    // because refusing an upload mid-stream on a byte total the client cannot see is
+    // a worse experience than a file-count limit it can.
+    beforeValidate: [enforceQuota('media')],
   },
   upload: {
     // Dev: public/media in the repo. Production: MEDIA_DIR, an absolute path the
