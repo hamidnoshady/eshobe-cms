@@ -4,6 +4,7 @@ import { authenticated } from '@/access/authenticated'
 import { apiKeyAware } from '@/access/siteApiKey'
 import { platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
 import { domainValidationMessage, isValidDomain, normalizeDomain } from '@/lib/domains'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 const normalizeDomainName: CollectionBeforeValidateHook = ({ data }) => {
   const value = (data as { domain?: unknown } | undefined)?.domain
@@ -33,7 +34,8 @@ export const ResellerDomains: CollectionConfig<'reseller-domains'> = {
     defaultColumns: ['domain', 'site', 'state', 'providerLastSeenAt'],
     description:
       'دامنه‌های ثبت یا منتقل‌شده با حساب نمایندگی پلتفرم. «پذیرفته‌شده توسط registrar» به معنی فعال بودن قطعی دامنه نیست؛ API ارائه‌شده endpoint وضعیت/انقضا ندارد و تأیید عملیاتی جداست.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'domain',
   },
   fields: [

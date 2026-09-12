@@ -14,6 +14,7 @@ import { beforeSyncWithSearch } from '@/search/beforeSync'
 import type { Config, Page, Post } from '@/payload-types'
 
 import { isPlatformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '@/access/anyone'
 import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
@@ -56,6 +57,10 @@ export const plugins: Plugin[] = [
         // renderer resolving a path must not be able to walk the platform's redirects.
         read: scopedPublicRead(authenticated),
       },
+      admin: {
+        group: SITE_CONTENT_GROUP,
+        hidden: hiddenFromOperators,
+      },
       labels: {
         singular: 'تغییر مسیر',
         plural: 'تغییر مسیرها',
@@ -92,6 +97,10 @@ export const plugins: Plugin[] = [
       payment: false,
     },
     formSubmissionOverrides: {
+      admin: {
+        group: SITE_CONTENT_GROUP,
+        hidden: hiddenFromOperators,
+      },
       labels: {
         singular: 'پاسخ فرم',
         plural: 'پاسخ‌های فرم',
@@ -136,6 +145,10 @@ export const plugins: Plugin[] = [
       },
     },
     formOverrides: {
+      admin: {
+        group: SITE_CONTENT_GROUP,
+        hidden: hiddenFromOperators,
+      },
       labels: {
         singular: 'فرم',
         plural: 'فرم‌ها',
@@ -171,6 +184,10 @@ export const plugins: Plugin[] = [
         // the pages it mirrors, so search cannot become the side door around
         // `src/access/siteRead.ts`.
         read: scopedPublicRead(anyone),
+      },
+      admin: {
+        group: SITE_CONTENT_GROUP,
+        hidden: hiddenFromOperators,
       },
       labels: {
         singular: 'نتیجه جست‌وجو',
@@ -215,6 +232,30 @@ export const plugins: Plugin[] = [
       'reseller-domains': {},
       'reseller-domain-operations': {},
       'reseller-domain-events': {},
+      // The SaaS control plane's per-site rows. Every one of these is
+      // platform-admin-only on `access`, so registration changes nothing a customer
+      // can reach today — it is here for the reason CLAUDE.md gives: an unregistered
+      // collection is *shared by every tenant, silently*, and a future access
+      // relaxation on a subscription or a usage counter would then hand one
+      // customer's commercial record to another.
+      //
+      // Four are registered and three are deliberately **not**, and the line between
+      // them is whether the row belongs to exactly one site:
+      //
+      //   - `plans`, `feature-flags`, `theme-templates`, `plugins`, `webhooks` are
+      //     the platform's own catalogue and infrastructure — the same shape as
+      //     `api-keys` and `storage-connections`. A `site` column on a price list is
+      //     meaningless.
+      //   - `audit-log` and `webhook-deliveries` carry *optional* site references
+      //     they declare themselves, because a platform-level action ("settings
+      //     changed") belongs to no site. The plugin's `site` field is **required**
+      //     by construction (`tenantField`'s validate), so registering them would
+      //     make every platform-level audit row unsavable — and would collide with
+      //     the `site` field `audit-log` already declares.
+      subscriptions: {},
+      invoices: {},
+      'site-entitlements': { isGlobal: true },
+      'usage-records': {},
       pages: {},
       posts: {},
       products: {},

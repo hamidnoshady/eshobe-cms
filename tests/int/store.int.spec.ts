@@ -383,6 +383,29 @@ describe('store', () => {
         // by a superadmin. Same shape as `users`/`api-keys`: shared credential material,
         // not a site's own content (see src/collections/StorageConnections.ts).
         'storage-connections',
+        /**
+         * The SaaS control plane's catalogue half.
+         *
+         * A plan, a feature flag, a plugin registration, a theme template and a
+         * webhook are all the *operator's* rows — one list, offered to every
+         * customer. A `site` column on them would not scope anything; it would ask
+         * "which customer owns the Pro plan?", which has no answer.
+         *
+         * Note this is not a loophole in the leak rule: the half of the control
+         * plane that *is* per-customer — `subscriptions`, `invoices`,
+         * `site-entitlements`, `usage-records` — is registered with the plugin and
+         * therefore absent from this list, and `audit-log` declares its own
+         * optional `site` (optional because an operator changing platform settings
+         * is not acting on any one site) so it satisfies the assertion directly.
+         */
+        'plans',
+        'feature-flags',
+        'plugins',
+        'theme-templates',
+        'webhooks',
+        // A delivery attempt belongs to the webhook it was sent to, and that webhook
+        // is platform-wide; the site, when there is one, is on the event payload.
+        'webhook-deliveries',
         // Payload's own tables: no tenant to scope by.
         'payload-jobs',
         'payload-kv',

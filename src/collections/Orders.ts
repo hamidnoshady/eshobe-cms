@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { platformAdmin } from '../access/platformAdmin'
+import { hiddenFromOperators } from '@/admin/visibility'
 import { apiKeyAware } from '../access/siteApiKey'
 import { MAX_ORDER_QUANTITY } from '../lib/checkout'
 import { currencyCodes, validatePriceMinor } from '../lib/money'
@@ -46,6 +47,7 @@ export const Orders: CollectionConfig<'orders'> = {
     defaultColumns: ['reference', 'productTitle', 'total', 'status', 'createdAt'],
     description: 'فقط کارکنان سایت می‌توانند سفارش را ببینند. نشانی تأیید خرید با امضای یک‌بارمصرف باز می‌شود.',
     group: 'فروشگاه',
+    hidden: hiddenFromOperators,
     useAsTitle: 'reference',
   },
   labels: {

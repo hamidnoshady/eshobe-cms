@@ -35,6 +35,19 @@ export default defineConfig({
   ],
   webServer: {
     command: 'pnpm dev',
+    env: {
+      /**
+       * The e2e fixture user is a platform admin (`tests/helpers/seedUser.ts`), but
+       * most of `admin.e2e.spec.ts` is about the *editing* experience — the page
+       * editor, live preview, the Shamsi date hint. `src/admin/visibility.ts` hides
+       * the content collections from an operator's nav by default, which would 404
+       * every one of those routes.
+       *
+       * So the suite runs with the escape hatch on, and the split itself is asserted
+       * with it off, in `tests/e2e/superadmin.e2e.spec.ts`, by a second user.
+       */
+      PLATFORM_ADMIN_SHOW_SITE_COLLECTIONS: 'true',
+    },
     reuseExistingServer: true,
     // A cold Next 16 + Payload dev boot compiles `/admin` on demand and blows
     // straight through Playwright's 60s default.

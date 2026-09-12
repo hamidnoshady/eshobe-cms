@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../../access/authenticated'
 import { platformAdminFieldAccess } from '../../access/platformAdmin'
+import { PLATFORM_GROUPS } from '@/admin/visibility'
 
 export const Users: CollectionConfig = {
   slug: 'users',
@@ -16,6 +17,9 @@ export const Users: CollectionConfig = {
   },
   admin: {
     defaultColumns: ['name', 'email', 'role'],
+    // Same reasoning as `sites`: a customer's owner manages their own staff here, and
+    // the plugin's `tenants` handling is what keeps that list to their people.
+    group: PLATFORM_GROUPS.fleet,
     useAsTitle: 'name',
   },
   /**

@@ -1,6 +1,7 @@
 import type { CollectionConfig, FieldAccess } from 'payload'
 
 import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { isValidDomain, normalizeDomain } from '@/lib/domains'
 
 import {
@@ -50,7 +51,8 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
     defaultColumns: ['zoneName', 'provider', 'active', 'lastSyncOk', 'lastSyncAt'],
     description:
       'کنترل داخلی DNS، پراکسی CDN، TLS، کش و امنیت دامنه‌ها. هر zone فقط با یک CDN فعال می‌شود؛ توکن هرگز از API یا فرم دوباره خوانده نمی‌شود.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'zoneName',
   },
   fields: [

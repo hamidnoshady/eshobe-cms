@@ -6,6 +6,7 @@ import { authenticated } from '../access/authenticated'
 import { apiKeyAware } from '../access/siteApiKey'
 import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
 import { validatePriceMinor } from '../lib/money'
+import { hiddenFromOperators } from '@/admin/visibility'
 
 import {
   assertGatewayUsable,
@@ -135,6 +136,7 @@ export const PaymentGateways: CollectionConfig<'payment-gateways'> = {
     description:
       'هر ردیف، پیکربندی یک درگاه برای یک سایت است. اعتبارنامه‌ها را فقط کارکنان سکو وارد می‌کنند و هیچ API آن‌ها را برنمی‌گرداند؛ صاحب سایت فقط روشن/خاموش بودن و ترتیب نمایش را تعیین می‌کند.',
     group: 'فروشگاه',
+    hidden: hiddenFromOperators,
     useAsTitle: 'title',
   },
   fields: [

@@ -88,6 +88,17 @@ export interface Config {
     'reseller-domains': ResellerDomain;
     'reseller-domain-operations': ResellerDomainOperation;
     'reseller-domain-events': ResellerDomainEvent;
+    plans: Plan;
+    subscriptions: Subscription;
+    invoices: Invoice;
+    'site-entitlements': SiteEntitlement;
+    'usage-records': UsageRecord;
+    'feature-flags': FeatureFlag;
+    plugins: Plugin;
+    'theme-templates': ThemeTemplate;
+    webhooks: Webhook;
+    'webhook-deliveries': WebhookDelivery;
+    'audit-log': AuditLog;
     redirects: Redirect;
     forms: Form;
     'form-submissions': FormSubmission;
@@ -126,6 +137,17 @@ export interface Config {
     'reseller-domains': ResellerDomainsSelect<false> | ResellerDomainsSelect<true>;
     'reseller-domain-operations': ResellerDomainOperationsSelect<false> | ResellerDomainOperationsSelect<true>;
     'reseller-domain-events': ResellerDomainEventsSelect<false> | ResellerDomainEventsSelect<true>;
+    plans: PlansSelect<false> | PlansSelect<true>;
+    subscriptions: SubscriptionsSelect<false> | SubscriptionsSelect<true>;
+    invoices: InvoicesSelect<false> | InvoicesSelect<true>;
+    'site-entitlements': SiteEntitlementsSelect<false> | SiteEntitlementsSelect<true>;
+    'usage-records': UsageRecordsSelect<false> | UsageRecordsSelect<true>;
+    'feature-flags': FeatureFlagsSelect<false> | FeatureFlagsSelect<true>;
+    plugins: PluginsSelect<false> | PluginsSelect<true>;
+    'theme-templates': ThemeTemplatesSelect<false> | ThemeTemplatesSelect<true>;
+    webhooks: WebhooksSelect<false> | WebhooksSelect<true>;
+    'webhook-deliveries': WebhookDeliveriesSelect<false> | WebhookDeliveriesSelect<true>;
+    'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
     redirects: RedirectsSelect<false> | RedirectsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
@@ -144,10 +166,12 @@ export interface Config {
   globals: {
     'domain-reseller': DomainReseller;
     payments: Payment;
+    'platform-settings': PlatformSetting;
   };
   globalsSelect: {
     'domain-reseller': DomainResellerSelect<false> | DomainResellerSelect<true>;
     payments: PaymentsSelect<false> | PaymentsSelect<true>;
+    'platform-settings': PlatformSettingsSelect<false> | PlatformSettingsSelect<true>;
   };
   locale: 'fa' | 'en';
   widgets: {
@@ -1836,6 +1860,613 @@ export interface ResellerDomainEvent {
   createdAt: string;
 }
 /**
+ * فهرست طرح‌های اشتراک سکو: قیمت، دورهٔ صورتحساب، سقف‌ها و امکاناتی که هر طرح باز می‌کند. سقف خالی یا صفر یعنی بی‌نهایت.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "plans".
+ */
+export interface Plan {
+  id: string;
+  /**
+   * همان چیزی که روی صورتحساب مشتری چاپ می‌شود؛ مثلاً «حرفه‌ای».
+   */
+  name: string;
+  /**
+   * شناسهٔ ماشینی و پایدار؛ در API و در اتصال به برنامه‌های دیگر همین استفاده می‌شود.
+   */
+  code: string;
+  /**
+   * یک یا دو جمله برای صفحهٔ فروش و برای خود اپراتور.
+   */
+  description?: string | null;
+  /**
+   * عدد صحیح در واحد خردِ همان ارز — برای تومان یعنی خودِ تومان. صفر یعنی رایگان.
+   */
+  price: number;
+  currency: 'EUR' | 'IRR' | 'IRT' | 'USD';
+  interval: 'monthly' | 'quarterly' | 'yearly' | 'lifetime';
+  /**
+   * صفر یعنی بدون دورهٔ آزمایشی.
+   */
+  trialDays?: number | null;
+  /**
+   * خاموش یعنی اشتراک تازه روی این طرح ساخته نمی‌شود؛ اشتراک‌های موجود دست‌نخورده می‌مانند.
+   */
+  active?: boolean | null;
+  /**
+   * طرح‌های خصوصی (قرارداد اختصاصی) را خاموش بگذارید؛ فقط اپراتور می‌تواند آن‌ها را تخصیص دهد.
+   */
+  public?: boolean | null;
+  /**
+   * کوچک‌تر، بالاتر. برای چیدمان جدول مقایسهٔ طرح‌ها.
+   */
+  sortOrder?: number | null;
+  limits?: {
+    pages?: number | null;
+    posts?: number | null;
+    products?: number | null;
+    media?: number | null;
+    mediaStorageMb?: number | null;
+    categories?: number | null;
+    users?: number | null;
+    apiKeys?: number | null;
+    ordersPerMonth?: number | null;
+    apiRequestsPerMonth?: number | null;
+    domains?: number | null;
+  };
+  /**
+   * امکاناتی که این طرح روشن می‌کند. ترتیب حل‌شدن: پیش‌فرضِ فهرست امکانات، بعد طرح، بعد تنظیم اختصاصی همان سایت.
+   */
+  features?: (string | FeatureFlag)[] | null;
+  /**
+   * برای اپراتور؛ در هیچ API عمومی و روی هیچ صورتحسابی نمایش داده نمی‌شود.
+   */
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * فهرست امکاناتی که طرح‌ها باز می‌کنند و سایت‌ها می‌توانند استثنا بخورند. کلید، شناسهٔ ماشینی است و در API همین برگردانده می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "feature-flags".
+ */
+export interface FeatureFlag {
+  id: string;
+  /**
+   * فقط حروف کوچک انگلیسی، عدد، نقطه و خط تیره — مثل store.checkout
+   */
+  key: string;
+  /**
+   * نام فارسی برای نمایش در پنل و روی مقایسهٔ طرح‌ها.
+   */
+  label: string;
+  category?: ('general' | 'content' | 'commerce' | 'infrastructure' | 'integration') | null;
+  /**
+   * پایین‌ترین لایه: وقتی نه طرح و نه سایت نظری ندارند، همین تعیین‌کننده است.
+   */
+  defaultEnabled?: boolean | null;
+  /**
+   * این امکان دقیقاً چه چیزی را باز می‌کند — برای اپراتوری که شش ماه بعد آن را می‌خواند.
+   */
+  description?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * رابطهٔ مالی هر سایت با سکو: طرح، وضعیت، دورهٔ جاری و تمدید خودکار. تغییر طرح یک خرید است، نه ویرایش محتوا — فقط اپراتور.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "subscriptions".
+ */
+export interface Subscription {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * خودکار از روی سایت و طرح ساخته می‌شود؛ برای پیدا کردن ردیف در گزارش‌ها.
+   */
+  reference?: string | null;
+  plan: string | Plan;
+  /**
+   * «پرداخت عقب‌افتاده» سایت را از کار نمی‌اندازد — تعلیق یک تصمیم صریح اپراتور است، نه نتیجهٔ خودکار یک پرداخت ناموفق.
+   */
+  status: 'trialing' | 'active' | 'pastDue' | 'suspended' | 'cancelled' | 'expired';
+  /**
+   * در پایان دوره، صورتحساب بعدی ساخته می‌شود. برای طرح دائمی بی‌اثر است.
+   */
+  autoRenew?: boolean | null;
+  /**
+   * خالی بماند، لحظهٔ ساخت ثبت می‌شود.
+   */
+  startedAt?: string | null;
+  currentPeriodStart?: string | null;
+  /**
+   * از روی دورهٔ طرح محاسبه می‌شود. برای طرح دائمی خالی می‌ماند.
+   */
+  currentPeriodEnd?: string | null;
+  trialEndsAt?: string | null;
+  /**
+   * با انتخاب وضعیت «لغو شده» خودکار پر می‌شود.
+   */
+  cancelledAt?: string | null;
+  /**
+   * اختیاری و فقط برای قراردادهای خاص. یک شیء JSON مثل {"media": 5000} — کلیدهای نوشته‌نشده از خود طرح می‌آیند.
+   */
+  limitOverrides?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * شمارهٔ قرارداد، شرط تخفیف، هر چیزی که یک اپراتور دیگر باید بداند.
+   */
+  notes?: string | null;
+  /**
+   * از روی وضعیت محاسبه می‌شود: فعال، آزمایشی یا پرداخت عقب‌افتاده.
+   */
+  entitled?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * صورتحساب‌های سکو برای مشتری‌ها. جمع‌ها از روی ردیف‌ها محاسبه می‌شوند و دستی قابل تغییر نیستند؛ مبالغ در واحد خردِ ارز همان صورتحساب‌اند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "invoices".
+ */
+export interface Invoice {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * خودکار: INV-<سال>-<شمارهٔ ترتیبی>. میلادی است چون یک کلید است، نه یک تاریخ برای خواندن.
+   */
+  number?: string | null;
+  status: 'draft' | 'issued' | 'paid' | 'void' | 'uncollectible';
+  /**
+   * اختیاری: یک صورتحساب دستی (مثلاً کار سفارشی) به هیچ اشتراکی وصل نیست.
+   */
+  subscription?: (string | null) | Subscription;
+  issuedAt?: string | null;
+  dueAt?: string | null;
+  /**
+   * با ثبت این تاریخ، وضعیت خودکار «پرداخت‌شده» می‌شود.
+   */
+  paidAt?: string | null;
+  /**
+   * روی خود صورتحساب ثبت می‌شود؛ تغییر ارز سکو، صورتحساب‌های گذشته را بازنویسی نمی‌کند.
+   */
+  currency: 'EUR' | 'IRR' | 'IRT' | 'USD';
+  lines?:
+    | {
+        /**
+         * مثلاً «اشتراک حرفه‌ای، مهر ۱۴۰۵» یا «۵۰ گیگابایت فضای اضافه».
+         */
+        description: string;
+        quantity: number;
+        unitAmount: number;
+        amount?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * قبل از مالیات کسر می‌شود و هرگز بیشتر از جمع ردیف‌ها نیست.
+   */
+  discount?: number | null;
+  /**
+   * روی جمعِ پس از تخفیف اعمال می‌شود.
+   */
+  taxPercent?: number | null;
+  subtotal?: number | null;
+  tax?: number | null;
+  total?: number | null;
+  /**
+   * شمارهٔ پیگیری واریز، شمارهٔ چک، یا شناسهٔ تراکنش درگاه.
+   */
+  paymentReference?: string | null;
+  /**
+   * روی نسخهٔ چاپی صورتحساب نمایش داده می‌شود.
+   */
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * استثناهای هر سایت: امکاناتی که دستی روشن/خاموش شده‌اند و سقف‌هایی که جدا از طرح تغییر کرده‌اند. آخرین لایه در ترتیب حل‌شدن.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-entitlements".
+ */
+export interface SiteEntitlement {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * هر ردیف، نظر نهایی دربارهٔ یک امکان برای همین سایت است — چه طرح آن را داده باشد و چه نداده باشد.
+   */
+  features?:
+    | {
+        feature: string | FeatureFlag;
+        enabled?: boolean | null;
+        /**
+         * چرا این استثنا وجود دارد و کِی باید برداشته شود. شش ماه بعد، این تنها سرنخ است.
+         */
+        reason?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  limitOverrides?: {
+    pages?: number | null;
+    posts?: number | null;
+    products?: number | null;
+    media?: number | null;
+    mediaStorageMb?: number | null;
+    categories?: number | null;
+    users?: number | null;
+    apiKeys?: number | null;
+    ordersPerMonth?: number | null;
+    apiRequestsPerMonth?: number | null;
+    domains?: number | null;
+  };
+  /**
+   * برای مشتری‌ای که موقتاً نباید متوقف شود «فقط هشدار» را انتخاب کنید؛ پیش‌فرض، همان سیاست عمومی سکوست.
+   */
+  quotaEnforcement: 'inherit' | 'warn' | 'enforce' | 'off';
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * شمارندهٔ مصرف برای سنجه‌هایی که از روی جدول‌ها قابل شمارش نیستند (مثل تعداد درخواست API). هر ردیف، یک سنجه در یک دورهٔ ماهانه است.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "usage-records".
+ */
+export interface UsageRecord {
+  id: string;
+  site?: (string | null) | Site;
+  metric:
+    | 'pages'
+    | 'posts'
+    | 'products'
+    | 'media'
+    | 'mediaStorageMb'
+    | 'categories'
+    | 'users'
+    | 'apiKeys'
+    | 'ordersPerMonth'
+    | 'apiRequestsPerMonth'
+    | 'domains';
+  /**
+   * ماه میلادی به شکل YYYY-MM — کلید شمارنده، نه تاریخی برای خواندن.
+   */
+  period: string;
+  value: number;
+  /**
+   * برای تشخیص شمارندهٔ متوقف‌شده از شمارندهٔ صفر.
+   */
+  lastEventAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * افزونه‌های نصب‌شده روی این نصب: نوع از فهرست بستهٔ پشتیبانی‌شده انتخاب می‌شود، تنظیمات و کلید هر افزونه رمزنگاری‌شده ذخیره می‌شود. افزونه کد اجرا نمی‌کند؛ یک ثبت پیکربندی است.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "plugins".
+ */
+export interface Plugin {
+  id: string;
+  /**
+   * برای خودتان — مثلاً «گوگل آنالیتیکس، مشتری‌های فروشگاهی».
+   */
+  name: string;
+  /**
+   * شناسهٔ ماشینی؛ در API و در پاسخ توصیفگر سایت با همین نام برگردانده می‌شود.
+   */
+  key: string;
+  /**
+   * فهرست بسته است: کد هر نوع در همین مخزن پیاده‌سازی شده. نوعی که اینجا نیست، رفتاری هم ندارد.
+   */
+  type:
+    | 'analytics'
+    | 'chat'
+    | 'headScript'
+    | 'webhook'
+    | 'buildHook'
+    | 'email'
+    | 'seo'
+    | 'translation'
+    | 'backup'
+    | 'custom';
+  /**
+   * خاموش یعنی در هیچ سایتی بارگذاری و فراخوانی نمی‌شود.
+   */
+  enabled?: boolean | null;
+  /**
+   * نسخهٔ سرویس بیرونی یا قرارداد، برای پیگیری تغییرات ناسازگار.
+   */
+  version?: string | null;
+  scope: 'global' | 'sites';
+  /**
+   * فقط روی این سایت‌ها اعمال می‌شود.
+   */
+  sites?: (string | Site)[] | null;
+  /**
+   * پیکربندی غیرمحرمانهٔ افزونه، به‌صورت JSON — مثلاً {"measurementId": "G-XXXX"}. هرگز کلید محرمانه اینجا نگذارید؛ برای آن فیلد پایین هست.
+   */
+  settings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * توکن یا کلید API این افزونه. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و بعد از آن هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده».
+   */
+  credential?: string | null;
+  /**
+   * بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».
+   */
+  clearCredential?: boolean | null;
+  credentialsSummary?: string | null;
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * کتابخانهٔ پوسته‌های آماده که سایت جدید از روی آن‌ها ساخته می‌شود. اعمال یک پوسته، یک کپی است — ویرایش این فهرست، سایت‌های موجود را تغییر نمی‌دهد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-templates".
+ */
+export interface ThemeTemplate {
+  id: string;
+  name: string;
+  /**
+   * شناسهٔ ماشینی؛ در API ساخت سایت با همین نام ارسال می‌شود.
+   */
+  key: string;
+  description?: string | null;
+  /**
+   * خاموش یعنی در ساخت سایت جدید پیشنهاد نمی‌شود؛ سایت‌های موجود دست‌نخورده‌اند.
+   */
+  active?: boolean | null;
+  /**
+   * وقتی هنگام ساخت سایت پوسته‌ای انتخاب نشده باشد، همین اعمال می‌شود.
+   */
+  isDefault?: boolean | null;
+  /**
+   * فقط برای این نوع‌ها در فهرست ساخت سایت ظاهر می‌شود.
+   */
+  siteTypes?: ('business' | 'portfolio' | 'store')[] | null;
+  tokens?: {
+    primary?: string | null;
+    accent?: string | null;
+    background?: string | null;
+    foreground?: string | null;
+    radius?: ('none' | 'sm' | 'md' | 'lg') | null;
+    /**
+     * فارسی به فضای عمودی بیشتری نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.
+     */
+    lineHeight?: number | null;
+  };
+  /**
+   * اختیاری — برای فهرست انتخاب پوسته در ساخت سایت.
+   */
+  preview?: (string | null) | Media;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * اعلان‌های خروجی سکو به سامانه‌های دیگر. هر ارسال با کلید محرمانه امضا می‌شود؛ نشانی باید https و عمومی باشد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "webhooks".
+ */
+export interface Webhook {
+  id: string;
+  /**
+   * برای خودتان — مثلاً «دفتر مالی» یا «کانال اعلان پشتیبانی».
+   */
+  name: string;
+  /**
+   * فقط https و میزبان عمومی. نام کاربری/رمز داخل نشانی پذیرفته نمی‌شود.
+   */
+  url: string;
+  enabled?: boolean | null;
+  /**
+   * خالی یعنی رویدادهای همهٔ سایت‌ها و رویدادهای سطح سکو.
+   */
+  site?: (string | null) | Site;
+  /**
+   * فقط این رویدادها ارسال می‌شوند. فهرست بسته است — هر مقدار، یک رویدادی است که این کد تولید می‌کند.
+   */
+  events: (
+    | 'site.created'
+    | 'site.updated'
+    | 'site.suspended'
+    | 'site.resumed'
+    | 'site.deleted'
+    | 'domain.changed'
+    | 'domain.verified'
+    | 'subscription.created'
+    | 'subscription.changed'
+    | 'subscription.cancelled'
+    | 'subscription.expired'
+    | 'invoice.issued'
+    | 'invoice.paid'
+    | 'invoice.overdue'
+    | 'quota.warning'
+    | 'quota.exceeded'
+    | 'apikey.issued'
+    | 'apikey.revoked'
+    | 'plugin.changed'
+    | 'storage.changed'
+    | 'cdn.synced'
+    | 'order.paid'
+    | 'backup.completed'
+    | 'platform.settingsChanged'
+  )[];
+  /**
+   * خالی بگذارید تا خودکار ساخته شود. رمزنگاری‌شده ذخیره می‌شود و دیگر برگردانده نمی‌شود؛ برای دیدن یک‌بارهٔ کلید تازه، از «ساخت کلید جدید» در فهرست استفاده کنید.
+   */
+  secret?: string | null;
+  /**
+   * با ذخیره، کلید فعلی باطل و کلید تازه‌ای ساخته می‌شود. گیرنده باید هم‌زمان به‌روز شود.
+   */
+  clearSecret?: boolean | null;
+  secretSummary?: string | null;
+  lastDeliveryAt?: string | null;
+  lastDeliveryOk?: boolean | null;
+  /**
+   * پس از رسیدن به سقفِ تنظیمات سکو، وب‌هوک خودکار خاموش می‌شود — یک گیرندهٔ خراب نباید تا ابد صف را مصرف کند.
+   */
+  consecutiveFailures?: number | null;
+  lastError?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * گزارش ارسال وب‌هوک‌ها. بدنهٔ رویداد ذخیره می‌شود تا قابل بازفرست باشد؛ از پاسخ گیرنده فقط کد وضعیت و یک کیلوبایت اول نگه داشته می‌شود و امضا هرگز ذخیره نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "webhook-deliveries".
+ */
+export interface WebhookDelivery {
+  id: string;
+  /**
+   * با حذف وب‌هوک، گزارش برای پیگیری تاریخی می‌ماند و این ارتباط خالی می‌شود.
+   */
+  webhook?: (string | null) | Webhook;
+  event:
+    | 'site.created'
+    | 'site.updated'
+    | 'site.suspended'
+    | 'site.resumed'
+    | 'site.deleted'
+    | 'domain.changed'
+    | 'domain.verified'
+    | 'subscription.created'
+    | 'subscription.changed'
+    | 'subscription.cancelled'
+    | 'subscription.expired'
+    | 'invoice.issued'
+    | 'invoice.paid'
+    | 'invoice.overdue'
+    | 'quota.warning'
+    | 'quota.exceeded'
+    | 'apikey.issued'
+    | 'apikey.revoked'
+    | 'plugin.changed'
+    | 'storage.changed'
+    | 'cdn.synced'
+    | 'order.paid'
+    | 'backup.completed'
+    | 'platform.settingsChanged';
+  ok: boolean;
+  /**
+   * خالی یعنی اصلاً پاسخی نرسید (تایم‌اوت یا خطای شبکه).
+   */
+  statusCode?: number | null;
+  durationMs?: number | null;
+  attempt?: number | null;
+  /**
+   * همان رویدادی که سکو تولید کرد — برای بازفرست دقیقاً همین دوباره فرستاده می‌شود.
+   */
+  requestBody?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * حداکثر یک کیلوبایت. پاسخ کامل ذخیره نمی‌شود.
+   */
+  responseBody?: string | null;
+  error?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * ردّ تغییرات سکو: چه کسی، چه زمانی، چه چیزی را تغییر داد. فقط افزودنی است؛ هیچ رمز، هدر یا بدنهٔ کامل درخواستی ذخیره نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-log".
+ */
+export interface AuditLog {
+  id: string;
+  action:
+    | 'site.created'
+    | 'site.updated'
+    | 'site.suspended'
+    | 'site.resumed'
+    | 'site.deleted'
+    | 'domain.changed'
+    | 'domain.verified'
+    | 'subscription.created'
+    | 'subscription.changed'
+    | 'subscription.cancelled'
+    | 'subscription.expired'
+    | 'invoice.issued'
+    | 'invoice.paid'
+    | 'invoice.overdue'
+    | 'quota.warning'
+    | 'quota.exceeded'
+    | 'apikey.issued'
+    | 'apikey.revoked'
+    | 'plugin.changed'
+    | 'storage.changed'
+    | 'cdn.synced'
+    | 'order.paid'
+    | 'backup.completed'
+    | 'platform.settingsChanged';
+  /**
+   * یک جملهٔ خوانا؛ همان چیزی که در فهرست دیده می‌شود.
+   */
+  summary: string;
+  actorType: 'user' | 'apiKey' | 'system';
+  /**
+   * ایمیل کاربر یا نام کلید. برای کارهای زمان‌بندی‌شده خالی است.
+   */
+  actorEmail?: string | null;
+  /**
+   * از هدر پروکسی خوانده می‌شود؛ برای پیگیری، نه برای احراز هویت.
+   */
+  ip?: string | null;
+  /**
+   * خالی یعنی رویداد سطح سکو بوده، نه مربوط به یک سایت.
+   */
+  site?: (string | null) | Site;
+  /**
+   * کدام مجموعه تغییر کرد — مثلاً subscriptions.
+   */
+  targetCollection?: string | null;
+  targetId?: string | null;
+  /**
+   * فقط نام فیلد و مقدار کوتاه قبل/بعد، بریده‌شده. اعتبارنامه‌ها، هدرها و بدنهٔ کامل درخواست هرگز اینجا نوشته نمی‌شوند.
+   */
+  changes?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects".
  */
@@ -2111,6 +2742,50 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'reseller-domain-events';
         value: string | ResellerDomainEvent;
+      } | null)
+    | ({
+        relationTo: 'plans';
+        value: string | Plan;
+      } | null)
+    | ({
+        relationTo: 'subscriptions';
+        value: string | Subscription;
+      } | null)
+    | ({
+        relationTo: 'invoices';
+        value: string | Invoice;
+      } | null)
+    | ({
+        relationTo: 'site-entitlements';
+        value: string | SiteEntitlement;
+      } | null)
+    | ({
+        relationTo: 'usage-records';
+        value: string | UsageRecord;
+      } | null)
+    | ({
+        relationTo: 'feature-flags';
+        value: string | FeatureFlag;
+      } | null)
+    | ({
+        relationTo: 'plugins';
+        value: string | Plugin;
+      } | null)
+    | ({
+        relationTo: 'theme-templates';
+        value: string | ThemeTemplate;
+      } | null)
+    | ({
+        relationTo: 'webhooks';
+        value: string | Webhook;
+      } | null)
+    | ({
+        relationTo: 'webhook-deliveries';
+        value: string | WebhookDelivery;
+      } | null)
+    | ({
+        relationTo: 'audit-log';
+        value: string | AuditLog;
       } | null)
     | ({
         relationTo: 'redirects';
@@ -3080,6 +3755,253 @@ export interface ResellerDomainEventsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "plans_select".
+ */
+export interface PlansSelect<T extends boolean = true> {
+  name?: T;
+  code?: T;
+  description?: T;
+  price?: T;
+  currency?: T;
+  interval?: T;
+  trialDays?: T;
+  active?: T;
+  public?: T;
+  sortOrder?: T;
+  limits?:
+    | T
+    | {
+        pages?: T;
+        posts?: T;
+        products?: T;
+        media?: T;
+        mediaStorageMb?: T;
+        categories?: T;
+        users?: T;
+        apiKeys?: T;
+        ordersPerMonth?: T;
+        apiRequestsPerMonth?: T;
+        domains?: T;
+      };
+  features?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "subscriptions_select".
+ */
+export interface SubscriptionsSelect<T extends boolean = true> {
+  site?: T;
+  reference?: T;
+  plan?: T;
+  status?: T;
+  autoRenew?: T;
+  startedAt?: T;
+  currentPeriodStart?: T;
+  currentPeriodEnd?: T;
+  trialEndsAt?: T;
+  cancelledAt?: T;
+  limitOverrides?: T;
+  notes?: T;
+  entitled?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "invoices_select".
+ */
+export interface InvoicesSelect<T extends boolean = true> {
+  site?: T;
+  number?: T;
+  status?: T;
+  subscription?: T;
+  issuedAt?: T;
+  dueAt?: T;
+  paidAt?: T;
+  currency?: T;
+  lines?:
+    | T
+    | {
+        description?: T;
+        quantity?: T;
+        unitAmount?: T;
+        amount?: T;
+        id?: T;
+      };
+  discount?: T;
+  taxPercent?: T;
+  subtotal?: T;
+  tax?: T;
+  total?: T;
+  paymentReference?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-entitlements_select".
+ */
+export interface SiteEntitlementsSelect<T extends boolean = true> {
+  site?: T;
+  features?:
+    | T
+    | {
+        feature?: T;
+        enabled?: T;
+        reason?: T;
+        id?: T;
+      };
+  limitOverrides?:
+    | T
+    | {
+        pages?: T;
+        posts?: T;
+        products?: T;
+        media?: T;
+        mediaStorageMb?: T;
+        categories?: T;
+        users?: T;
+        apiKeys?: T;
+        ordersPerMonth?: T;
+        apiRequestsPerMonth?: T;
+        domains?: T;
+      };
+  quotaEnforcement?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "usage-records_select".
+ */
+export interface UsageRecordsSelect<T extends boolean = true> {
+  site?: T;
+  metric?: T;
+  period?: T;
+  value?: T;
+  lastEventAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "feature-flags_select".
+ */
+export interface FeatureFlagsSelect<T extends boolean = true> {
+  key?: T;
+  label?: T;
+  category?: T;
+  defaultEnabled?: T;
+  description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "plugins_select".
+ */
+export interface PluginsSelect<T extends boolean = true> {
+  name?: T;
+  key?: T;
+  type?: T;
+  enabled?: T;
+  version?: T;
+  scope?: T;
+  sites?: T;
+  settings?: T;
+  credential?: T;
+  clearCredential?: T;
+  credentialsSummary?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-templates_select".
+ */
+export interface ThemeTemplatesSelect<T extends boolean = true> {
+  name?: T;
+  key?: T;
+  description?: T;
+  active?: T;
+  isDefault?: T;
+  siteTypes?: T;
+  tokens?:
+    | T
+    | {
+        primary?: T;
+        accent?: T;
+        background?: T;
+        foreground?: T;
+        radius?: T;
+        lineHeight?: T;
+      };
+  preview?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "webhooks_select".
+ */
+export interface WebhooksSelect<T extends boolean = true> {
+  name?: T;
+  url?: T;
+  enabled?: T;
+  site?: T;
+  events?: T;
+  secret?: T;
+  clearSecret?: T;
+  secretSummary?: T;
+  lastDeliveryAt?: T;
+  lastDeliveryOk?: T;
+  consecutiveFailures?: T;
+  lastError?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "webhook-deliveries_select".
+ */
+export interface WebhookDeliveriesSelect<T extends boolean = true> {
+  webhook?: T;
+  event?: T;
+  ok?: T;
+  statusCode?: T;
+  durationMs?: T;
+  attempt?: T;
+  requestBody?: T;
+  responseBody?: T;
+  error?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-log_select".
+ */
+export interface AuditLogSelect<T extends boolean = true> {
+  action?: T;
+  summary?: T;
+  actorType?: T;
+  actorEmail?: T;
+  ip?: T;
+  site?: T;
+  targetCollection?: T;
+  targetId?: T;
+  changes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "redirects_select".
  */
 export interface RedirectsSelect<T extends boolean = true> {
@@ -3419,6 +4341,77 @@ export interface Payment {
   createdAt?: string | null;
 }
 /**
+ * رفتار کلی سکو: هویت، سیاست اعمال سقف‌ها، صورتحساب، نگهداشت گزارش‌ها و حالت تعمیر. هر چیزی که برای هر مشتری فرق می‌کند، جای دیگری تعریف می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "platform-settings".
+ */
+export interface PlatformSetting {
+  id: string;
+  /**
+   * در ایمیل‌ها، صورتحساب‌ها و پاسخ API معرفی می‌شود.
+   */
+  platformName?: string | null;
+  supportEmail?: string | null;
+  supportUrl?: string | null;
+  /**
+   * فرستندهٔ صورتحساب‌ها و یادآوری‌های پرداخت.
+   */
+  billingEmail?: string | null;
+  /**
+   * خاموش یعنی فقط اپراتور می‌تواند سایت بسازد. این کلید فقط یک سیاست است؛ ساخت سایت از API همچنان کلید «پلتفرم» می‌خواهد.
+   */
+  signupsOpen?: boolean | null;
+  /**
+   * سایتی که بدون تعیین طرح ساخته شود، روی این طرح اشتراک می‌گیرد.
+   */
+  defaultPlan?: (string | null) | Plan;
+  defaultSiteStatus?: ('active' | 'suspended') | null;
+  /**
+   * خالی یا صفر یعنی بی‌نهایت.
+   */
+  maxSitesPerUser?: number | null;
+  /**
+   * پیش‌فرض «هشدار» است، نه «سخت‌گیرانه»: یک سقفِ اشتباه تنظیم‌شده نباید بی‌صدا جلوی انتشار مشتریِ پرداخت‌کننده را بگیرد. هر سایت می‌تواند استثنا داشته باشد.
+   */
+  quotaEnforcement: 'warn' | 'enforce' | 'off';
+  /**
+   * از این درصد به بالا، سنجه در گزارش‌ها «هشدار» علامت می‌خورد.
+   */
+  quotaWarnPercent?: number | null;
+  /**
+   * به‌شدت محافظه‌کارانه استفاده کنید: تعلیق خودکار یعنی سایت یک مشتری با یک شمارش اشتباه از دسترس خارج می‌شود.
+   */
+  suspendOnQuotaExceeded?: boolean | null;
+  invoiceDueDays?: number | null;
+  /**
+   * روی صورتحساب‌های تازه اعمال می‌شود؛ صورتحساب‌های گذشته تغییر نمی‌کنند.
+   */
+  taxPercent?: number | null;
+  /**
+   * در پایان هر دوره، برای اشتراک‌های «تمدید خودکار» یک صورتحساب پیش‌نویس ساخته می‌شود. پرداخت خودکار انجام نمی‌شود.
+   */
+  autoRenewInvoices?: boolean | null;
+  /**
+   * شمارهٔ اقتصادی، شرایط پرداخت، هر چیزی که باید پای هر صورتحساب بیاید.
+   */
+  invoiceFooter?: string | null;
+  /**
+   * یک اعلام وضعیت است که در API گزارش می‌شود تا برنامه‌های متصل بدانند تغییرات را متوقف کنند. سایت‌های مشتری‌ها را خاموش نمی‌کند.
+   */
+  maintenanceMode?: boolean | null;
+  maintenanceMessage?: string | null;
+  /**
+   * پس از این تعداد، وب‌هوک خودکار خاموش می‌شود.
+   */
+  webhookMaxFailures?: number | null;
+  webhookTimeoutMs?: number | null;
+  auditRetentionDays?: number | null;
+  deliveryRetentionDays?: number | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "domain-reseller_select".
  */
@@ -3451,6 +4444,36 @@ export interface PaymentsSelect<T extends boolean = true> {
   moduleEnabled?: T;
   allowedGateways?: T;
   notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "platform-settings_select".
+ */
+export interface PlatformSettingsSelect<T extends boolean = true> {
+  platformName?: T;
+  supportEmail?: T;
+  supportUrl?: T;
+  billingEmail?: T;
+  signupsOpen?: T;
+  defaultPlan?: T;
+  defaultSiteStatus?: T;
+  maxSitesPerUser?: T;
+  quotaEnforcement?: T;
+  quotaWarnPercent?: T;
+  suspendOnQuotaExceeded?: T;
+  invoiceDueDays?: T;
+  taxPercent?: T;
+  autoRenewInvoices?: T;
+  invoiceFooter?: T;
+  maintenanceMode?: T;
+  maintenanceMessage?: T;
+  webhookMaxFailures?: T;
+  webhookTimeoutMs?: T;
+  auditRetentionDays?: T;
+  deliveryRetentionDays?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

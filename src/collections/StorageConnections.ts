@@ -1,6 +1,7 @@
 import type { CollectionConfig, FieldAccess, Validate } from 'payload'
 
 import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { storageConnectionEndpoints } from '@/endpoints/storageConnections'
 
 import {
@@ -54,7 +55,8 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
     defaultColumns: ['name', 'enabled', 'bucket', 'endpoint', 'credentialsSummary'],
     description:
       'اتصال ذخیره‌سازی ArvanCloud که همهٔ رسانه‌های سایت‌ها در آن ذخیره می‌شود. فقط یک اتصال می‌تواند فعال باشد؛ کلید رمزنگاری‌شده ذخیره می‌شود و هرگز از API برگردانده نمی‌شود.',
-    group: 'زیرساخت',
+    group: PLATFORM_GROUPS.infrastructure,
+    hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },
   fields: [

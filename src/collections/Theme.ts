@@ -3,6 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { authenticated } from '../access/authenticated'
 import { isHexColor } from '../lib/theme'
 import { scopedPublicRead } from '../access/siteRead'
+import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 
 /**
  * A colour that will be interpolated into a `<style>` tag. Rejected in the admin as
@@ -30,6 +31,10 @@ export const Theme: CollectionConfig = {
     // renderer outside this app must get the same tenant's tokens, not all of them.
     read: scopedPublicRead(),
     update: authenticated,
+  },
+  admin: {
+    group: SITE_CONTENT_GROUP,
+    hidden: hiddenFromOperators,
   },
   labels: {
     singular: 'پوسته',
