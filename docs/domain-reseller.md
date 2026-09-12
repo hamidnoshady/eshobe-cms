@@ -12,9 +12,10 @@ The supplied ResellerArea document describes the following registrar commands:
 - child nameserver add/update/remove;
 - `GetContactInfo`, `IsValidTransfer`, `GetDomainWhoisInfo`, and `UpdateDomainWhoisInfo`.
 
-It does **not** describe commands for availability search, TLD/wholesale price lookup, domain expiry, or order/provisioning status. The CMS consequently does not claim to know those facts:
+It does **not** describe a dedicated availability/`CheckDomain` command, nor TLD/wholesale price lookup, domain expiry, or order/provisioning status. The CMS consequently does not claim to know those facts:
 
-- `GET /api/site/registrar/quote` returns `availability: "unknown"` unless the name is already in this platform's own workflow. It means “not checked by the documented provider API”, not “available globally”. The actual registrar request remains the authority.
+- **Availability is inferred from `GetDomainWhoisInfo`**, the only documented command that observes a third-party domain: WHOIS contacts prove the name is registered, and an explicit “not found / no match” rejection proves it is free. Any other outcome — an empty result, a bad key, a timeout, an unrecognised error — is reported as `unknown` and never as available. See `GET /api/site/registrar/search` below.
+- `GET /api/site/registrar/quote` is a **price-only** route and does not call the provider; its `availability` reflects this platform's own workflow rows only. Use `…/search` to actually check a name.
 - A superadmin maintains the wholesale annual price in the global **کاتالوگ TLDهای نمایندگی** collection. The CMS applies the global registration/transfer/renewal margin configured in **نمایندگی دامنه** and snapshots both cost and selling price when a request is made.
 - A `success: true` from `RegisterDomain`, `TransferDomain`, or `RenewDomain` becomes `providerAccepted`, not `active` and not `paid`. The provider contract does not give a status/expiry confirmation command. A platform operator may set a domain to `active` after independently verifying it.
 
@@ -34,16 +35,56 @@ The API key is AES-256-GCM encrypted at rest. Its form field is write-only after
 
 Every route below requires `Authorization: Bearer <site API key>`. No request accepts a `site` id in its body — the key names the tenant.
 
-One deliberate exception, and only one: **`GET …/quote` also accepts a platform key.** A quote places no order, writes no row, and returns the platform's own catalogue price plus the platform's own margin, so it is the same answer for every caller. The builder (the POS/accounting platform) prices a domain at the first step of its site-building wizard — before the site, and therefore its site key, exists at all. A platform key gets the coarser availability answer, because `managedHere` ("this site already manages this domain") has nothing to compare against without a site. Ordering, listing and management stay site-key only: pricing is widened, committing is not.
+Two deliberate exceptions, and only two: **`GET …/quote` and `GET …/search` also accept a platform key.** Neither places an order nor writes a row, and both return the platform's own catalogue price plus the platform's own margin, so the price is the same answer for every caller. The builder (the POS/accounting platform) prices a domain at the first step of its site-building wizard — before the site, and therefore its site key, exists at all. A platform key gets the coarser availability answer, because `managedHere` ("this site already manages this domain") has nothing to compare against without a site. Ordering, listing and management stay site-key only: pricing is widened, committing is not.
 
-### Quote/search workflow
+### Search: is this domain free, and what does it cost?
+
+```http
+GET /api/site/registrar/search?domain=example.ir&period=1
+Authorization: Bearer eshobe_live_...
+```
+
+The step before buying. One round trip answers all three questions a purchase screen has — availability, price, and *which* operation is actually possible — so the UI never has to guess:
+
+```jsonc
+{
+  "ok": true,
+  "domain": "example.ir",
+  "tld": "ir",
+  "period": 1,
+  "availability": "registered",
+  "availabilityMessage": "…",
+  "checkedWithRegistrar": true,
+  "operations": ["transfer"],
+  "quotes": { "transfer": { "price": 92000, "currency": "IRT", "…": "…" } },
+  "resellerEnabled": true
+}
+```
+
+| `availability` | Meaning | `operations` |
+| --- | --- | --- |
+| `available` | The registrar explicitly reported no registration for this name. | `register` |
+| `registered` | WHOIS returned contacts, so the name is taken. | `transfer` |
+| `managedHere` | This same site already has the domain in the platform workflow. | `renew` (only in `providerAccepted`/`active`) |
+| `reservedInPlatform` | Another tenant is mid-workflow on this name. No owner, state, or registrar call is exposed. | none |
+| `unknown` | Not verified: selling disabled, unconfigured credential, provider outage, or an unrecognised rejection. | `register`, `transfer` |
+
+`checkedWithRegistrar` says whether a WHOIS call actually happened, so a UI can distinguish “checked, and it is taken” from “nobody asked” instead of parsing the message. `renew` is offered only for a domain this platform registered for this site, because the document restricts `RenewDomain` to the reseller account's own domains.
+
+Nothing is written and nothing is reserved by searching. Local rows outrank the registrar: a name another tenant is working on is answered from the database with no provider call at all, so the probe cannot be used to confirm or time another tenant's domain.
+
+Searches are throttled per API key (`DOMAIN_SEARCH_RATE_LIMIT`, default 30 per `DOMAIN_SEARCH_RATE_LIMIT_WINDOW_MS`, default 60s), answering `429` with `retry-after`: the WHOIS call spends the platform's own registrar account, so an unthrottled `?domain=` parameter would be a way for one tenant to exhaust it.
+
+`POST /api/site/registrar/domains` re-runs the same check before it commits: a `register` for a name WHOIS proves is registered, and a `transfer` for a name that is not registered at all, are refused with `409` and the operation list that *would* work. Only a certain answer blocks — an `unknown` probe never becomes an outage of the order path.
+
+### Quote workflow
 
 ```http
 GET /api/site/registrar/quote?domain=example.ir&operation=register&period=1
 Authorization: Bearer eshobe_live_...
 ```
 
-`operation` is one of `register`, `transfer`, `renew`; `period` is an integer from 1 to 5. The result contains an honest availability state, a manual-catalogue quote, currency, source cost, applied margin, and final price. If the suffix is absent or disabled, the CMS refuses the request rather than guessing a price.
+`operation` is one of `register`, `transfer`, `renew`; `period` is an integer from 1 to 5. The result contains a manual-catalogue quote, currency, source cost, applied margin, and final price, plus the local-only availability state described above. If the suffix is absent or disabled, the CMS refuses the request rather than guessing a price. This route makes no provider call and is not rate limited; `…/search` is the one that checks a name.
 
 ### Create and submit a billable request
 
