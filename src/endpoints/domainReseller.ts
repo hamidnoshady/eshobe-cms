@@ -5,19 +5,25 @@ import type { ResellerDomainEvent, Site } from '@/payload-types'
 import { isValidDomain, normalizeDomain } from '@/lib/domains'
 import { idOf, isUuid } from '@/lib/ids'
 import {
+  availabilityFromProviderError,
   callResellerArea,
   currencyFrom,
+  type DomainAvailability,
   DomainResellerConfigurationError,
   DomainResellerProviderError,
   marginFor,
   operationFrom,
+  operationsForAvailability,
   productForDomain,
   quoteFor,
   resellerConfiguration,
   resellerSettings,
+  type RegistrarOperation,
   type ResellerProduct,
+  whoisIndicatesRegistered,
 } from '@/domain-reseller/service'
 
+import { clientKey, consume } from '@/lib/rate-limit'
 import { requestApiKey } from '@/access/siteApiKey'
 
 import { siteForDomainKey } from './updateSiteDomain'
@@ -198,6 +204,131 @@ const audit = async (
   }
 }
 
+/**
+ * WHOIS probes per caller per window.
+ *
+ * A search box sends one provider request per keystroke-ish action, and the provider
+ * account is the platform's — an unthrottled `?domain=` parameter would let one tenant
+ * spend the platform's registrar quota. Env-tunable for the same reason the checkout
+ * limit is: the honest number for a builder wizard and for a bulk-search script differ.
+ */
+const searchRateLimit = () => ({
+  limit: Number(process.env.DOMAIN_SEARCH_RATE_LIMIT ?? 30),
+  windowMs: Number(process.env.DOMAIN_SEARCH_RATE_LIMIT_WINDOW_MS ?? 60_000),
+})
+
+const availabilityMessages: Record<DomainAvailability, string> = {
+  available: 'این دامنه آزاد است و می‌توانید آن را ثبت کنید.',
+  managedHere: 'این دامنه از قبل برای همین سایت در پلتفرم مدیریت می‌شود؛ امکان تمدید دارید.',
+  registered: 'این دامنه قبلاً ثبت شده است؛ در صورت مالکیت می‌توانید آن را منتقل کنید.',
+  reservedInPlatform: 'این دامنه در یک workflow دیگر پلتفرم رزرو یا مدیریت شده است.',
+  unknown:
+    'وضعیت آزادبودن دامنه قطعی نشد؛ می‌توانید درخواست ثبت یا انتقال بدهید و registrar وضعیت واقعی را می‌سنجد.',
+}
+
+type AvailabilityAnswer = {
+  availability: DomainAvailability
+  availabilityMessage: string
+  checkedWithRegistrar: boolean
+  managedState: null | string
+}
+
+/**
+ * The one place that answers "is this name free?".
+ *
+ * Local knowledge wins because it is certain and free: a row in `reseller-domains`
+ * means this platform is already mid-workflow on the name, and no WHOIS answer can
+ * override that without leaking which tenant holds it. Only an unknown name reaches
+ * the registrar, and only through `GetDomainWhoisInfo` — the sole documented command
+ * that observes a third-party domain. A provider failure is never sold as "available":
+ * see `availabilityFromProviderError`.
+ */
+const availabilityFor = async (
+  req: PayloadRequest,
+  domain: string,
+  siteId: null | string,
+  { probeRegistrar }: { probeRegistrar: boolean },
+): Promise<AvailabilityAnswer> => {
+  const existing = await existingDomain(req, domain)
+  if (existing) {
+    const managedHere = Boolean(siteId) && idOf(existing.site) === siteId
+    const availability: DomainAvailability = managedHere ? 'managedHere' : 'reservedInPlatform'
+    return {
+      availability,
+      availabilityMessage: availabilityMessages[availability],
+      checkedWithRegistrar: false,
+      // A foreign row's state is not this caller's business; only its own is returned.
+      managedState: managedHere ? ((existing.state as null | string) ?? null) : null,
+    }
+  }
+
+  if (!probeRegistrar) {
+    return {
+      availability: 'unknown',
+      availabilityMessage: availabilityMessages.unknown,
+      checkedWithRegistrar: false,
+      managedState: null,
+    }
+  }
+
+  let configuration
+  try {
+    configuration = await resellerConfiguration(req.payload, req)
+  } catch {
+    return {
+      availability: 'unknown',
+      availabilityMessage: availabilityMessages.unknown,
+      checkedWithRegistrar: false,
+      managedState: null,
+    }
+  }
+
+  try {
+    const result = await callResellerArea(configuration, 'GetDomainWhoisInfo', { domain })
+    const availability: DomainAvailability = whoisIndicatesRegistered(result)
+      ? 'registered'
+      : 'unknown'
+    return {
+      availability,
+      availabilityMessage: availabilityMessages[availability],
+      checkedWithRegistrar: true,
+      managedState: null,
+    }
+  } catch (error) {
+    const availability = availabilityFromProviderError(error)
+    return {
+      availability,
+      availabilityMessage: availabilityMessages[availability],
+      checkedWithRegistrar: true,
+      managedState: null,
+    }
+  }
+}
+
+/** Prices every operation the answer permits, so the UI never has to re-ask per button. */
+const quotesFor = ({
+  operations,
+  period,
+  product,
+  settings,
+}: {
+  operations: RegistrarOperation[]
+  period: number
+  product: ResellerProduct
+  settings: Awaited<ReturnType<typeof resellerSettings>>
+}) =>
+  Object.fromEntries(
+    operations.map((operation) => [
+      operation,
+      quoteFor({
+        marginPercentage: marginFor(settings, operation),
+        operation,
+        period,
+        product,
+      }),
+    ]),
+  )
+
 const publicDomain = (domain: ManagedDomain) => ({
   domain: domain.domain,
   id: domain.id,
@@ -282,14 +413,11 @@ export const domainResellerQuote: Endpoint['handler'] = async (req) => {
   }
 
   const settings = await resellerSettings(req.payload, req)
-  const existing = await existingDomain(req, domain)
-  const existingSiteId = existing ? idOf(existing.site) : null
-  const availability =
-    existing && site && existingSiteId === String(site.id)
-      ? 'managedHere'
-      : existing
-        ? 'reservedInPlatform'
-        : 'unknown'
+  // A quote is a price question, so it stays free of provider traffic: availability here
+  // is the local answer only. `GET …/search` is the route that spends a registrar call.
+  const answer = await availabilityFor(req, domain, site ? String(site.id) : null, {
+    probeRegistrar: false,
+  })
 
   const quote = quoteFor({
     marginPercentage: marginFor(settings, operation),
@@ -299,15 +427,97 @@ export const domainResellerQuote: Endpoint['handler'] = async (req) => {
   })
 
   return json({
-    availability,
+    availability: answer.availability,
     availabilityMessage:
-      availability === 'unknown'
-        ? 'API مستندشدهٔ registrar بررسی آزادبودن دامنه ندارد؛ پیش از ارسال، registrar وضعیت واقعی را می‌سنجد.'
-        : availability === 'managedHere'
-          ? 'این دامنه از قبل برای همین سایت در پلتفرم مدیریت می‌شود.'
-          : 'این دامنه در یک workflow دیگر پلتفرم رزرو یا مدیریت شده است.',
+      answer.availability === 'unknown'
+        ? 'این پاسخ فقط قیمت است؛ برای بررسی آزادبودن دامنه از /api/site/registrar/search استفاده کنید.'
+        : answer.availabilityMessage,
     quote,
     resellerEnabled: settings.enabled === true,
+  })
+}
+
+/**
+ * GET /api/site/registrar/search?domain=example.ir&period=1
+ *
+ * The step before buying: "is this name free, and what would it cost me?" — answered in
+ * one round trip so a storefront/wizard can show an availability badge, a price, and the
+ * *right* next action (register, transfer, or renew) without guessing any of the three.
+ *
+ * Two things it deliberately is not. It is not a registration: nothing is written, no
+ * `reseller-domains` row appears, and the name is not reserved by looking at it. And it
+ * is not an oracle for other tenants: a name another site is mid-workflow on answers
+ * `reservedInPlatform` with no owner, no state and no registrar call, which is the same
+ * shape `GET …/quote` already uses.
+ *
+ * Accepts a platform key alongside a site key for the reason the quote route does — the
+ * builder searches a domain at step one of its wizard, before any site key exists — and
+ * with the same consequence: `managedHere` (and therefore the renew action) needs a site
+ * to mean anything, so a platform key never sees it.
+ */
+export const domainResellerSearch: Endpoint['handler'] = async (req) => {
+  const key = await requestApiKey(req)
+  const site = key?.role === 'platform' ? null : await siteKeyRequired(req)
+  if (site instanceof Response) return site
+
+  const domain = typeof req.query.domain === 'string' ? normalizeDomain(req.query.domain) : ''
+  const period = validPeriod(req.query.period ?? 1)
+  if (!domain || !isValidDomain(domain) || !period) {
+    return json({ message: 'دامنه یا مدت درخواست نامعتبر است.', ok: false }, 400)
+  }
+
+  // Keyed on the credential, not the IP: the caller is a server-side integration, so its
+  // API key is the accountable identity; `clientKey` only separates anonymous callers.
+  const { limit, windowMs } = searchRateLimit()
+  const throttle = consume({
+    key: `registrar-search:${key?.id ?? (req.headers ? clientKey(req.headers) : 'unknown')}`,
+    limit,
+    windowMs,
+  })
+  if (!throttle.allowed) {
+    return Response.json(
+      { message: 'تعداد جست‌وجوی دامنه بیش از حد مجاز است؛ کمی بعد دوباره تلاش کنید.', ok: false },
+      {
+        headers: { ...noStore, 'retry-after': String(throttle.retryAfterSeconds) },
+        status: 429,
+      },
+    )
+  }
+
+  const settings = await resellerSettings(req.payload, req)
+  const product = await productFor(req, domain)
+  if (!product) {
+    return json(
+      {
+        availability: 'unknown',
+        availabilityMessage: availabilityMessages.unknown,
+        message: 'این پسوند در کاتالوگ فعال پلتفرم نیست. برای قیمت‌گذاری با پشتیبانی تماس بگیرید.',
+        ok: false,
+      },
+      404,
+    )
+  }
+
+  // No registrar credential to spend while selling is off; the local answer still stands.
+  const answer = await availabilityFor(req, domain, site ? String(site.id) : null, {
+    probeRegistrar: settings.enabled === true,
+  })
+  const operations = operationsForAvailability(answer.availability, answer.managedState)
+
+  return json({
+    availability: answer.availability,
+    availabilityMessage: answer.availabilityMessage,
+    // True only when a registrar WHOIS call actually happened, so a UI can distinguish
+    // "checked, and it is taken" from "nobody asked" instead of inferring it from wording.
+    checkedWithRegistrar: answer.checkedWithRegistrar,
+    domain,
+    ok: true,
+    // The operations a buyer may start right now, each already priced for `period`.
+    operations,
+    period,
+    quotes: quotesFor({ operations, period, product, settings }),
+    resellerEnabled: settings.enabled === true,
+    tld: product.tld,
   })
 }
 
@@ -380,6 +590,43 @@ export const domainResellerOrder: Endpoint['handler'] = async (req) => {
   const siteId = String(site.id)
   if (prior && idOf(prior.site) !== siteId) {
     return json({ message: 'این دامنه اکنون در workflow پلتفرم دیگری است.', ok: false }, 409)
+  }
+
+  /**
+   * Pre-flight the two mistakes the search step exists to prevent, because a client can
+   * always post straight here without searching first. Each costs one WHOIS call and
+   * saves a `RegisterDomain`/`TransferDomain` the registry is certain to reject — which
+   * on this provider is a real charge against the platform reseller balance.
+   *
+   * Only a *certain* answer blocks: WHOIS contacts prove a registration, and an explicit
+   * "no such domain" proves the opposite. Anything else is `unknown` and the order goes
+   * through, because the registrar remains the authority and a flaky probe must not
+   * become an outage of the order path.
+   */
+  if (operation !== 'renew') {
+    const preflight = await availabilityFor(req, domain, siteId, { probeRegistrar: true })
+    if (operation === 'register' && preflight.availability === 'registered') {
+      return json(
+        {
+          availability: preflight.availability,
+          message: 'این دامنه قبلاً ثبت شده است؛ در صورت مالکیت، درخواست انتقال ثبت کنید.',
+          ok: false,
+          operations: operationsForAvailability(preflight.availability, preflight.managedState),
+        },
+        409,
+      )
+    }
+    if (operation === 'transfer' && preflight.availability === 'available') {
+      return json(
+        {
+          availability: preflight.availability,
+          message: 'این دامنه ثبت نشده است؛ انتقال ممکن نیست و باید آن را ثبت کنید.',
+          ok: false,
+          operations: operationsForAvailability(preflight.availability, preflight.managedState),
+        },
+        409,
+      )
+    }
   }
 
   let managed: ManagedDomain
@@ -882,6 +1129,7 @@ export const domainResellerManage: Endpoint['handler'] = async (req) => {
 }
 
 export const domainResellerEndpoints: Endpoint[] = [
+  { handler: domainResellerSearch, method: 'get', path: '/site/registrar/search' },
   { handler: domainResellerQuote, method: 'get', path: '/site/registrar/quote' },
   { handler: domainResellerDomains, method: 'get', path: '/site/registrar/domains' },
   { handler: domainResellerOperations, method: 'get', path: '/site/registrar/operations' },

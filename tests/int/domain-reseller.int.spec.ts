@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { decryptDomainResellerSecret, encryptDomainResellerSecret } from '@/domain-reseller/crypto'
 import {
+  availabilityFromProviderError,
   callResellerArea,
   DomainResellerProviderError,
+  operationsForAvailability,
   productForDomain,
   quoteFor,
   type ResellerProduct,
+  whoisIndicatesRegistered,
 } from '@/domain-reseller/service'
 
 const products: ResellerProduct[] = [
@@ -129,5 +132,55 @@ describe('IRPower / ResellerArea domain reseller boundary', () => {
       code: 6019,
       status: 200,
     } satisfies Partial<DomainResellerProviderError>)
+  })
+})
+
+describe('domain availability inferred from the documented WHOIS command', () => {
+  it('reads WHOIS contacts as proof of registration, and an empty result as proof of nothing', () => {
+    expect(whoisIndicatesRegistered({ registrant: { first_name: 'Sample' } })).toBe(true)
+    expect(whoisIndicatesRegistered({ billing: { email: 'a@b.c' } })).toBe(true)
+    // A success with no contact object says the name is taken by nobody the provider
+    // will name — which is not the same as free, and must not be sold as free.
+    expect(whoisIndicatesRegistered({})).toBe(false)
+    expect(whoisIndicatesRegistered(undefined)).toBe(false)
+    expect(whoisIndicatesRegistered('ok')).toBe(false)
+  })
+
+  it('calls a domain available only when the registrar says it is not registered', () => {
+    expect(
+      availabilityFromProviderError(new DomainResellerProviderError('Domain not found.')),
+    ).toBe('available')
+    expect(
+      availabilityFromProviderError(new DomainResellerProviderError('No match for domain')),
+    ).toBe('available')
+    expect(
+      availabilityFromProviderError(new DomainResellerProviderError('دامنه ثبت نشده است')),
+    ).toBe('available')
+
+    // Every other failure is an outage, a bad key, or a rate limit — never a sale signal.
+    expect(
+      availabilityFromProviderError(
+        new DomainResellerProviderError('ارتباط با registrar برقرار نشد.'),
+      ),
+    ).toBe('unknown')
+    expect(
+      availabilityFromProviderError(
+        new DomainResellerProviderError('Invalid API key', { code: 401 }),
+      ),
+    ).toBe('unknown')
+    expect(availabilityFromProviderError(new Error('boom'))).toBe('unknown')
+  })
+
+  it('offers only the operation the registrar could actually accept', () => {
+    expect(operationsForAvailability('available')).toEqual(['register'])
+    expect(operationsForAvailability('registered')).toEqual(['transfer'])
+    // RenewDomain is documented as reseller-account-only, so a renew button appears
+    // solely for a domain this platform already got accepted for this same site.
+    expect(operationsForAvailability('managedHere', 'providerAccepted')).toEqual(['renew'])
+    expect(operationsForAvailability('managedHere', 'requested')).toEqual([])
+    // Another tenant's in-flight name is not orderable, and says nothing about its owner.
+    expect(operationsForAvailability('reservedInPlatform')).toEqual([])
+    // Unverified leaves the choice with the buyer; the registrar remains the authority.
+    expect(operationsForAvailability('unknown')).toEqual(['register', 'transfer'])
   })
 })

@@ -289,5 +289,89 @@ export const callResellerArea = async (
 export const operationFrom = (value: unknown): RegistrarOperation | null =>
   value === 'register' || value === 'transfer' || value === 'renew' ? value : null
 
+/**
+ * What the platform is willing to say about one name before any money moves.
+ *
+ * `available`/`registered` are the two answers a WHOIS probe can actually support;
+ * `managedHere`/`reservedInPlatform` are local facts that outrank it (this CMS knows
+ * them without asking anyone) and `unknown` is the honest answer whenever the registrar
+ * neither confirmed a registration nor said the name is free.
+ */
+export type DomainAvailability =
+  'available' | 'managedHere' | 'registered' | 'reservedInPlatform' | 'unknown'
+
+/**
+ * ResellerArea publishes no `CheckDomain`/availability command, so the only registrar
+ * question that answers "can I buy this?" is `GetDomainWhoisInfo`: a name with WHOIS
+ * contacts is registered, and a name the registry has no record of is refused.
+ *
+ * The refusal wording is the fragile part of that inference — it is a provider error
+ * string, not a documented enum — so it is matched here, once, and anything unrecognised
+ * degrades to `unknown` rather than being sold as free. Getting this wrong in the
+ * optimistic direction means charging for a `RegisterDomain` the registry will reject;
+ * `unknown` only means the buyer sees "we could not verify" and can still try.
+ */
+const NOT_REGISTERED_PATTERNS = [
+  /not\s+(?:be\s+)?(?:found|registered|exist)/i,
+  /no\s+(?:match|data|record|such\s+domain)/i,
+  /does\s+not\s+exist/i,
+  /is\s+(?:free|available)/i,
+  /available\s+for\s+registration/i,
+  /unregistered/i,
+  /ثبت\s*نشده/,
+  /یافت\s*نشد/,
+  /آزاد\s*(?:است|می‌?باشد)/,
+]
+
+/** WHOIS says "registered" only when the registrar actually returned a contact object.
+ * An empty `result` proves nothing, and must not be read as either answer. */
+export const whoisIndicatesRegistered = (result: unknown): boolean => {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false
+  const record = result as Record<string, unknown>
+  return ['registrant', 'administrative', 'technical', 'billing'].some((role) => {
+    const contact = record[role]
+    return Boolean(contact) && typeof contact === 'object'
+  })
+}
+
+/** A provider rejection is only evidence of availability when it says so in words. */
+export const availabilityFromProviderError = (error: unknown): 'available' | 'unknown' => {
+  if (!(error instanceof DomainResellerProviderError)) return 'unknown'
+  return NOT_REGISTERED_PATTERNS.some((pattern) => pattern.test(error.message))
+    ? 'available'
+    : 'unknown'
+}
+
+/**
+ * Which billable operations a buyer may start from one availability answer.
+ *
+ * `renew` is deliberately absent unless this platform registered the name: the API
+ * document restricts `RenewDomain` to domains the reseller account itself holds, and
+ * offering a renew button for somebody else's domain would sell a request that the
+ * registrar is documented to refuse.
+ */
+export const operationsForAvailability = (
+  availability: DomainAvailability,
+  managedState?: string | null,
+): RegistrarOperation[] => {
+  const renewable =
+    availability === 'managedHere' &&
+    (managedState === 'providerAccepted' || managedState === 'active')
+
+  switch (availability) {
+    case 'available':
+      return ['register']
+    case 'managedHere':
+      return renewable ? ['renew'] : []
+    case 'registered':
+      return ['transfer']
+    case 'reservedInPlatform':
+      return []
+    default:
+      // Unverified: the buyer may still attempt either, and the registrar is the authority.
+      return ['register', 'transfer']
+  }
+}
+
 export const currencyFrom = (value: unknown): CurrencyCode | null =>
   isCurrencyCode(value) ? value : null
