@@ -79,6 +79,16 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
   labels: { plural: 'سرورهای استقرار', singular: 'سرور استقرار' },
   fields: [
     {
+      name: 'actions',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/deploy/admin/DeployTargetActions',
+        },
+      },
+      label: 'عملیات',
+    },
+    {
       type: 'row',
       fields: [
         {

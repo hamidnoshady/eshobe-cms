@@ -75,6 +75,16 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
   labels: { plural: 'پوسته‌های نصب‌شدنی', singular: 'پوستهٔ نصب‌شدنی' },
   fields: [
     {
+      name: 'actions',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/deploy/admin/ThemePackageActions',
+        },
+      },
+      label: 'عملیات',
+    },
+    {
       type: 'row',
       fields: [
         {

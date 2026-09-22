@@ -3,7 +3,7 @@ import type { CollectionConfig, Where } from 'payload'
 import { slugField } from 'payload'
 
 import { authenticated } from '../access/authenticated'
-import { platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
+import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
 import { platformApiKeyAware } from '../access/siteApiKey'
 import {
   domainValidationMessage,
@@ -196,6 +196,38 @@ export const Sites: CollectionConfig = {
         // site, and creating sites is the agency's job.
         list: {
           actions: ['@/provisioning/NewSiteButton'],
+        },
+        /**
+         * The Wave 11 deployment console, as a tab on the site document.
+         *
+         * A document view rather than a collection view because every question it
+         * answers is about *this* site — what is serving it, what may be deployed to
+         * it, how to get back. `condition` hides the tab from a customer's staff;
+         * the view re-checks, and the endpoints behind it re-check again.
+         */
+        edit: {
+          deployment: {
+            Component: '@/deploy/admin/DeploymentView',
+            meta: { title: 'استقرار پوسته' },
+            path: '/deployment',
+            tab: {
+              condition: ({ req }) => isPlatformAdmin(req?.user),
+              /**
+               * `href` is **not** derived from `path` above — `DefaultDocumentTab`
+               * reads `tab.href` and nothing else, so omitting it silently produces a
+               * tab pointing at the document root. The view then renders correctly at
+               * its own URL while the only link to it goes somewhere else, which is
+               * indistinguishable from the tab being broken.
+               *
+               * The function form receives the document's admin URL as `apiURL`'s
+               * sibling, but not the id — so it is built from the route config and the
+               * id is appended by Payload's own `DocumentTabLink`. Returning the bare
+               * suffix keeps that behaviour.
+               */
+              href: '/deployment',
+              label: 'استقرار پوسته',
+            },
+          },
         },
       },
     },
