@@ -175,6 +175,35 @@ https:// {
         reverse_proxy web:3000
     }
 
+    # WAVE-11 §5 Option A — Caddy stays the edge, a deployed theme is an upstream.
+    #
+    # When a site adopts a deployable theme in `edge` mode, its pages are rendered by
+    # a theme application on the Coolify box while *this* vhost keeps holding the
+    # customer's certificate. That split is the whole point: every carve-out above
+    # still lands on web:3000, so /api/checkout, the contact form, /api/site and
+    # locally-stored media keep working on the customer's own origin, and the theme
+    # never has to implement — or be trusted with — a proxy back to the CMS.
+    #
+    # The map is GENERATED, never hand-written: `scripts/render-theme-routes.mjs`
+    # writes it from `GET /api/platform/routing`, which emits only `live` + `edge`
+    # deployments and only *verified* aliases. A hand-maintained table is one
+    # forgotten line away from a customer's domain serving another customer's shop.
+    # The file is committed empty-by-default so a deployment with no themes at all
+    # still parses; `default ""` is what makes the matcher below fall through.
+    import /etc/caddy/theme-routes.caddy
+
+    @themed expression `{theme_upstream} != ""`
+    handle @themed {
+        # Over https and with the upstream's own Host: the theme app answers on its
+        # preview hostname, so sending the customer's Host would hit a vhost Coolify
+        # does not have. The theme learns the public origin from ESHOBE_PUBLIC_ORIGIN
+        # and X-Forwarded-Host, not from this header.
+        reverse_proxy https://{theme_upstream} {
+            header_up Host {theme_upstream}
+            header_up X-Forwarded-Host {host}
+        }
+    }
+
     # Everything else under /api on a customer domain is a 404, and two families are
     # deliberately left here rather than carved out above:
     #   - POST /api/payments/self-test and /api/payments/cancel — staff endpoints;

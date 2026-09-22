@@ -72,3 +72,69 @@ describe('Caddyfile control-plane API guard', () => {
     expect(graphqlGuard).toContain('/api/graphql')
   })
 })
+
+/**
+ * WAVE-11 §5 Option A — the theme upstream must not be able to swallow the API.
+ *
+ * A site with a deployed theme keeps its certificate and its `/api/*` carve-outs on
+ * this edge; only its *pages* proxy onward. That property is entirely a matter of
+ * directive order in one file, and getting it backwards is silent: checkout, the
+ * contact form and media would start 404ing on every themed customer's domain while
+ * the homepage looked perfect.
+ */
+describe('Caddyfile theme upstream', () => {
+  it('routes every API carve-out to web:3000 before the theme matcher is reached', () => {
+    const themed = indexOf('@themed')
+
+    for (const carveOut of [
+      '@form_submissions',
+      '@checkout',
+      '@payment_methods',
+      '@site_descriptor',
+      '@media_files',
+      '@site_domain',
+      '@site_domains',
+      '@cms_content',
+    ]) {
+      expect(indexOf(carveOut), `${carveOut} must precede @themed`).toBeLessThan(themed)
+    }
+  })
+
+  it('keeps the control-plane 404 and the web fallback after the theme matcher', () => {
+    const themed = indexOf('@themed')
+
+    // `/admin*` on a customer domain stays a 404 even when a theme is serving that
+    // domain's pages — a theme upstream must never become a route to the admin panel.
+    expect(caddyfile.indexOf('@control_plane_paths', themed)).toBeGreaterThan(themed)
+    // And a site with no theme still falls through to the built-in renderer, which is
+    // what makes `default ""` in the generated map the safe state.
+    expect(
+      caddyfile.indexOf('    handle {\n        reverse_proxy web:3000\n    }', themed),
+    ).toBeGreaterThan(themed)
+  })
+
+  it('imports the generated map, and the committed map falls through by default', () => {
+    expect(caddyfile).toContain('import /etc/caddy/theme-routes.caddy')
+
+    const routes = readFileSync(resolve(process.cwd(), 'theme-routes.caddy'), 'utf8')
+
+    // Committed empty-by-default and committed *at all*: a missing import is a Caddy
+    // that will not start, so a deployment with no themes still needs this file.
+    expect(routes).toContain('map {host} {theme_upstream}')
+    expect(routes).toContain('default ""')
+  })
+
+  it('sends the upstream its own Host and preserves the public one separately', () => {
+    const themed = indexOf('@themed')
+    // From the matcher to the directive that follows it. `indexOf('@control_plane_paths')`
+    // would find the prose mention 100 lines *earlier* and slice backwards to nothing —
+    // a test that passes by measuring an empty string is worse than no test.
+    const block = caddyfile.slice(themed, caddyfile.indexOf('@control_plane_paths path', themed))
+
+    // The theme app answers on its preview hostname; forwarding the customer's Host
+    // would hit a vhost Coolify does not have. The public origin travels in
+    // X-Forwarded-Host (and in ESHOBE_PUBLIC_ORIGIN at build time).
+    expect(block).toContain('header_up Host {theme_upstream}')
+    expect(block).toContain('header_up X-Forwarded-Host {host}')
+  })
+})

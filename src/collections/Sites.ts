@@ -343,6 +343,54 @@ export const Sites: CollectionConfig = {
           ? true
           : 'زبان پیش‌فرض باید بین زبان‌های انتخاب‌شدهٔ سایت باشد.',
     },
+    /**
+     * Who answers for this site's traffic.
+     *
+     * `platform` — this Next app renders it. Every site starts here and every site
+     * can be returned here with one call (`POST /api/platform/sites/:id/deployment/revert`),
+     * which is what makes adopting a deployable theme a reversible decision.
+     *
+     * `deployment` — a theme application does, with Caddy in front of it
+     * (`docs/theme-deployments.md` §5). It is read by `/api/domain-check`: a site
+     * whose traffic no longer arrives at Caddy must not sit there waiting to issue a
+     * certificate nobody will ever request.
+     *
+     * Written only by the deploy service. Platform-admin even at field level — a
+     * customer's owner flipping this would point their own domain at nothing.
+     */
+    {
+      name: 'renderedBy',
+      type: 'select',
+      label: 'رندر توسط',
+      defaultValue: 'platform',
+      // Not schema-`required`, unlike `status` beside it: `required` would make every
+      // existing `payload.create({ collection: 'sites' })` call site — the seed, the
+      // provisioning action, the platform API — a compile error demanding a value
+      // whose only correct answer is the default. The default is the invariant here.
+      index: true,
+      options: [
+        { label: 'سکو (رندرر داخلی)', value: 'platform' },
+        { label: 'پوستهٔ مستقرشده', value: 'deployment' },
+      ],
+      access: { update: platformAdminFieldAccess },
+      admin: {
+        description:
+          'با استقرار یک پوستهٔ نصب‌شدنی خودکار تغییر می‌کند. دستی تغییر ندهید؛ «بازگشت به رندرر داخلی» راه درست است.',
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'activeDeployment',
+      type: 'relationship',
+      relationTo: 'site-deployments',
+      label: 'استقرار فعال',
+      access: { update: platformAdminFieldAccess },
+      admin: {
+        description: 'ردیف استقراری که هم‌اکنون به این دامنه سرویس می‌دهد.',
+        position: 'sidebar',
+        readOnly: true,
+      },
+    },
     // Not localized: a site's slug is an internal identifier, not a public URL.
     slugField({ localized: false, slugify: slugifyField, useAsSlug: 'name' }),
   ],

@@ -402,6 +402,22 @@ describe('store', () => {
         'feature-flags',
         'plugins',
         'theme-templates',
+        /**
+         * WAVE-11's catalogue half, by the same test.
+         *
+         * `theme-packages` is a list of GitHub repositories the operator will build,
+         * and `deploy-targets` is a list of the operator's own Coolify servers. Both
+         * are one list offered to every customer, and "which customer owns the
+         * Tehran server?" has no answer — the same shape as `storage-connections`
+         * directly above.
+         *
+         * Their per-site halves — `site-deployments` and `site-theme-settings` — are
+         * registered with the multi-tenant plugin and are therefore deliberately
+         * absent from this list, which is what makes this assertion the thing that
+         * catches a tenant collection quietly joining the exception.
+         */
+        'theme-packages',
+        'deploy-targets',
         'webhooks',
         // A delivery attempt belongs to the webhook it was sent to, and that webhook
         // is platform-wide; the site, when there is one, is on the event payload.

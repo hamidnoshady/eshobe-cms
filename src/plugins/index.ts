@@ -256,6 +256,15 @@ export const plugins: Plugin[] = [
       invoices: {},
       'site-entitlements': { isGlobal: true },
       'usage-records': {},
+      // The deployment surface splits the same way. `site-deployments` and
+      // `site-theme-settings` each carry exactly one site, so both are registered;
+      // `theme-packages` and `deploy-targets` are the operator's own catalogue and
+      // infrastructure — one repository list and one server list offered to every
+      // customer — so they take the documented exception alongside `theme-templates`
+      // and `storage-connections`. "Which customer owns the Tehran server?" has no
+      // answer, and a required `site` column would make the row unsavable.
+      'site-deployments': {},
+      'site-theme-settings': { isGlobal: true },
       pages: {},
       posts: {},
       products: {},

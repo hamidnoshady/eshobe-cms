@@ -96,6 +96,10 @@ export interface Config {
     'feature-flags': FeatureFlag;
     plugins: Plugin;
     'theme-templates': ThemeTemplate;
+    'theme-packages': ThemePackage;
+    'deploy-targets': DeployTarget;
+    'site-deployments': SiteDeployment;
+    'site-theme-settings': SiteThemeSetting;
     webhooks: Webhook;
     'webhook-deliveries': WebhookDelivery;
     'audit-log': AuditLog;
@@ -145,6 +149,10 @@ export interface Config {
     'feature-flags': FeatureFlagsSelect<false> | FeatureFlagsSelect<true>;
     plugins: PluginsSelect<false> | PluginsSelect<true>;
     'theme-templates': ThemeTemplatesSelect<false> | ThemeTemplatesSelect<true>;
+    'theme-packages': ThemePackagesSelect<false> | ThemePackagesSelect<true>;
+    'deploy-targets': DeployTargetsSelect<false> | DeployTargetsSelect<true>;
+    'site-deployments': SiteDeploymentsSelect<false> | SiteDeploymentsSelect<true>;
+    'site-theme-settings': SiteThemeSettingsSelect<false> | SiteThemeSettingsSelect<true>;
     webhooks: WebhooksSelect<false> | WebhooksSelect<true>;
     'webhook-deliveries': WebhookDeliveriesSelect<false> | WebhookDeliveriesSelect<true>;
     'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
@@ -167,11 +175,13 @@ export interface Config {
     'domain-reseller': DomainReseller;
     payments: Payment;
     'platform-settings': PlatformSetting;
+    'payload-jobs-stats': PayloadJobsStat;
   };
   globalsSelect: {
     'domain-reseller': DomainResellerSelect<false> | DomainResellerSelect<true>;
     payments: PaymentsSelect<false> | PaymentsSelect<true>;
     'platform-settings': PlatformSettingsSelect<false> | PlatformSettingsSelect<true>;
+    'payload-jobs-stats': PayloadJobsStatsSelect<false> | PayloadJobsStatsSelect<true>;
   };
   locale: 'fa' | 'en';
   widgets: {
@@ -180,6 +190,7 @@ export interface Config {
   user: User;
   jobs: {
     tasks: {
+      advanceDeployments: TaskAdvanceDeployments;
       schedulePublish: TaskSchedulePublish;
       inline: {
         input: unknown;
@@ -334,6 +345,14 @@ export interface Site {
   availableLocales: ('fa' | 'en')[];
   defaultLocale: 'fa' | 'en';
   /**
+   * با استقرار یک پوستهٔ نصب‌شدنی خودکار تغییر می‌کند. دستی تغییر ندهید؛ «بازگشت به رندرر داخلی» راه درست است.
+   */
+  renderedBy?: ('platform' | 'deployment') | null;
+  /**
+   * ردیف استقراری که هم‌اکنون به این دامنه سرویس می‌دهد.
+   */
+  activeDeployment?: (string | null) | SiteDeployment;
+  /**
    * When enabled, the slug will auto-generate from the title field on save and autosave.
    */
   generateSlug?: boolean | null;
@@ -342,55 +361,180 @@ export interface Site {
   createdAt: string;
 }
 /**
+ * هر ردیف، یک اجرای واقعی از یک پوسته روی یک سایت است. وضعیت را فقط کار استقرار می‌نویسد؛ ردیف‌های قدیمی برای بازگشت به نسخهٔ قبل نگه داشته می‌شوند.
+ *
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "posts".
+ * via the `definition` "site-deployments".
  */
-export interface Post {
+export interface SiteDeployment {
   id: string;
   site?: (string | null) | Site;
-  title: string;
-  heroImage?: (string | null) | Media;
-  content: {
-    root: {
-      type: string;
-      children: {
-        type: any;
-        version: number;
-        [k: string]: unknown;
-      }[];
-      direction: ('ltr' | 'rtl') | null;
-      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
-      indent: number;
-      version: number;
-    };
-    [k: string]: unknown;
-  };
-  relatedPosts?: (string | Post)[] | null;
-  categories?: (string | Category)[] | null;
-  meta?: {
-    title?: string | null;
-    /**
-     * Maximum upload file size: 12MB. Recommended file size for images is <500KB.
-     */
-    image?: (string | null) | Media;
-    description?: string | null;
-  };
-  publishedAt?: string | null;
-  authors?: (string | User)[] | null;
-  populatedAuthors?:
-    | {
-        id?: string | null;
-        name?: string | null;
-      }[]
-    | null;
+  themePackage: string | ThemePackage;
+  target: string | DeployTarget;
   /**
-   * When enabled, the slug will auto-generate from the title field on save and autosave.
+   * فقط کار استقرار این را می‌نویسد.
    */
-  generateSlug?: boolean | null;
-  slug: string;
+  status: 'queued' | 'creating' | 'building' | 'verifying' | 'live' | 'failed' | 'stopped' | 'removed';
+  /**
+   * پیش‌نمایش: بدون دست زدن به DNS مشتری. Caddy: دامنه سر جایش می‌ماند و فقط صفحات به پوسته می‌روند. مستقیم: DNS مشتری به Coolify اشاره می‌کند و پوسته باید /api را پراکسی کند.
+   */
+  domainMode: 'preview' | 'edge' | 'direct';
+  /**
+   * نشانی‌ای که این اجرا روی آن پاسخ می‌دهد.
+   */
+  domain?: string | null;
+  previewDomain?: string | null;
+  ref?: string | null;
+  /**
+   * دقیقاً همان چیزی که ساخته شد — ورودی بازگشت به نسخهٔ قبل.
+   */
+  commitSha?: string | null;
+  /**
+   * پیش از هر کار دیگری ذخیره می‌شود؛ یک اپلیکیشن بی‌صاحب گران‌ترین حالت ممکن است.
+   */
+  appUuid?: string | null;
+  lastDeploymentUuid?: string | null;
+  /**
+   * کلید role: "site" که این اجرا با آن محتوا می‌خواند. با توقف این استقرار باطل می‌شود.
+   */
+  apiKey?: (string | null) | ApiKey;
+  revalidateSecret?: string | null;
+  lastError?: string | null;
+  /**
+   * کوتاه‌شده و پاک‌سازی‌شده — هیچ توکنی در آن نیست.
+   */
+  logTail?: string | null;
+  deployedAt?: string | null;
+  healthCheckedAt?: string | null;
   updatedAt: string;
   createdAt: string;
-  _status?: ('draft' | 'published') | null;
+}
+/**
+ * پوسته‌هایی که روی سرور مستقر و اجرا می‌شوند. مخزن و شاخه را وارد کنید، «همگام‌سازی از گیت‌هاب» را بزنید تا eshobe.theme.json خوانده شود، و بعد منتشر کنید. فقط پوستهٔ «منتشرشده» در ساخت سایت پیشنهاد می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-packages".
+ */
+export interface ThemePackage {
+  id: string;
+  name: string;
+  /**
+   * شناسهٔ ماشینی؛ در API استقرار با همین نام ارسال می‌شود.
+   */
+  key: string;
+  description?: string | null;
+  /**
+   * فقط «منتشرشده» برای سایت جدید پیشنهاد می‌شود. «منسوخ» سایت‌های در حال اجرا را متوقف نمی‌کند؛ فقط از فهرست انتخاب حذف می‌شود.
+   */
+  status: 'draft' | 'published' | 'deprecated';
+  provider: 'github';
+  /**
+   * owner/name
+   */
+  repository: string;
+  /**
+   * خصوصی به GITHUB_THEME_TOKEN و منبع خصوصی در Coolify نیاز دارد.
+   */
+  visibility: 'public' | 'private';
+  defaultRef: string;
+  /**
+   * اختیاری — اگر پر باشد، هر استقرار جدید دقیقاً همین کامیت را می‌گیرد.
+   */
+  pinnedCommit?: string | null;
+  contractVersion?: number | null;
+  manifestSyncedAt?: string | null;
+  siteTypes?: ('business' | 'portfolio' | 'store')[] | null;
+  buildPack?: ('nixpacks' | 'dockerfile' | 'static' | 'dockercompose') | null;
+  port?: number | null;
+  healthCheckPath?: string | null;
+  /**
+   * لازمهٔ حالت «دامنه روی Coolify». بدون آن، فرم تماس و پرداخت کار نمی‌کنند.
+   */
+  proxiesApi?: boolean | null;
+  /**
+   * محتوای eshobe.theme.json همان‌طور که خوانده شد.
+   */
+  manifest?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * متغیرهای source: "platform" را سکو می‌نویسد؛ متغیرهای source: "tenant" به‌صورت فرم به مشتری نشان داده می‌شوند.
+   */
+  envSchema?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  syncError?: string | null;
+  /**
+   * وقتی سایتی این پوسته را می‌گیرد، رنگ‌های این پوستهٔ آماده روی آن کپی می‌شود. کپی است، نه پیوند.
+   */
+  themeTemplate?: (string | null) | ThemeTemplate;
+  /**
+   * اگر هنگام استقرار سروری انتخاب نشود، همین استفاده می‌شود.
+   */
+  defaultTarget?: (string | null) | DeployTarget;
+  /**
+   * اختیاری — کلید یک feature-flag. اگر پر باشد، فقط سایتی که پلنش این قابلیت را دارد می‌تواند این پوسته را بگیرد.
+   */
+  requiredFeature?: string | null;
+  preview?: (string | null) | Media;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * کتابخانهٔ پوسته‌های آماده که سایت جدید از روی آن‌ها ساخته می‌شود. اعمال یک پوسته، یک کپی است — ویرایش این فهرست، سایت‌های موجود را تغییر نمی‌دهد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-templates".
+ */
+export interface ThemeTemplate {
+  id: string;
+  name: string;
+  /**
+   * شناسهٔ ماشینی؛ در API ساخت سایت با همین نام ارسال می‌شود.
+   */
+  key: string;
+  description?: string | null;
+  /**
+   * خاموش یعنی در ساخت سایت جدید پیشنهاد نمی‌شود؛ سایت‌های موجود دست‌نخورده‌اند.
+   */
+  active?: boolean | null;
+  /**
+   * وقتی هنگام ساخت سایت پوسته‌ای انتخاب نشده باشد، همین اعمال می‌شود.
+   */
+  isDefault?: boolean | null;
+  /**
+   * فقط برای این نوع‌ها در فهرست ساخت سایت ظاهر می‌شود.
+   */
+  siteTypes?: ('business' | 'portfolio' | 'store')[] | null;
+  tokens?: {
+    primary?: string | null;
+    accent?: string | null;
+    background?: string | null;
+    foreground?: string | null;
+    radius?: ('none' | 'sm' | 'md' | 'lg') | null;
+    /**
+     * فارسی به فضای عمودی بیشتری نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.
+     */
+    lineHeight?: number | null;
+  };
+  /**
+   * اختیاری — برای فهرست انتخاب پوسته در ساخت سایت.
+   */
+  preview?: (string | null) | Media;
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -512,6 +656,150 @@ export interface FolderInterface {
   folderType?: 'media'[] | null;
   updatedAt: string;
   createdAt: string;
+}
+/**
+ * سرورهایی که پوستهٔ سایت‌ها روی آن‌ها اجرا می‌شود. توکن Coolify رمزنگاری‌شده ذخیره می‌شود و هرگز برگردانده نمی‌شود؛ پیش از استفاده حتماً «خودآزمایی» را اجرا کنید.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "deploy-targets".
+ */
+export interface DeployTarget {
+  id: string;
+  /**
+   * برای خودتان — مثلاً «سرور اصلی — تهران».
+   */
+  name: string;
+  /**
+   * شناسهٔ ماشینی؛ در API با همین نام ارسال می‌شود.
+   */
+  key: string;
+  provider: 'coolify';
+  /**
+   * خاموش یعنی استقرار جدیدی روی آن ساخته نمی‌شود؛ سایت‌های در حال اجرا دست‌نخورده می‌مانند.
+   */
+  active?: boolean | null;
+  /**
+   * بدون / پایانی — مثل https://coolify.example.com.
+   */
+  baseUrl: string;
+  /**
+   * از بخش Keys & Tokens در Coolify. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده». این توکن می‌تواند هر سایتی را روشن و خاموش کند.
+   */
+  apiToken?: string | null;
+  /**
+   * بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».
+   */
+  clearApiToken?: boolean | null;
+  tokenSummary?: string | null;
+  /**
+   * UUID سرور در Coolify.
+   */
+  serverUuid: string;
+  /**
+   * UUID پروژه‌ای که سایت‌های مشتریان در آن ساخته می‌شوند.
+   */
+  projectUuid: string;
+  environmentName: string;
+  /**
+   * برای پوسته‌های خصوصی باید در Coolify از قبل یک منبع ساخته باشید.
+   */
+  gitSource: 'public' | 'githubApp' | 'deployKey';
+  githubAppUuid?: string | null;
+  privateKeyUuid?: string | null;
+  /**
+   * مثل *.sites.example.com — پیش از انتقال DNS مشتری، پوسته روی یک زیردامنه از این نام اجرا و بررسی می‌شود.
+   */
+  wildcardDomain?: string | null;
+  notes?: string | null;
+  lastSelfTestOk?: boolean | null;
+  lastSelfTestDetail?: string | null;
+  lastSelfTestAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * کلیدهای دسترسی برنامه‌نویسی — برای اتصال یک برنامهٔ بیرونی (مثل سامانهٔ صندوق فروش) به یک سایت یا به کل پلتفرم. کلید جدید را از «صدور کلید جدید» بسازید؛ کلید کامل فقط یک بار، در لحظهٔ صدور، نمایش داده می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "api-keys".
+ */
+export interface ApiKey {
+  id: string;
+  /**
+   * برای خودتان — مثلاً «سامانهٔ صندوق فروش، شعبهٔ مرکزی».
+   */
+  name: string;
+  /**
+   * کلید «سایت» فقط به همان سایت دسترسی دارد. کلید «پلتفرم» هیچ محتوایی نمی‌خواند؛ فقط می‌تواند سایت بسازد یا کلید صادر/باطل کند.
+   */
+  role: 'site' | 'platform';
+  site?: (string | null) | Site;
+  keyHash?: string | null;
+  /**
+   * برای شناختن کلید در فهرست — کلید کامل فقط یک بار، در لحظهٔ صدور، نمایش داده می‌شود.
+   */
+  keyPrefix?: string | null;
+  /**
+   * پر کردن این فیلد، کلید را فوراً از کار می‌اندازد — سطر برای پیگیری باقی می‌ماند.
+   */
+  disabledAt?: string | null;
+  /**
+   * هر بار که این کلید یک درخواست را احراز هویت می‌کند به‌روز می‌شود؛ برای اطلاع، نه برای احراز هویت.
+   */
+  lastUsedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "posts".
+ */
+export interface Post {
+  id: string;
+  site?: (string | null) | Site;
+  title: string;
+  heroImage?: (string | null) | Media;
+  content: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  };
+  relatedPosts?: (string | Post)[] | null;
+  categories?: (string | Category)[] | null;
+  meta?: {
+    title?: string | null;
+    /**
+     * Maximum upload file size: 12MB. Recommended file size for images is <500KB.
+     */
+    image?: (string | null) | Media;
+    description?: string | null;
+  };
+  publishedAt?: string | null;
+  authors?: (string | User)[] | null;
+  populatedAuthors?:
+    | {
+        id?: string | null;
+        name?: string | null;
+      }[]
+    | null;
+  /**
+   * When enabled, the slug will auto-generate from the title field on save and autosave.
+   */
+  generateSlug?: boolean | null;
+  slug: string;
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -1143,39 +1431,6 @@ export interface ArchiveBlock {
   id?: string | null;
   blockName?: string | null;
   blockType: 'archive';
-}
-/**
- * کلیدهای دسترسی برنامه‌نویسی — برای اتصال یک برنامهٔ بیرونی (مثل سامانهٔ صندوق فروش) به یک سایت یا به کل پلتفرم. کلید جدید را از «صدور کلید جدید» بسازید؛ کلید کامل فقط یک بار، در لحظهٔ صدور، نمایش داده می‌شود.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "api-keys".
- */
-export interface ApiKey {
-  id: string;
-  /**
-   * برای خودتان — مثلاً «سامانهٔ صندوق فروش، شعبهٔ مرکزی».
-   */
-  name: string;
-  /**
-   * کلید «سایت» فقط به همان سایت دسترسی دارد. کلید «پلتفرم» هیچ محتوایی نمی‌خواند؛ فقط می‌تواند سایت بسازد یا کلید صادر/باطل کند.
-   */
-  role: 'site' | 'platform';
-  site?: (string | null) | Site;
-  keyHash?: string | null;
-  /**
-   * برای شناختن کلید در فهرست — کلید کامل فقط یک بار، در لحظهٔ صدور، نمایش داده می‌شود.
-   */
-  keyPrefix?: string | null;
-  /**
-   * پر کردن این فیلد، کلید را فوراً از کار می‌اندازد — سطر برای پیگیری باقی می‌ماند.
-   */
-  disabledAt?: string | null;
-  /**
-   * هر بار که این کلید یک درخواست را احراز هویت می‌کند به‌روز می‌شود؛ برای اطلاع، نه برای احراز هویت.
-   */
-  lastUsedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
 }
 /**
  * اتصال ذخیره‌سازی ArvanCloud که همهٔ رسانه‌های سایت‌ها در آن ذخیره می‌شود. فقط یک اتصال می‌تواند فعال باشد؛ کلید رمزنگاری‌شده ذخیره می‌شود و هرگز از API برگردانده نمی‌شود.
@@ -2220,46 +2475,28 @@ export interface Plugin {
   createdAt: string;
 }
 /**
- * کتابخانهٔ پوسته‌های آماده که سایت جدید از روی آن‌ها ساخته می‌شود. اعمال یک پوسته، یک کپی است — ویرایش این فهرست، سایت‌های موجود را تغییر نمی‌دهد.
+ * مقادیری که این پوسته از شما می‌خواهد — مثل کلید نقشه. فهرست متغیرها را خود پوسته تعیین می‌کند؛ مقدار محرمانه رمزنگاری‌شده ذخیره می‌شود و دیگر نمایش داده نمی‌شود.
  *
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "theme-templates".
+ * via the `definition` "site-theme-settings".
  */
-export interface ThemeTemplate {
+export interface SiteThemeSetting {
   id: string;
-  name: string;
+  site?: (string | null) | Site;
+  themePackage: string | ThemePackage;
   /**
-   * شناسهٔ ماشینی؛ در API ساخت سایت با همین نام ارسال می‌شود.
+   * مقادیر غیرمحرمانه، به شکل {"MAP_API_KEY": "..."}. کلیدهای تعریف‌نشده نادیده گرفته می‌شوند.
    */
-  key: string;
-  description?: string | null;
-  /**
-   * خاموش یعنی در ساخت سایت جدید پیشنهاد نمی‌شود؛ سایت‌های موجود دست‌نخورده‌اند.
-   */
-  active?: boolean | null;
-  /**
-   * وقتی هنگام ساخت سایت پوسته‌ای انتخاب نشده باشد، همین اعمال می‌شود.
-   */
-  isDefault?: boolean | null;
-  /**
-   * فقط برای این نوع‌ها در فهرست ساخت سایت ظاهر می‌شود.
-   */
-  siteTypes?: ('business' | 'portfolio' | 'store')[] | null;
-  tokens?: {
-    primary?: string | null;
-    accent?: string | null;
-    background?: string | null;
-    foreground?: string | null;
-    radius?: ('none' | 'sm' | 'md' | 'lg') | null;
-    /**
-     * فارسی به فضای عمودی بیشتری نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.
-     */
-    lineHeight?: number | null;
-  };
-  /**
-   * اختیاری — برای فهرست انتخاب پوسته در ساخت سایت.
-   */
-  preview?: (string | null) | Media;
+  values?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  secretValues?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2307,6 +2544,11 @@ export interface Webhook {
     | 'apikey.issued'
     | 'apikey.revoked'
     | 'plugin.changed'
+    | 'theme.published'
+    | 'deployment.started'
+    | 'deployment.live'
+    | 'deployment.failed'
+    | 'deployment.stopped'
     | 'storage.changed'
     | 'cdn.synced'
     | 'order.paid'
@@ -2364,6 +2606,11 @@ export interface WebhookDelivery {
     | 'apikey.issued'
     | 'apikey.revoked'
     | 'plugin.changed'
+    | 'theme.published'
+    | 'deployment.started'
+    | 'deployment.live'
+    | 'deployment.failed'
+    | 'deployment.stopped'
     | 'storage.changed'
     | 'cdn.synced'
     | 'order.paid'
@@ -2424,6 +2671,11 @@ export interface AuditLog {
     | 'apikey.issued'
     | 'apikey.revoked'
     | 'plugin.changed'
+    | 'theme.published'
+    | 'deployment.started'
+    | 'deployment.live'
+    | 'deployment.failed'
+    | 'deployment.stopped'
     | 'storage.changed'
     | 'cdn.synced'
     | 'order.paid'
@@ -2612,7 +2864,7 @@ export interface PayloadJob {
     | {
         executedAt: string;
         completedAt: string;
-        taskSlug: 'inline' | 'schedulePublish';
+        taskSlug: 'inline' | 'advanceDeployments' | 'schedulePublish';
         taskID: string;
         input?:
           | {
@@ -2645,10 +2897,19 @@ export interface PayloadJob {
         id?: string | null;
       }[]
     | null;
-  taskSlug?: ('inline' | 'schedulePublish') | null;
+  taskSlug?: ('inline' | 'advanceDeployments' | 'schedulePublish') | null;
   queue?: string | null;
   waitUntil?: string | null;
   processing?: boolean | null;
+  meta?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2774,6 +3035,22 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'theme-templates';
         value: string | ThemeTemplate;
+      } | null)
+    | ({
+        relationTo: 'theme-packages';
+        value: string | ThemePackage;
+      } | null)
+    | ({
+        relationTo: 'deploy-targets';
+        value: string | DeployTarget;
+      } | null)
+    | ({
+        relationTo: 'site-deployments';
+        value: string | SiteDeployment;
+      } | null)
+    | ({
+        relationTo: 'site-theme-settings';
+        value: string | SiteThemeSetting;
       } | null)
     | ({
         relationTo: 'webhooks';
@@ -3351,6 +3628,8 @@ export interface SitesSelect<T extends boolean = true> {
   status?: T;
   availableLocales?: T;
   defaultLocale?: T;
+  renderedBy?: T;
+  activeDeployment?: T;
   generateSlug?: T;
   slug?: T;
   updatedAt?: T;
@@ -3948,6 +4227,101 @@ export interface ThemeTemplatesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-packages_select".
+ */
+export interface ThemePackagesSelect<T extends boolean = true> {
+  name?: T;
+  key?: T;
+  description?: T;
+  status?: T;
+  provider?: T;
+  repository?: T;
+  visibility?: T;
+  defaultRef?: T;
+  pinnedCommit?: T;
+  contractVersion?: T;
+  manifestSyncedAt?: T;
+  siteTypes?: T;
+  buildPack?: T;
+  port?: T;
+  healthCheckPath?: T;
+  proxiesApi?: T;
+  manifest?: T;
+  envSchema?: T;
+  syncError?: T;
+  themeTemplate?: T;
+  defaultTarget?: T;
+  requiredFeature?: T;
+  preview?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "deploy-targets_select".
+ */
+export interface DeployTargetsSelect<T extends boolean = true> {
+  name?: T;
+  key?: T;
+  provider?: T;
+  active?: T;
+  baseUrl?: T;
+  apiToken?: T;
+  clearApiToken?: T;
+  tokenSummary?: T;
+  serverUuid?: T;
+  projectUuid?: T;
+  environmentName?: T;
+  gitSource?: T;
+  githubAppUuid?: T;
+  privateKeyUuid?: T;
+  wildcardDomain?: T;
+  notes?: T;
+  lastSelfTestOk?: T;
+  lastSelfTestDetail?: T;
+  lastSelfTestAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-deployments_select".
+ */
+export interface SiteDeploymentsSelect<T extends boolean = true> {
+  site?: T;
+  themePackage?: T;
+  target?: T;
+  status?: T;
+  domainMode?: T;
+  domain?: T;
+  previewDomain?: T;
+  ref?: T;
+  commitSha?: T;
+  appUuid?: T;
+  lastDeploymentUuid?: T;
+  apiKey?: T;
+  revalidateSecret?: T;
+  lastError?: T;
+  logTail?: T;
+  deployedAt?: T;
+  healthCheckedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-theme-settings_select".
+ */
+export interface SiteThemeSettingsSelect<T extends boolean = true> {
+  site?: T;
+  themePackage?: T;
+  values?: T;
+  secretValues?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "webhooks_select".
  */
 export interface WebhooksSelect<T extends boolean = true> {
@@ -4232,6 +4606,7 @@ export interface PayloadJobsSelect<T extends boolean = true> {
   queue?: T;
   waitUntil?: T;
   processing?: T;
+  meta?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -4413,6 +4788,24 @@ export interface PlatformSetting {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-jobs-stats".
+ */
+export interface PayloadJobsStat {
+  id: string;
+  stats?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "domain-reseller_select".
  */
 export interface DomainResellerSelect<T extends boolean = true> {
@@ -4480,6 +4873,16 @@ export interface PlatformSettingsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-jobs-stats_select".
+ */
+export interface PayloadJobsStatsSelect<T extends boolean = true> {
+  stats?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "collections_widget".
  */
 export interface CollectionsWidget {
@@ -4487,6 +4890,16 @@ export interface CollectionsWidget {
     [k: string]: unknown;
   };
   width: 'full';
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskAdvanceDeployments".
+ */
+export interface TaskAdvanceDeployments {
+  input?: unknown;
+  output: {
+    advanced?: number | null;
+  };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
