@@ -1341,6 +1341,132 @@ Verify raw body HMAC with `PAYLOAD_SECRET`; then purge cache / revalidate path. 
 
 ---
 
+## 17b. `eshobe.theme.json` — making a theme deployable
+
+Everything above describes a theme that *reads* the API. This section is about a theme the
+platform can *host*: committed to GitHub, registered by an operator, and deployed to
+Eshobe's own infrastructure so a customer can pick it and have it live on their domain.
+
+That requires exactly one extra file at the repository root. Without it the repo is still a
+perfectly good theme — you just deploy it yourself. Operator-side mechanics live in
+`docs/theme-deployments.md`; this is the author's half of the contract.
+
+### Minimal file
+
+```jsonc
+{
+  "contractVersion": 1,
+  "key": "bazaar",
+  "name": "Bazaar",
+  "siteTypes": ["store"],
+  "build": { "pack": "nixpacks", "port": 3000 }
+}
+```
+
+### Fields
+
+| Field | Required | Default | Notes |
+|---|---|---|---|
+| `contractVersion` | ✅ | — | The Theme API version this theme targets. **Must not exceed** the platform's — a newer manifest is rejected, never coerced. |
+| `key` | ✅ | — | Stable slug. Identifies the package forever; renaming it creates a different package. |
+| `name` | ✅ | — | Latin display name. |
+| `nameFa` | | `null` | Persian display name shown to customers. Supply it — the admin UI is Persian-first. |
+| `siteTypes` | ✅ | — | Any of `business`, `portfolio`, `store`. A **capability claim**: a theme with no product blocks must not list `store`. Enforced at deploy time. |
+| `locales` | | `[]` | Locales the theme has strings for. Empty means "whatever the site defines". |
+| `capabilities` | | `{}` | Free-form `Record<string, boolean>` for operator filtering. Not interpreted. |
+| `previewUrl` | | `null` | Live demo. **Must be `https:`.** |
+| `proxiesApi` | | `false` | See below — the single most consequential flag in the file. |
+| `env` | | `[]` | Tenant-supplied configuration. See below. |
+| `build` | | `{}` | Build instructions. See below. |
+
+### `proxiesApi` — read this before setting it
+
+Three domain modes exist. In `preview` and `edge`, the customer's domain stays on Eshobe's
+edge, which proxies **pages** to your theme while `/api/*` continues to be served by the
+CMS. Checkout, form submissions and media keep working regardless of what your theme does.
+
+In `direct` mode the customer's DNS points at your container and nothing sits in front of
+it. Every `/api/*` request now arrives at *your* app. If it doesn't forward them, checkout
+silently stops working — the page renders, the buy button 404s.
+
+So `proxiesApi: true` is a promise: *this theme forwards `/api/*` to `ESHOBE_CMS_URL`,
+preserving method, body and the `Host` header.* Deploying in `direct` mode is refused
+unless you make it. Leave it `false` unless you have actually implemented and tested that
+proxy — `edge` mode is the better default anyway.
+
+### `build`
+
+| Field | Default | Notes |
+|---|---|---|
+| `pack` | `nixpacks` | `nixpacks`, `dockerfile`, `static`, `dockercompose`. |
+| `port` | `3000` | 1–65535. The port your server listens on. |
+| `installCommand` / `buildCommand` / `startCommand` | `null` | `null` means "let the build pack decide", which is usually right for a standard Next.js app. |
+| `baseDirectory` | `/` | Must start with `/`. Set it for a monorepo. |
+| `publishDirectory` | `null` | Static output directory. |
+| `dockerfileLocation` | `null` | For `pack: "dockerfile"`. |
+| `healthCheckPath` | `null` | Must start with `/`. Strongly recommended: it's how a deploy knows the difference between "started" and "actually serving". |
+| `isStatic` | `true` when `pack` is `static` | |
+
+### `env` — asking the customer for configuration
+
+Each entry is a question the customer answers once, in the admin UI, before deploying:
+
+```jsonc
+{
+  "key": "MAP_API_KEY",
+  "labelFa": "کلید API نقشه",
+  "help": "از پنل نشان دریافت کنید",
+  "required": true,
+  "secret": true,
+  "source": "tenant"
+}
+```
+
+- `key` — `^[A-Z][A-Z0-9_]{0,63}$`. Uppercase only; a lowercase key is rejected rather than
+  normalised, because silently renaming someone's variable is worse than refusing it.
+- `secret: true` — encrypted at rest, never returned by any API, write-only in the UI.
+- `required: true` — deployment is refused until it has a value. Nothing half-configured
+  ever reaches a build.
+- Values are capped at 2048 characters; the whole file at 64 KB.
+
+**You cannot declare these.** They are injected by the platform, and listing one as
+`source: "tenant"` is a hard parse error:
+
+```
+ESHOBE_CMS_URL          ESHOBE_SITE_DOMAIN     ESHOBE_SITE_ID
+ESHOBE_API_KEY          ESHOBE_DEFAULT_LOCALE  ESHOBE_LOCALES
+ESHOBE_SITE_TYPE        ESHOBE_CURRENCY        ESHOBE_REVALIDATE_SECRET
+ESHOBE_CONTRACT_VERSION ESHOBE_PUBLIC_ORIGIN
+```
+
+`ESHOBE_PUBLIC_ORIGIN` is the origin your theme is *actually reachable at*, which in
+preview mode is **not** `ESHOBE_SITE_DOMAIN`. Build absolute URLs from
+`ESHOBE_PUBLIC_ORIGIN` and canonical/SEO URLs from `ESHOBE_SITE_DOMAIN`; using the latter
+for links emits URLs nobody can follow while the customer is still previewing.
+
+`ESHOBE_API_KEY` and `ESHOBE_REVALIDATE_SECRET` are injected **at runtime, not build time**
+— a secret baked into an image layer outlives its rotation. Don't read them at module scope
+during a static build.
+
+### Revalidation
+
+If you accept revalidation webhooks, expose `POST /api/revalidate` and verify
+`x-eshobe-signature` with `ESHOBE_REVALIDATE_SECRET` exactly as described in §17 — the
+signature is over the **raw body**. Each deployment gets its own secret, so one compromised
+theme cannot forge notices for another. An unsigned or unverified endpoint is a public
+cache-purge button; always verify before acting.
+
+### Checklist
+
+1. Commit `eshobe.theme.json` at the repo root.
+2. Read config from `process.env`, never from a committed file.
+3. Expose `healthCheckPath` and return non-200 while genuinely unready.
+4. Build links from `ESHOBE_PUBLIC_ORIGIN`, canonicals from `ESHOBE_SITE_DOMAIN`.
+5. Only claim `siteTypes` you actually render, and `proxiesApi` only if you truly proxy.
+6. Tag releases. Operators can pin a commit; a moving `main` is not a release strategy.
+
+---
+
 ## 18. Reference: Constants & Types
 
 ### Slugs & Paths

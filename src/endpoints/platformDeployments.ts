@@ -644,6 +644,23 @@ export const routingTableEndpoint: Endpoint = {
       if (!site?.domain || !upstream) continue
 
       /**
+       * A site that is not `active` is not routed to its theme, however live the
+       * deployment is.
+       *
+       * Suspension is enforced by the built-in renderer: `getSiteContext().serving`
+       * is `status === 'active'`, and a suspended site gets `SiteHolding` instead of
+       * content. An externally deployed theme does not consult that — it holds its
+       * own API key and renders whatever `/api/site` gives it. So leaving a suspended
+       * site in this map means the one customer who stopped paying is the one whose
+       * storefront keeps working, which is the exact opposite of the intent.
+       *
+       * Dropping the route falls the hostname back to `web:3000`, where the existing
+       * holding page answers. The deployment row is left alone — suspension is
+       * usually temporary, and resuming the site should not require a rebuild.
+       */
+      if (String(site.status ?? '') !== 'active') continue
+
+      /**
        * The host comes from the *deployment*, not from the site, and a drift between
        * the two drops the route rather than papering over it.
        *

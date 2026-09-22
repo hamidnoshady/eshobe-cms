@@ -62,6 +62,11 @@ export const PLATFORM_ENV_KEYS = [
   'ESHOBE_CURRENCY',
   'ESHOBE_REVALIDATE_SECRET',
   'ESHOBE_CONTRACT_VERSION',
+  // Injected by `buildEnvironment` from the domain the deployment is actually
+  // reachable at, which in preview mode is not the site's canonical domain. It belongs
+  // here for the same reason as the rest: a theme that declares it as a tenant
+  // question would show the customer a box whose answer is silently overwritten.
+  'ESHOBE_PUBLIC_ORIGIN',
 ] as const
 
 const ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/

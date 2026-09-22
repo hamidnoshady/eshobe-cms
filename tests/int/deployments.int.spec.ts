@@ -795,6 +795,28 @@ describe('the routing table', () => {
     expect(hosts).toContain(String(site.domain))
     expect(listed.routes[0].upstream).toBe('acme-preview.sites.test.invalid')
 
+    // Suspension: a site that stopped paying must not be the one site whose
+    // storefront keeps working. The deployment stays live and the row is untouched —
+    // the route simply disappears until the site is active again.
+    await payload.update({
+      collection: 'sites',
+      data: { status: 'suspended' },
+      id: siteId.acme,
+      overrideAccess: true,
+    })
+
+    const suspended = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
+    expect(suspended.routes).toEqual([])
+
+    await payload.update({
+      collection: 'sites',
+      data: { status: 'active' },
+      id: siteId.acme,
+      overrideAccess: true,
+    })
+    const resumed = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
+    expect(resumed.routes.map((r: { host: string }) => r.host)).toContain(String(site.domain))
+
     // And the drift rule: the row remembers the hostname Coolify was configured with,
     // so a site that has since moved domains drops out of the table rather than
     // pointing its new hostname at an app that will 404 it.
