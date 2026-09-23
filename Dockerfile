@@ -14,6 +14,10 @@ WORKDIR /app
 # Install dependencies based on the preferred package manager.
 # pnpm-workspace.yaml carries pnpm 11's build-script approvals (allowBuilds);
 # without it native postinstalls (sharp, esbuild) are silently skipped.
+# COREPACK_HOME is pinned so the pnpm that `corepack enable` downloads here
+# lives at a known path that later stages can COPY instead of re-downloading
+# (see the builder stage).
+ENV COREPACK_HOME=/corepack
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
 # Required for the root's workspace:* dependency, including in the migrator.
 COPY packages/site-runtime/package.json ./packages/site-runtime/package.json
@@ -36,11 +40,16 @@ RUN \
 # container start: everything is baked into this layer.
 FROM base AS migration-tools
 RUN apk add --no-cache libc6-compat
+ENV COREPACK_HOME=/corepack
 WORKDIR /app
 
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
 # Required for the root's workspace:* dependency, including in the migrator.
 COPY packages/site-runtime/package.json ./packages/site-runtime/package.json
+# Reuse the pnpm binary the deps stage already downloaded: without this, every
+# rebuild of this stage re-fetches pnpm from the npm registry before it can
+# even start installing packages.
+COPY --from=deps /corepack /corepack
 RUN \
   if [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile --prod; \
   else echo "Lockfile not found." && exit 1; \
@@ -65,8 +74,17 @@ COPY scripts/migrate.ts ./scripts/migrate.ts
 
 # Rebuild the source code only when needed
 FROM base AS builder
+ENV COREPACK_HOME=/corepack
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+# The build below runs `corepack enable pnpm && pnpm run build` on a fresh
+# stage: corepack's cache does not survive the stage boundary, so it would
+# download pnpm from the npm registry on EVERY image build — the only network
+# request `next build` still needs (fonts are bundled, the DB is not touched).
+# A transient registry/CDN failure there fails CI with the build step's exit
+# code 1 (publish run 35871619894, 2026-09-23). Copy the copy the deps stage
+# already downloaded and the builder becomes fully hermetic.
+COPY --from=deps /corepack /corepack
 COPY . .
 
 # NEXT_PUBLIC_* values are inlined into client bundles and next.config headers
