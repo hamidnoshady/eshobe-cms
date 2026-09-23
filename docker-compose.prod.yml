@@ -73,6 +73,13 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # WAVE-11 §5 — the host → theme-upstream map the Caddyfile imports. Writable
+      # rather than `:ro`: `scripts/render-theme-routes.mjs` regenerates it from
+      # `GET /api/platform/routing` whenever a themed deployment goes live or stops,
+      # and a `caddy reload` picks it up. Mounted as a file so the committed
+      # empty-by-default version is what a deployment with no themes starts from — a
+      # missing import is a Caddy that will not boot.
+      - ./theme-routes.caddy:/etc/caddy/theme-routes.caddy
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

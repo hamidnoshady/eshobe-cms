@@ -3,7 +3,7 @@ import type { CollectionConfig, Where } from 'payload'
 import { slugField } from 'payload'
 
 import { authenticated } from '../access/authenticated'
-import { platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
+import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '../access/platformAdmin'
 import { platformApiKeyAware } from '../access/siteApiKey'
 import {
   domainValidationMessage,
@@ -197,6 +197,38 @@ export const Sites: CollectionConfig = {
         list: {
           actions: ['@/provisioning/NewSiteButton'],
         },
+        /**
+         * The Wave 11 deployment console, as a tab on the site document.
+         *
+         * A document view rather than a collection view because every question it
+         * answers is about *this* site — what is serving it, what may be deployed to
+         * it, how to get back. `condition` hides the tab from a customer's staff;
+         * the view re-checks, and the endpoints behind it re-check again.
+         */
+        edit: {
+          deployment: {
+            Component: '@/deploy/admin/DeploymentView',
+            meta: { title: 'استقرار پوسته' },
+            path: '/deployment',
+            tab: {
+              condition: ({ req }) => isPlatformAdmin(req?.user),
+              /**
+               * `href` is **not** derived from `path` above — `DefaultDocumentTab`
+               * reads `tab.href` and nothing else, so omitting it silently produces a
+               * tab pointing at the document root. The view then renders correctly at
+               * its own URL while the only link to it goes somewhere else, which is
+               * indistinguishable from the tab being broken.
+               *
+               * The function form receives the document's admin URL as `apiURL`'s
+               * sibling, but not the id — so it is built from the route config and the
+               * id is appended by Payload's own `DocumentTabLink`. Returning the bare
+               * suffix keeps that behaviour.
+               */
+              href: '/deployment',
+              label: 'استقرار پوسته',
+            },
+          },
+        },
       },
     },
   },
@@ -342,6 +374,54 @@ export const Sites: CollectionConfig = {
         !value || !data?.availableLocales?.length || data.availableLocales.includes(value)
           ? true
           : 'زبان پیش‌فرض باید بین زبان‌های انتخاب‌شدهٔ سایت باشد.',
+    },
+    /**
+     * Who answers for this site's traffic.
+     *
+     * `platform` — this Next app renders it. Every site starts here and every site
+     * can be returned here with one call (`POST /api/platform/sites/:id/deployment/revert`),
+     * which is what makes adopting a deployable theme a reversible decision.
+     *
+     * `deployment` — a theme application does, with Caddy in front of it
+     * (`docs/theme-deployments.md` §5). It is read by `/api/domain-check`: a site
+     * whose traffic no longer arrives at Caddy must not sit there waiting to issue a
+     * certificate nobody will ever request.
+     *
+     * Written only by the deploy service. Platform-admin even at field level — a
+     * customer's owner flipping this would point their own domain at nothing.
+     */
+    {
+      name: 'renderedBy',
+      type: 'select',
+      label: 'رندر توسط',
+      defaultValue: 'platform',
+      // Not schema-`required`, unlike `status` beside it: `required` would make every
+      // existing `payload.create({ collection: 'sites' })` call site — the seed, the
+      // provisioning action, the platform API — a compile error demanding a value
+      // whose only correct answer is the default. The default is the invariant here.
+      index: true,
+      options: [
+        { label: 'سکو (رندرر داخلی)', value: 'platform' },
+        { label: 'پوستهٔ مستقرشده', value: 'deployment' },
+      ],
+      access: { update: platformAdminFieldAccess },
+      admin: {
+        description:
+          'با استقرار یک پوستهٔ نصب‌شدنی خودکار تغییر می‌کند. دستی تغییر ندهید؛ «بازگشت به رندرر داخلی» راه درست است.',
+        position: 'sidebar',
+      },
+    },
+    {
+      name: 'activeDeployment',
+      type: 'relationship',
+      relationTo: 'site-deployments',
+      label: 'استقرار فعال',
+      access: { update: platformAdminFieldAccess },
+      admin: {
+        description: 'ردیف استقراری که هم‌اکنون به این دامنه سرویس می‌دهد.',
+        position: 'sidebar',
+        readOnly: true,
+      },
     },
     // Not localized: a site's slug is an internal identifier, not a public URL.
     slugField({ localized: false, slugify: slugifyField, useAsSlug: 'name' }),

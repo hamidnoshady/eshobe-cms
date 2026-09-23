@@ -9,6 +9,7 @@ import * as migration_20260905_130000_cdn_integration from './20260905_130000_cd
 import * as migration_20260905_150000_domain_reseller from './20260905_150000_domain_reseller';
 import * as migration_20260907_000000_storage_connections from './20260907_000000_storage_connections';
 import * as migration_20260912_100401_saas_control_plane from './20260912_100401_saas_control_plane';
+import * as migration_20260922_170603_wave11_theme_deployments from './20260922_170603_wave11_theme_deployments';
 
 export const migrations = [
   {
@@ -64,6 +65,11 @@ export const migrations = [
   {
     up: migration_20260912_100401_saas_control_plane.up,
     down: migration_20260912_100401_saas_control_plane.down,
-    name: '20260912_100401_saas_control_plane'
+    name: '20260912_100401_saas_control_plane',
+  },
+  {
+    up: migration_20260922_170603_wave11_theme_deployments.up,
+    down: migration_20260922_170603_wave11_theme_deployments.down,
+    name: '20260922_170603_wave11_theme_deployments'
   },
 ];

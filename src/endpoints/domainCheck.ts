@@ -53,10 +53,54 @@ export const domainCheck: Endpoint = {
       },
     })
 
+    /**
+     * The hostnames a live `direct`-mode deployment has taken over. One query,
+     * narrowed to this hostname — never a scan of every deployment on the fleet, for
+     * the reason `docs/platform-control-api.md` §4 gives about unbounded reads on a
+     * path a stranger can trigger.
+     */
+    const directModeHosts = new Set<string>()
+
+    if (docs.some((site) => site.renderedBy === 'deployment')) {
+      const { docs: deployments } = await req.payload.find({
+        collection: 'site-deployments',
+        depth: 0,
+        limit: 5,
+        overrideAccess: true,
+        pagination: false,
+        where: {
+          and: [
+            { domain: { equals: domain } },
+            { domainMode: { equals: 'direct' } },
+            { status: { equals: 'live' } },
+          ],
+        },
+      })
+      for (const row of deployments) {
+        if (row.domain) directModeHosts.add(String(row.domain))
+      }
+    }
+
     const authorised = docs.some((site) => {
       const match = siteHostMatch(site, domain)
 
-      return Boolean(match && match.verified)
+      if (!match || !match.verified) return false
+
+      /**
+       * Wave 11 — a site whose traffic has left this edge must not burn a
+       * certificate here.
+       *
+       * `renderedBy: 'deployment'` in `direct` mode means the customer's DNS points
+       * at Coolify, which terminates TLS itself. An ask still arriving for that
+       * hostname is either a stale DNS record or a stranger pointing a name at this
+       * server — and issuing for it would spend the CA rate limit on a certificate
+       * nothing will ever present. `edge` mode is unaffected: Caddy is still the
+       * edge there and still needs the certificate, which is exactly why that mode
+       * is the recommended one (`docs/theme-deployments.md` §5).
+       */
+      if (site.renderedBy === 'deployment' && directModeHosts.has(domain)) return false
+
+      return true
     })
 
     return authorised

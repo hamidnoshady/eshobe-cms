@@ -13,6 +13,7 @@ import { AuditLog } from './collections/AuditLog'
 import { Categories } from './collections/Categories'
 import { CdnEvents } from './collections/CdnEvents'
 import { CdnZones } from './collections/CdnZones'
+import { DeployTargets } from './collections/DeployTargets'
 import { DomainResellerProducts } from './collections/DomainResellerProducts'
 import { FeatureFlags } from './collections/FeatureFlags'
 import { Invoices } from './collections/Invoices'
@@ -27,12 +28,15 @@ import { Plugins } from './collections/Plugins'
 import { Products } from './collections/Products'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
+import { SiteDeployments } from './collections/SiteDeployments'
 import { SiteEntitlements } from './collections/SiteEntitlements'
+import { SiteThemeSettings } from './collections/SiteThemeSettings'
 import { Sites } from './collections/Sites'
 import { StorageConnections } from './collections/StorageConnections'
 import { Store } from './collections/Store'
 import { Subscriptions } from './collections/Subscriptions'
 import { Theme } from './collections/Theme'
+import { ThemePackages } from './collections/ThemePackages'
 import { ThemeTemplates } from './collections/ThemeTemplates'
 import { UsageRecords } from './collections/UsageRecords'
 import { Users } from './collections/Users'
@@ -46,6 +50,7 @@ import { Header } from './Header/config'
 import { runtimeDatabaseOptions } from './lib/database'
 import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
 import { defaultLocale, locales } from './lib/locales'
+import { advanceDeploymentsTask } from './deploy/task'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
@@ -57,6 +62,7 @@ import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { platformControlEndpoints } from './endpoints/platformControl'
+import { platformDeploymentEndpoints } from './endpoints/platformDeployments'
 import { platformSaasEndpoints } from './endpoints/platformSaas'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
@@ -128,6 +134,14 @@ export default buildConfig({
     // body, which is the failure mode that does not look like one. The same trap the
     // fleet file records for its own `/snapshot` pair.
     ...platformSaasEndpoints,
+    // Wave 11 — the deployable-theme surface, spread here for the same ordering
+    // reason as the SaaS routes above it: it registers several literal
+    // `/platform/sites/:id/deployment*` paths that the fleet file's bare
+    // `/platform/sites/:id` would otherwise swallow, answering 200 with the wrong
+    // body. `/api/deploy-targets/self-test` is **not** here — it is a collection
+    // endpoint on `DeployTargets`, because a path whose first segment is a
+    // collection slug never reaches this array.
+    ...platformDeploymentEndpoints,
     ...platformControlEndpoints,
   ],
   globals: [
@@ -252,6 +266,23 @@ export default buildConfig({
     FeatureFlags,
     Plugins,
     ThemeTemplates,
+    /**
+     * Wave 11 — deployable themes.
+     *
+     * `theme-packages` (a GitHub repo built against docs/THEME_API.md) and
+     * `deploy-targets` (a Coolify connection) are the operator's catalogue and
+     * infrastructure, so they take the documented multi-tenant exception alongside
+     * `theme-templates`. `site-deployments` and `site-theme-settings` each carry
+     * exactly one site and are registered with the plugin — see `src/plugins/index.ts`.
+     *
+     * `theme-packages` is deliberately separate from `theme-templates`: one is a
+     * program with a build and a port, the other is a set of hex tokens. Merging
+     * them would mean editing a colour catalogue could redeploy production.
+     */
+    ThemePackages,
+    DeployTargets,
+    SiteDeployments,
+    SiteThemeSettings,
     Webhooks,
     WebhookDeliveries,
     AuditLog,
@@ -429,7 +460,17 @@ export default buildConfig({
     // Belt and braces: `autoRun` is resolved once at startup, this is consulted on
     // every tick, so flipping the env var and restarting is always enough.
     shouldAutoRun: () => jobsAutoRunEnabled(),
-    tasks: [],
+    /**
+     * Wave 11's deployment poller is the first real entry here. It is a *task* with
+     * its own `schedule`, not a second `autoRun` cron: an entry above schedules a
+     * timer on every boot, and the queue this drains is already the one being
+     * drained. The same single-replica caveat applies unchanged — two web replicas
+     * poll the same deployments twice, which is wasteful rather than wrong (the
+     * status machine in `src/lib/deploy/status.ts` refuses illegal repeats), but it
+     * is still the reason `JOBS_AUTORUN=false` plus a `payload jobs:run` container
+     * is the upgrade path.
+     */
+    tasks: [advanceDeploymentsTask],
   },
   /**
    * Last line of defence for the values that only bite in production. Deliberately

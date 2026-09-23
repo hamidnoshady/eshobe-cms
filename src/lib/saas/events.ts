@@ -33,6 +33,11 @@ export const PLATFORM_EVENTS = {
   'apikey.issued': 'کلید API صادر شد',
   'apikey.revoked': 'کلید API باطل شد',
   'plugin.changed': 'افزونه تغییر کرد',
+  'theme.published': 'پوستهٔ نصب‌شدنی منتشر شد',
+  'deployment.started': 'استقرار پوسته آغاز شد',
+  'deployment.live': 'پوسته در حال سرویس‌دهی است',
+  'deployment.failed': 'استقرار پوسته ناموفق بود',
+  'deployment.stopped': 'استقرار پوسته متوقف شد',
   'storage.changed': 'اتصال ذخیره‌سازی تغییر کرد',
   'cdn.synced': 'CDN همگام شد',
   'order.paid': 'سفارش پرداخت شد',
@@ -55,7 +60,16 @@ export const isPlatformEvent = (value: unknown): value is PlatformEventName =>
 
 /** Severity per event, so a console can colour a feed without a second table. */
 export const eventLevel = (name: PlatformEventName): 'error' | 'info' | 'warn' => {
-  if (name === 'quota.exceeded' || name === 'invoice.overdue' || name === 'subscription.expired') return 'error'
+  if (
+    name === 'quota.exceeded' ||
+    name === 'invoice.overdue' ||
+    name === 'subscription.expired' ||
+    // A theme that failed to deploy is a customer looking at the wrong site, or at
+    // the old one wondering why nothing changed. It belongs with the errors.
+    name === 'deployment.failed'
+  ) {
+    return 'error'
+  }
   if (
     name === 'quota.warning' ||
     name === 'site.suspended' ||
