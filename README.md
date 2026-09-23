@@ -220,54 +220,118 @@ in Komodo together. No credential rotation is performed by this repo change.
 
 ## CI / CD
 
-Two GitHub Actions workflows live under `.github/workflows/`:
+Two GitHub Actions workflows live under `.github/workflows/`. Both run
+automatically; `publish.yml` calls `ci.yml`, so there is exactly one definition
+of "the tests pass" and the deployment uses it.
 
-- **`ci.yml`** — **manual only** (`workflow_dispatch`). It does *not* run on a
-  pull request, on a push to `main`, or after a merge; start it from the
-  Actions tab when you want a run. It is the same checklist a contributor runs
-  locally, so run that yourself before every commit rather than waiting on a
-  run nobody dispatched. Jobs:
-  - `lint` — `pnpm lint`
-  - `typecheck` — `pnpm typecheck`
-  - `build` — `pnpm build` with placeholder build-time env (matches the
-    Dockerfile)
-  - `docker-build` — builds/loads the production Docker image (Buildx + GHA
-    cache, no push), then runs `tests/deployment/compose-smoke.sh`. On an isolated
-    pre-wave10 Postgres database, the smoke test injects a broken migration to
-    verify rollback and blocked web startup, then applies all pending migrations,
-    waits for web health, checks runtime credential isolation, and verifies a
-    second migration run is a no-op. It also checks the srv1 topology/hardening.
-  - `test-int` — Vitest integration suites (`tests/int/**`) against a real
-    Postgres 16 service container; `pnpm seed` creates the schema/data in
-    dev/push mode before tests (separate from the migrated Docker smoke database)
-  - `test-e2e` — Playwright suites (`tests/e2e/**`) against `pnpm dev`;
-    uploads the Playwright HTML report as an artifact on failure
-- **`publish.yml`** — **automatic**, and deliberately so: it runs after every
-  merge to `main`, on `v*` tags, and on `workflow_dispatch`. This is the
-  workflow deployment depends on — the srv1 Komodo stack pulls the GHCR image
-  it pushes (through the `ghcr-mirror.liara.ir` cache, see
-  `docker-compose.srv1.yml`), so a merge must keep producing one. Its own
-  `gates` job re-runs lint/typecheck/build on the exact merge commit first, so
-  making `ci.yml` manual did not leave the image ungated. Then:
-  - **Docker** — builds and pushes the image to
-    `ghcr.io/<owner>/<repo>:<sha>` (long) and `ghcr.io/<owner>/<repo>:latest`
-    on `main`. `vX.Y.Z` tags additionally push `X.Y.Z`, `X.Y`, and `X`.
-    Provenance and SBOM are attached.
-  - **npm** — publishes `@eshobe/site-runtime` (`packages/site-runtime`) to
-    npm. Every push to `main` publishes a prerelease
-    (`<version>-dev.<short-sha>`); a `vX.Y.Z` tag publishes that exact
-    version as the stable release with npm provenance.
+### `ci.yml` — the full suite, on every pull request
+
+Also available as `workflow_dispatch`, and exposed as `workflow_call` so
+`publish.yml` can reuse it. There is no `push` trigger on purpose: a merge to
+`main` starts `publish.yml`, whose gate is this same workflow, so `main` is
+covered on every merge without running the suite twice. Jobs:
+
+- `lint` — `pnpm lint`
+- `typecheck` — `pnpm typecheck`
+- `build` — `pnpm build` with placeholder build-time env (matches the
+  Dockerfile), then fails if the committed Payload import map is stale
+- `docker-build` — builds/loads the production Docker image (Buildx + GHA
+  cache, no push), then runs `tests/deployment/compose-smoke.sh`. On an isolated
+  pre-wave10 Postgres database, the smoke test injects a broken migration to
+  verify rollback and blocked web startup, then applies all pending migrations,
+  waits for web health, checks runtime credential isolation, and verifies a
+  second migration run is a no-op. It also checks the srv1 topology/hardening.
+- `test-int` — Vitest integration suites (`tests/int/**`) against a real
+  Postgres 16 service container; `pnpm seed` creates the schema/data in
+  dev/push mode before tests (separate from the migrated Docker smoke
+  database). Then the ownership replay (`tests/deployment/ownership.ts`) on its
+  own scratch database.
+- `test-e2e` — Playwright suites (`tests/e2e/**`) against `pnpm dev`;
+  uploads the Playwright HTML report as an artifact on failure
+- `ci-success` — the aggregate gate. It `needs` every job above and fails if any
+  of them is not `success` (a cancelled or skipped job is not a pass). **Require
+  this one check in branch protection**, not the six individually:
+  `tests/int/ci-workflows.int.spec.ts` asserts its `needs` list equals every
+  other job in the file, so a new job cannot silently fall outside the gate.
+
+A run on a pull request is cancelled when the branch is force-pushed; a run
+called by `publish.yml` is never cancelled, because a deploy is waiting on it.
+
+### `publish.yml` — image, then a verified deploy
+
+Runs on every push to `main`, on `v*` tags, and on `workflow_dispatch`. It must
+stay automatic: the srv1 Komodo stack and the Coolify service both pull the GHCR
+image it publishes (through the `ghcr-mirror.liara.ir` cache, see
+`docker-compose.srv1.yml`), so a merge that publishes nothing leaves production
+running the previous image while appearing to have shipped.
+
+1. **`ci`** — `uses: ./.github/workflows/ci.yml`. Nothing below runs unless the
+   entire suite is green on this exact commit.
+2. **`docker-publish`** — builds and pushes to `ghcr.io/<owner>/<repo>:<sha>`
+   (long) and `ghcr.io/<owner>/<repo>:latest` on `main`. `vX.Y.Z` tags
+   additionally push `X.Y.Z`, `X.Y`, and `X`. Provenance and SBOM are attached.
+3. **`deploy`** — `scripts/coolify-deploy.sh`, in the `production` GitHub
+   Environment, only on `main` or a `v*` tag.
+
+The deploy step is not a fire-and-forget webhook. It previously was: an inline
+`curl -X POST .../restart` against a hardcoded service UUID, whose exit status
+only meant Coolify *accepted* the request, so a deployment that then failed to
+pull the image or never became healthy still reported green. The script instead:
+
+- retries transient failures (5xx, connection errors) with a growing delay, and
+  fails immediately on `400/401/403/404/422` — retrying a bad token or a stale
+  UUID just buries the one line that says what is wrong;
+- sends `latest=true` so Coolify **re-pulls** the tag; without it the service
+  restarts on the image it already has and the new one never rolls out;
+- polls `GET /api/v1/deployments/<uuid>` to a terminal state when Coolify
+  returns a deployment handle, failing on `failed`/`cancelled`;
+- then health-checks the public URL until it answers the expected status;
+- fails rather than reporting success if there is neither a deployment handle
+  nor a health URL — an unverifiable deploy is not a passing deploy.
+
+The token is only ever sent in an `Authorization` header, never in a URL. The
+script is covered by `tests/int/coolify-deploy.int.spec.ts` (23 cases against a
+stub Coolify API) and the workflows by `tests/int/ci-workflows.int.spec.ts`.
+
+You can run the same script locally against a staging resource:
+
+```sh
+COOLIFY_URL=https://coolify.example.com \
+COOLIFY_API_TOKEN=... \
+COOLIFY_RESOURCE_UUID=... \
+COOLIFY_HEALTHCHECK_URL=https://cms.example.com/api/domain-check \
+COOLIFY_HEALTHCHECK_STATUS=404 \
+  bash scripts/coolify-deploy.sh
+```
 
 ### Required repository configuration
 
-- **Variables** (optional, under Settings → Variables → Actions)
+- **Variables** (Settings → Secrets and variables → Actions → _Variables_)
   - `NEXT_PUBLIC_SERVER_URL` — the public control-plane URL baked into the
-    Docker image at build time. Defaults to `http://localhost:3000` when
-    unset (safe for staging / pre-DNS deploys).
+    Docker image at build time. Defaults to `http://localhost:3000` when unset
+    (safe for staging / pre-DNS deploys).
+  - `COOLIFY_URL` — base URL of the Coolify instance, e.g.
+    `https://coolify.example.com`. **Required** for the deploy job.
+  - `COOLIFY_RESOURCE_KIND` — `services` (default) or `applications`.
+  - `COOLIFY_HEALTHCHECK_URL` — public URL proving the new container serves,
+    e.g. `https://cms.example.com/api/domain-check`.
+  - `COOLIFY_HEALTHCHECK_STATUS` — expected status, comma-separated. Defaults to
+    `404`, which is what `/api/domain-check` correctly answers for an unknown
+    domain and what the container's own healthcheck expects. A `200` there would
+    mean the endpoint authorised a host it should not have.
+  - `COOLIFY_TIMEOUT` — seconds to wait for the rollout (default `900`).
+- **Secrets** (same page, _Secrets_)
+  - `COOLIFY_API_TOKEN` — Coolify API token with the `deploy` ability
+    (Coolify → Keys & Tokens → API tokens). **Required.**
+  - `COOLIFY_RESOURCE_UUID` — UUID of the Coolify service/application. It is
+    read from secrets first, falling back to a variable of the same name; keep
+    it a secret so the production topology is not published in workflow logs.
+- **Environment** — create `production` under Settings → Environments to attach
+  a required reviewer, a wait timer, or environment-scoped copies of the above.
+  Without it the job still runs, using repository-level secrets.
 - **Packages permissions** — `GITHUB_TOKEN` is used for GHCR; under
   Settings → Actions → General, set _Workflow permissions_ to
-  _Read repository contents and packages permissions_ and enable
-  _Allow GitHub Actions to create and approve pull requests_.
-- **Branch protection on `main`** — add the following to _Required status
-  checks_ before merge: `Lint`, `Typecheck`, `Build`, `Docker build`,
-  `Integration tests`, `E2E tests`.
+  _Read repository contents and packages permissions_.
+- **Branch protection on `main`** — require the single check **`CI success`**.
+  It covers lint, typecheck, build, the Docker/compose smoke test, the
+  integration suites and the e2e suites.

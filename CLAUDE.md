@@ -227,25 +227,69 @@ plugin glue in `src/plugins/storage.ts`.
 - The database runs the **owner-only** model: `eshobe_app` owns everything in schema `public`, there are no grants and no default ACLs. Never introduce a GRANT-based model next to it. After migrations, the one-shot reassigns all public tables/sequences/views/types to `APP_DATABASE_ROLE` (never hardcoded or guessed — derived from `DATABASE_URL` only when that env is present) and then a verification gate fails the step (so `web` never starts) if anything in `public` is not owned by / accessible to the runtime role. This also reassigns the pre-existing enums, removing the original `ALTER TYPE` root cause. Never solve ownership errors by elevating the runtime role.
 - Komodo logs expanded Compose config **in plaintext**, including `MIGRATE_DATABASE_URL`. Include it in the credential rotation list; restrict log access and do not paste config/env dumps into tickets. Changing `POSTGRES_PASSWORD` does not rotate an existing database role automatically.
 
-## CI is manual; publishing is not
+## CI and publishing are both automatic
 
-`.github/workflows/ci.yml` is **`workflow_dispatch` only** — it does not run on
-a pull request, on a push to `main`, or after a merge. Nothing checks a branch
-unless somebody starts it from the Actions tab, so **run the checks yourself
-before every commit** (`pnpm lint`, `pnpm typecheck`, `pnpm build`,
-`pnpm test:int`) and never report a change as done on the strength of a run
-nobody dispatched. Don't re-add the `pull_request` / `push` triggers: manual-only
-is the decision, and it matches the sibling `cafe-restaurant-pos` repo.
+`.github/workflows/ci.yml` runs on **every pull request** (plus
+`workflow_dispatch` and `workflow_call`). It was manual-only once; that meant
+nothing checked a branch unless somebody remembered to dispatch it, and the only
+thing in front of a published image was lint/typecheck/build. Every suite the
+repo owns is a job now: `lint`,
+`typecheck`, `build`, `docker-build` (image + `tests/deployment/compose-smoke.sh`),
+`test-int` (Vitest + the ownership replay) and `test-e2e` (Playwright).
 
-`.github/workflows/publish.yml` is the opposite and must stay that way: it runs
-on every push to `main` because **that is what deployment consumes**. It pushes
-`ghcr.io/<owner>/<repo>:latest` (plus the long sha tag), and the srv1 Komodo
-stack pulls exactly that image through the `ghcr-mirror.liara.ir` cache
-(`docker-compose.srv1.yml` — the tag is literal because Komodo resolves the
-reference without variable interpolation). Making it manual would mean a merge
-produces no image and Komodo silently keeps deploying a stale `latest`. It is
-not ungated either: its `gates` job re-runs lint/typecheck/build on the exact
-merge commit before the image is built.
+There is deliberately **no `push: branches: [main]` trigger**: a merge starts
+`publish.yml`, whose gate *is* this workflow via `workflow_call`, so `main` is
+covered on every merge and adding the push trigger would just run the whole
+suite twice on the same commit.
+
+**`ci-success` is the job to require in branch protection**, not the six
+individually. It `needs` all of them and fails on any non-`success` result, so a
+cancelled or skipped job is not a pass. `tests/int/ci-workflows.int.spec.ts`
+asserts its `needs` list equals every other job in the file — add a job and that
+test fails until you add it to the gate too.
+
+`.github/workflows/publish.yml` still runs on every push to `main`, and must:
+**that is what deployment consumes.** It pushes `ghcr.io/<owner>/<repo>:latest`
+(plus the long sha tag), and the srv1 Komodo stack pulls exactly that image
+through the `ghcr-mirror.liara.ir` cache (`docker-compose.srv1.yml` — the tag is
+literal because Komodo resolves the reference without variable interpolation).
+Making it manual would mean a merge produces no image and Komodo silently keeps
+deploying a stale `latest`. Its gate is now `uses: ./.github/workflows/ci.yml`
+rather than a copied-out `gates` job: one definition of "the tests pass", shared
+by the PR check and the deploy.
+
+### The Coolify deploy is verified, not fired and forgotten
+
+`publish.yml`'s `deploy` job runs `scripts/coolify-deploy.sh` after the image is
+pushed, only on `main` or a `v*` tag, inside the `production` GitHub Environment
+(that is where a required reviewer or wait timer would attach). It replaced an
+inline `curl -X POST .../restart` against a hardcoded service UUID, whose exit
+status said only that Coolify *accepted* the request — a deployment that then
+failed to pull, failed to start, or was never scheduled still reported green.
+
+The script: retries 5xx/connection failures, fails fast on 401/403/404/422
+(retrying a bad token five times only buries the error), polls
+`GET /api/v1/deployments/<uuid>` to a terminal state when Coolify returns a
+handle, and health-checks the public URL. **`latest=true` on the restart call is
+load-bearing** — without it Coolify restarts the container on the image it
+already has and the newly published one never rolls out.
+
+Every input comes from repository variables/secrets (`COOLIFY_URL`,
+`COOLIFY_API_TOKEN`, `COOLIFY_RESOURCE_UUID`, `COOLIFY_HEALTHCHECK_URL`); the
+token only ever travels in an `Authorization` header, never a URL, because CI
+logs and Coolify's access log both capture URLs. If Coolify returns no
+deployment handle (its service-restart endpoint often does not —
+coollabsio/coolify#9755) **and** no health URL is configured, the script fails
+rather than reporting an unverifiable success. `COOLIFY_HEALTHCHECK_STATUS`
+defaults to `404`: the health endpoint is `/api/domain-check`, whose deliberate
+404 for an unknown domain is what the container's own healthcheck expects.
+
+Both workflows are pinned by `tests/int/ci-workflows.int.spec.ts` (triggers, job
+coverage, the gate wiring, no hardcoded host/UUID/token) and the script by
+`tests/int/coolify-deploy.int.spec.ts`, which runs it against a stub Coolify API
+in `tests/fixtures/coolifyStub.ts`. That stub is a **separate process** on
+purpose: the spec drives the script with `spawnSync`, which blocks the event
+loop, so an in-process listener would accept every connection and answer none.
 
 
 ## Commands

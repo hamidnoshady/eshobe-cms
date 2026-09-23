@@ -1,3 +1,27 @@
+# Build, publish and deploy — in that order, behind the full test suite.
+#
+# What changed and why:
+#
+#   * The gate is now the whole of `ci.yml` (called through `workflow_call`),
+#     not a local copy of lint/typecheck/build. A merge that breaks an
+#     integration test, an e2e test or the srv1 compose/migration smoke test no
+#     longer produces a published image.
+#   * The Coolify redeploy is its own job, `deploy`, which runs only after the
+#     image has actually been pushed and only on `main`/tags. It is no longer a
+#     bare `curl` with a hardcoded service UUID and an unverified result: see
+#     `scripts/coolify-deploy.sh`, which retries transient failures, polls the
+#     deployment to a terminal state when Coolify gives it a handle, and then
+#     health-checks the public URL so a rollout that queued but never came up
+#     fails this workflow instead of reporting green.
+#   * Coolify's host, resource UUID and resource kind come from repository
+#     variables/secrets. Nothing about the production topology is hardcoded in
+#     a file that is public in the repo, and a token is only ever sent as an
+#     `Authorization` header.
+#
+# This workflow stays automatic on every push to `main` on purpose: the srv1
+# Komodo stack and the Coolify service both pull `:latest` from GHCR, so a
+# merge that publishes nothing means production silently keeps running the old
+# image. See CLAUDE.md, "CI and publishing are both automatic".
 name: Publish
 
 on:
@@ -9,36 +33,32 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # Never cancel in progress: a half-finished publish can leave `:latest`
+  # pointing at an image whose deploy never ran.
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  # ---------- Re-run the quick gates on the exact merge commit ----------
-  gates:
-    name: Pre-publish gates
-    runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: postgres://build:build@localhost:5432/build
-      PAYLOAD_SECRET: build-time-placeholder
-      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm generate:importmap
-      - run: pnpm build
+  # ---------- The gate: the entire CI suite on this exact commit ----------
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
 
   # ---------- Docker image: build & push to GHCR ----------
   docker-publish:
     name: Publish Docker image (GHCR)
     runs-on: ubuntu-latest
-    needs: [gates]
+    needs: [ci]
+    outputs:
+      # Consumed by `deploy` so the log records exactly which image the Coolify
+      # service was asked to pull.
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
     permissions:
       contents: read
       packages: write
@@ -70,6 +90,7 @@ jobs:
             type=semver,pattern={{major}}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -83,8 +104,47 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Trigger Coolify redeploy
+  # ---------- Coolify: redeploy, then prove it came up ----------
+  deploy:
+    name: Deploy to Coolify
+    runs-on: ubuntu-latest
+    needs: [ci, docker-publish]
+    # A tag build republishes an already-deployed commit; only the default
+    # branch and release tags should move production. `workflow_dispatch` on a
+    # side branch must not.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    # The GitHub Environment is what carries the deploy credentials and, if the
+    # repository configures one, the required reviewer / wait timer. Creating
+    # `production` under Settings → Environments is what makes those controls
+    # apply; without it the job still runs with repository-level secrets.
+    environment:
+      name: production
+      url: ${{ vars.COOLIFY_HEALTHCHECK_URL || vars.NEXT_PUBLIC_SERVER_URL }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/coolify-deploy.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Redeploy and verify
+        env:
+          # Base URL of the Coolify instance, e.g. https://coolify.example.com
+          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+          # Token with the `deploy` ability (Coolify → Keys & Tokens → API tokens).
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          # UUID of the Coolify service/application running this image.
+          COOLIFY_RESOURCE_UUID: ${{ secrets.COOLIFY_RESOURCE_UUID || vars.COOLIFY_RESOURCE_UUID }}
+          # 'services' (a compose-based Coolify service, the default) or
+          # 'applications'.
+          COOLIFY_RESOURCE_KIND: ${{ vars.COOLIFY_RESOURCE_KIND || 'services' }}
+          # Public URL proving the new container serves traffic. `/api/domain-check`
+          # answers a deliberate 404 for an unknown domain and is what the
+          # container healthcheck itself uses, so 404 is the healthy answer.
+          COOLIFY_HEALTHCHECK_URL: ${{ vars.COOLIFY_HEALTHCHECK_URL }}
+          COOLIFY_HEALTHCHECK_STATUS: ${{ vars.COOLIFY_HEALTHCHECK_STATUS || '404' }}
+          COOLIFY_TIMEOUT: ${{ vars.COOLIFY_TIMEOUT || '900' }}
         run: |
-          curl -sf -X POST \
-            "https://manage.eshobe.com/api/v1/services/ltabipqxfaajai7jeuc3g5eb/restart?latest=true" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
+          echo "Deploying image digest ${{ needs.docker-publish.outputs.digest }}"
+          bash scripts/coolify-deploy.sh
