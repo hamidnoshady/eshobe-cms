@@ -1,3 +1,31 @@
+# Test, then publish the image to GHCR. Deployment is Coolify's job.
+#
+# The pipeline ends at the registry on purpose. Coolify watches
+# `ghcr.io/<owner>/<repo>:latest` and rolls the service itself, so this workflow
+# has exactly one responsibility: never publish a `:latest` that Coolify should
+# not be allowed to pull. Everything here serves that.
+#
+#   * The gate is the whole of `ci.yml`, called through `workflow_call` — not a
+#     local copy of lint/typecheck/build. A merge that breaks an integration
+#     test, an e2e test or the srv1 compose/migration smoke test no longer
+#     produces a published image. That matters more than it would with a manual
+#     deploy: nobody presses a button between this workflow and production, so
+#     this gate is the last one there is.
+#   * After the push, the published tag is pulled back and its digest compared
+#     with the one that was pushed. `docker/build-push-action` reports success
+#     on a completed upload, which is not the same as "GHCR serves a manifest
+#     Coolify can pull": a partially-propagated or wrong-architecture manifest
+#     would otherwise be discovered by Coolify pulling it into production.
+#
+# This workflow stays automatic on every push to `main`, and must: the srv1
+# Komodo stack and the Coolify service both pull `:latest`, so a merge that
+# publishes nothing leaves production on the previous image while appearing to
+# have shipped. See CLAUDE.md, "CI and publishing are both automatic".
+#
+# The GHCR package must be PUBLIC. srv1 pulls through the ghcr-mirror.liara.ir
+# pull-through cache (ghcr.io itself is DPI-blocked there), and the mirror has
+# no upstream credentials — a private package returns 404 through it. Coolify
+# likewise needs either a public package or its own registry credential.
 name: Publish
 
 on:
@@ -9,36 +37,33 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # Never cancel in progress: a half-finished publish can leave `:latest`
+  # pointing at a manifest that was never fully uploaded, which Coolify would
+  # then try to pull.
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  # ---------- Re-run the quick gates on the exact merge commit ----------
-  gates:
-    name: Pre-publish gates
-    runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: postgres://build:build@localhost:5432/build
-      PAYLOAD_SECRET: build-time-placeholder
-      NEXT_PUBLIC_SERVER_URL: http://localhost:3000
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm generate:importmap
-      - run: pnpm build
+  # ---------- The gate: the entire CI suite on this exact commit ----------
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
 
   # ---------- Docker image: build & push to GHCR ----------
   docker-publish:
     name: Publish Docker image (GHCR)
     runs-on: ubuntu-latest
-    needs: [gates]
+    needs: [ci]
+    outputs:
+      # Recorded in the job summary so a deployed container can be traced back
+      # to the commit and workflow run that produced it.
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
     permissions:
       contents: read
       packages: write
@@ -70,6 +95,7 @@ jobs:
             type=semver,pattern={{major}}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -83,8 +109,52 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Trigger Coolify redeploy
+      - name: Verify the published image is pullable
+        # Nothing between this workflow and production presses a button, so the
+        # last chance to catch a bad publish is here. `build-push-action`
+        # succeeding means the upload completed; it does not mean GHCR now
+        # serves a manifest that Coolify can pull. Pull every published tag
+        # back as a fresh client and require the digest to match what was
+        # pushed — a mismatch means the tag moved under us (a concurrent
+        # publish) and Coolify would deploy something other than this commit.
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          curl -sf -X POST \
-            "https://manage.eshobe.com/api/v1/services/ltabipqxfaajai7jeuc3g5eb/restart?latest=true" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
+          set -euo pipefail
+          echo "$TAGS" | while read -r tag; do
+            [ -n "$tag" ] || continue
+            echo "::group::$tag"
+            # `buildx imagetools inspect` reads the registry directly and does
+            # not need the (multi-arch, possibly large) image pulled locally.
+            docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' >manifest.json
+            published="$(jq -r '.digest' manifest.json)"
+            echo "pushed:    $DIGEST"
+            echo "published: $published"
+            if [ "$published" != "$DIGEST" ]; then
+              echo "::error::$tag resolves to $published, not the digest this run pushed ($DIGEST)."
+              exit 1
+            fi
+            echo '::endgroup::'
+          done
+
+      - name: Record what was published
+        # Coolify deploys whatever `:latest` points at, with no record of which
+        # commit that was. This summary is the link back from a running
+        # container to the run, the commit and the tests that gated it.
+        run: |
+          {
+            echo '### Published to GHCR'
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Digest | \`${{ steps.build.outputs.digest }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo
+            echo 'Tags:'
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo
+            echo 'Coolify pulls `:latest` on its own schedule; this workflow does not trigger it.'
+          } >>"$GITHUB_STEP_SUMMARY"

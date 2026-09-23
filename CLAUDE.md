@@ -227,25 +227,67 @@ plugin glue in `src/plugins/storage.ts`.
 - The database runs the **owner-only** model: `eshobe_app` owns everything in schema `public`, there are no grants and no default ACLs. Never introduce a GRANT-based model next to it. After migrations, the one-shot reassigns all public tables/sequences/views/types to `APP_DATABASE_ROLE` (never hardcoded or guessed — derived from `DATABASE_URL` only when that env is present) and then a verification gate fails the step (so `web` never starts) if anything in `public` is not owned by / accessible to the runtime role. This also reassigns the pre-existing enums, removing the original `ALTER TYPE` root cause. Never solve ownership errors by elevating the runtime role.
 - Komodo logs expanded Compose config **in plaintext**, including `MIGRATE_DATABASE_URL`. Include it in the credential rotation list; restrict log access and do not paste config/env dumps into tickets. Changing `POSTGRES_PASSWORD` does not rotate an existing database role automatically.
 
-## CI is manual; publishing is not
+## CI and publishing are both automatic
 
-`.github/workflows/ci.yml` is **`workflow_dispatch` only** — it does not run on
-a pull request, on a push to `main`, or after a merge. Nothing checks a branch
-unless somebody starts it from the Actions tab, so **run the checks yourself
-before every commit** (`pnpm lint`, `pnpm typecheck`, `pnpm build`,
-`pnpm test:int`) and never report a change as done on the strength of a run
-nobody dispatched. Don't re-add the `pull_request` / `push` triggers: manual-only
-is the decision, and it matches the sibling `cafe-restaurant-pos` repo.
+`.github/workflows/ci.yml` runs on **every pull request** (plus
+`workflow_dispatch` and `workflow_call`). It was manual-only once; that meant
+nothing checked a branch unless somebody remembered to dispatch it, and the only
+thing in front of a published image was lint/typecheck/build. Every suite the
+repo owns is a job now: `lint`,
+`typecheck`, `build`, `docker-build` (image + `tests/deployment/compose-smoke.sh`),
+`test-int` (Vitest + the ownership replay) and `test-e2e` (Playwright).
 
-`.github/workflows/publish.yml` is the opposite and must stay that way: it runs
-on every push to `main` because **that is what deployment consumes**. It pushes
-`ghcr.io/<owner>/<repo>:latest` (plus the long sha tag), and the srv1 Komodo
-stack pulls exactly that image through the `ghcr-mirror.liara.ir` cache
-(`docker-compose.srv1.yml` — the tag is literal because Komodo resolves the
-reference without variable interpolation). Making it manual would mean a merge
-produces no image and Komodo silently keeps deploying a stale `latest`. It is
-not ungated either: its `gates` job re-runs lint/typecheck/build on the exact
-merge commit before the image is built.
+There is deliberately **no `push: branches: [main]` trigger**: a merge starts
+`publish.yml`, whose gate *is* this workflow via `workflow_call`, so `main` is
+covered on every merge and adding the push trigger would just run the whole
+suite twice on the same commit.
+
+**`ci-success` is the job to require in branch protection**, not the six
+individually. It `needs` all of them and fails on any non-`success` result, so a
+cancelled or skipped job is not a pass. `tests/int/ci-workflows.int.spec.ts`
+asserts its `needs` list equals every other job in the file — add a job and that
+test fails until you add it to the gate too.
+
+`.github/workflows/publish.yml` still runs on every push to `main`, and must:
+**that is what deployment consumes.** It pushes `ghcr.io/<owner>/<repo>:latest`
+(plus the long sha tag), and the srv1 Komodo stack pulls exactly that image
+through the `ghcr-mirror.liara.ir` cache (`docker-compose.srv1.yml` — the tag is
+literal because Komodo resolves the reference without variable interpolation).
+Making it manual would mean a merge produces no image and Komodo silently keeps
+deploying a stale `latest`. Its gate is now `uses: ./.github/workflows/ci.yml`
+rather than a copied-out `gates` job: one definition of "the tests pass", shared
+by the PR check and the deploy.
+
+### Publishing is deploying: Coolify pulls by itself
+
+`publish.yml` ends at the registry. Coolify watches
+`ghcr.io/<owner>/<repo>:latest` and rolls the service on its own schedule —
+**there is no deploy job, no Coolify API token and no webhook in this repo**, and
+an earlier attempt to add one (a `curl` to a hardcoded service UUID) has been
+removed. `tests/int/ci-workflows.int.spec.ts` asserts `publish.yml` has exactly
+the two jobs `ci` and `docker-publish`, so a deploy job reappearing is a visible
+decision rather than a quiet one.
+
+The consequence is the thing to keep in mind: **nobody presses a button between a
+green merge and production.** `ci` is the last gate there is, which is why
+`docker-publish` needs the whole suite and not a subset.
+
+Two invariants hold the handoff together:
+
+- **`:latest` must keep being published on `main`** (and the long-sha tag
+  alongside it, which is what makes a running container traceable to a commit
+  once `:latest` has moved). Coolify has nothing else to watch.
+- **The GHCR package must stay PUBLIC.** srv1 pulls through the
+  `ghcr-mirror.liara.ir` pull-through cache because ghcr.io itself is DPI-blocked
+  there, and the mirror holds no upstream credentials — a private package returns
+  404 through it.
+
+After pushing, the workflow pulls each published tag back with
+`docker buildx imagetools inspect` and fails if the digest is not the one it just
+pushed. `docker/build-push-action` reporting success means the upload finished,
+not that GHCR serves a manifest Coolify can pull; with no human in the loop, a
+half-propagated or hijacked tag would otherwise be discovered by Coolify pulling
+it into production. A job summary records the digest, commit and tags.
 
 
 ## Commands

@@ -1,30 +1,47 @@
-# Manual-only copy of the checklist a contributor runs locally (lint, typecheck,
-# build, integration tests, E2E, and the srv1 Compose/migration gate). It does
-# NOT run on a pull request, on a push to main, or after a merge — start it from
-# the Actions tab (workflow_dispatch) when you want a run.
+# The full checklist, run automatically.
 #
-# Deployment is deliberately NOT affected by this. `publish.yml` still runs on
-# every push to main: it re-runs lint/typecheck/build as its own `gates` job and
-# then pushes the image to GHCR, which is what the srv1 Komodo stack pulls
-# (through the ghcr-mirror.liara.ir cache — see docker-compose.srv1.yml). So a
-# merge still produces a deployable image with its own gate in front of it;
-# what stops happening automatically is this checklist.
+# This workflow used to be `workflow_dispatch`-only, on the theory that a
+# contributor runs the same checks locally. In practice nothing verified that,
+# so a branch could merge with a red suite and the only gate in front of the
+# published image was lint/typecheck/build. It now runs on every pull request,
+# and — the important part — `publish.yml` calls it through `workflow_call` as
+# its own gate and will not build, push or deploy an image until every job here
+# is green. There is exactly one definition of "the tests pass", and both the
+# PR check and the deployment use it.
 #
-# What follows from that: run the checklist yourself before every commit, and
-# don't report a change as done on the strength of a run nobody dispatched.
+# Every suite the repository has runs here:
+#   lint · typecheck · build · docker image + srv1 compose/migration smoke ·
+#   Vitest integration suites · ownership replay · Playwright e2e
+#
+# `ci-success` is the single aggregate job to require in branch protection: it
+# fails if any job above it failed or was skipped, so adding a new job cannot
+# silently fall outside the gate.
 name: CI
 
 on:
+  pull_request:
+  # Not `push: branches: [main]`. A merge to `main` starts publish.yml, which
+  # calls this workflow through `workflow_call` as its gate — adding a push
+  # trigger here would run the whole suite (two Postgres services, a Docker
+  # build and Playwright) a second time on the same commit for no extra signal.
+  # `main` is still covered on every merge, via publish.yml.
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  # Manual runs only, so there is no PR superseding to cancel: let each
-  # dispatched run finish.
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # Supersede an in-flight run for the same pull request (a force-push during
+  # review), but never cancel a called run: that one is what publish.yml is
+  # waiting on, and cancelling it would block a deploy on a phantom failure.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+
+env:
+  # Turn a stray `console.log`-grade warning in pnpm into nothing, and keep the
+  # store deterministic across jobs.
+  NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
   # ---------- Quick static checks (no DB required) ----------
@@ -74,10 +91,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate Payload import map
         run: pnpm generate:importmap
+      - name: Fail if the committed import map is stale
+        # `generate:importmap` rewrites src/app/(payload)/admin/importMap.js. A
+        # contributor who adds an admin component and forgets to regenerate it
+        # gets a working local dev server (Payload regenerates on boot) and a
+        # broken admin in the image, which builds from the committed file.
+        run: git diff --exit-code -- 'src/app/(payload)/admin/importMap.js'
       - name: Build
         run: pnpm build
 
-  # ---------- Docker image build (verifies Dockerfile stays green) ----------
+  # ---------- Docker image build + srv1 deployment acceptance ----------
   docker-build:
     name: Docker build
     runs-on: ubuntu-latest
@@ -149,7 +172,6 @@ jobs:
   test-e2e:
     name: E2E tests
     runs-on: ubuntu-latest
-    needs: [build] # Build step is proof the app compiles; reuse its deps via cache
     services:
       postgres:
         image: postgres:16-alpine
@@ -199,3 +221,29 @@ jobs:
           name: playwright-report
           path: playwright-report
           retention-days: 7
+
+  # ---------- The one gate ----------
+  ci-success:
+    name: CI success
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [lint, typecheck, build, docker-build, test-int, test-e2e]
+    steps:
+      # `needs.*.result` is checked explicitly rather than relying on job
+      # ordering: a cancelled or skipped dependency is not a pass, and
+      # publish.yml treats this job's result as permission to deploy.
+      - name: Fail unless every job succeeded
+        # The expression's string literal must be SINGLE-quoted: GitHub's
+        # expression syntax has no double-quoted string, and a `" "` here is not
+        # a lint warning — it fails to parse the whole workflow file, producing a
+        # run with no jobs and the unhelpful "workflow file issue" error.
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "job results: $results"
+          for result in $results; do
+            if [ "$result" != success ]; then
+              echo "::error::A required CI job did not succeed ($results)."
+              exit 1
+            fi
+          done
+          echo 'All CI jobs succeeded.'
