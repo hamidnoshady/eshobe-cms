@@ -184,7 +184,7 @@ test.describe('Admin Panel', () => {
     // Getting to the field is two clicks because that is what an editor does: `layout`
     // sits in the «محتوا» tab, and the field is set `initCollapsed: true`, so every
     // block row starts shut. Both hide the input from the DOM's point of view.
-    await page.getByRole('button', { name: 'محتوا' }).click()
+    await page.getByRole('button', { name: 'محتوا', exact: true }).click()
     // Enter, not click: the row's «بدون عنوان» block-name input is laid over the
     // full-width toggle button and swallows the pointer. Keyboard activation is a real
     // editor path and needs no `force`.
