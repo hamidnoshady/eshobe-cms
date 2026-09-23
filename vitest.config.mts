@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [tsconfigPaths(), react()],
   test: {
     environment: 'jsdom',
+    fileParallelism: false,
     /**
      * Vitest's default is 10s, and `getPayload()` in a `beforeAll` exceeds it on a
      * cold Postgres connection — it pulls the schema before the first query. Left at

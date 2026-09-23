@@ -153,7 +153,7 @@ test.describe('the operator panel', () => {
     await page.waitForURL(/\/admin(\?|$)/, { timeout: 60_000 })
 
     const nav = page.locator('.nav')
-    for (const label of ['طرح‌ها', 'اشتراک‌ها', 'صورتحساب‌ها', 'وب‌هوک‌ها', 'گزارش ممیزی']) {
+    for (const label of ['طرح‌ها', 'اشتراک‌ها', 'صورتحساب‌ها', 'وب‌هوک‌ها', 'ردّ تغییرات']) {
       await expect(nav.getByRole('link', { name: label }).first(), label).toBeVisible({ timeout: 30_000 })
     }
 

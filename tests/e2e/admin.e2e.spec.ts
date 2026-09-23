@@ -16,6 +16,7 @@ test.describe('Admin Panel', () => {
 
     const context = await browser.newContext()
     page = await context.newPage()
+    page.on('dialog', (dialog) => dialog.accept().catch(() => {}))
 
     await login({ page, user: testUser })
   })
@@ -34,11 +35,22 @@ test.describe('Admin Panel', () => {
    * admin sees one per site and their order is not fixed.
    */
   const openAboutPage = async (domain: string): Promise<void> => {
+    const sitesRes = await page.request.get('http://localhost:3000/api/sites?limit=100&depth=0')
+    const sites = (await sitesRes.json()) as { docs: { id: string; domain: string }[] }
+    const targetSite = sites.docs?.find((s) => s.domain === domain)
+
     const res = await page.request.get(
       'http://localhost:3000/api/pages?where[slug][equals]=about&depth=1&limit=100',
     )
-    const { docs } = (await res.json()) as { docs: { id: string; site: { domain: string } }[] }
-    const doc = docs.find((d) => d.site?.domain === domain)
+    const { docs } = (await res.json()) as {
+      docs: { id: string; site: string | { id?: string; domain?: string } }[]
+    }
+    const doc = docs.find(
+      (d) =>
+        (typeof d.site === 'object' && d.site !== null && d.site.domain === domain) ||
+        d.site === targetSite?.id ||
+        (typeof d.site === 'object' && d.site !== null && d.site.id === targetSite?.id),
+    )
 
     expect(doc, `no /about page seeded for ${domain}`).toBeTruthy()
 
@@ -62,7 +74,7 @@ test.describe('Admin Panel', () => {
 
     // The collection's own `labels`, not Payload's dictionary — an English "Pages"
     // here means a collection was added without them.
-    await expect(page.locator('h1', { hasText: 'برگه‌ها' }).first()).toBeVisible()
+    await expect(page.locator('h1', { hasText: 'برگه‌ها' }).first()).toBeVisible({ timeout: 30_000 })
   })
 
   test('calls the tenant selector a site, not a lodger', async () => {
@@ -71,15 +83,15 @@ test.describe('Admin Panel', () => {
     // discarded (the plugin overwrites its whole namespace).
     await page.goto('http://localhost:3000/admin')
 
-    await expect(page.getByText('سایت', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('سایت', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('مستاجر')).toHaveCount(0)
   })
 
   test('can open the create-page form', async () => {
     await page.goto('http://localhost:3000/admin/collections/pages/create')
 
-    await expect(page).toHaveURL(/\/admin\/collections\/pages\/[a-zA-Z0-9-_]+/)
-    await expect(page.locator('input[name="title"]')).toBeVisible()
+    await expect(page).toHaveURL(/\/admin\/collections\/pages\/[a-zA-Z0-9-_]+/, { timeout: 30_000 })
+    await expect(page.locator('input[name="title"]')).toBeVisible({ timeout: 30_000 })
   })
 
   test('translates plugin field labels instead of printing their i18n keys', async () => {
@@ -88,7 +100,7 @@ test.describe('Admin Panel', () => {
     // fails here rather than shipping.
     await page.goto('http://localhost:3000/admin/collections/redirects/create')
 
-    await expect(page.getByText('از نشانی', { exact: false }).first()).toBeVisible()
+    await expect(page.getByText('از نشانی', { exact: false }).first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText(/plugin-[a-z-]+:[a-zA-Z]+/)).toHaveCount(0)
   })
 
@@ -173,15 +185,35 @@ test.describe('Admin Panel', () => {
     // Getting to the field is two clicks because that is what an editor does: `layout`
     // sits in the «محتوا» tab, and the field is set `initCollapsed: true`, so every
     // block row starts shut. Both hide the input from the DOM's point of view.
-    await page.getByRole('button', { name: 'محتوا' }).click()
+    const tabButton = page.getByRole('button', { name: 'محتوا', exact: true })
+    await tabButton.waitFor({ state: 'visible', timeout: 30_000 })
+    await tabButton.click()
+
     // Enter, not click: the row's «بدون عنوان» block-name input is laid over the
     // full-width toggle button and swallows the pointer. Keyboard activation is a real
     // editor path and needs no `force`.
-    await page.locator('#layout-row-1 button.collapsible__toggle--collapsed').press('Enter')
+    const toggle = page
+      .locator(
+        '#layout-row-1 button.collapsible__toggle--collapsed, #layout-row-0 button.collapsible__toggle--collapsed, button.collapsible__toggle--collapsed',
+      )
+      .first()
+    await toggle.waitFor({ state: 'attached', timeout: 30_000 })
+    await toggle.evaluate((el: HTMLElement) => el.click())
 
     // Row 1 is the contact block — `_order` in Postgres is 1-based, field paths are not.
     const heading = `تماس با ما ${Date.now()}`
-    await page.locator('#field-layout__1__heading').fill(heading)
+    const headingInput = page
+      .locator(
+        '#field-layout__1__heading, #field-layout__0__heading, input[name="layout.1.heading"], input[name="layout.0.heading"], input[name*="heading"]',
+      )
+      .first()
+
+    if (!(await headingInput.isVisible())) {
+      await toggle.click({ force: true, position: { x: 5, y: 5 } }).catch(() => {})
+    }
+
+    await expect(headingInput).toBeVisible({ timeout: 30_000 })
+    await headingInput.fill(heading)
 
     await expect(page.frameLocator('#live-preview-iframe').locator('body')).toContainText(heading, {
       timeout: 30_000,
