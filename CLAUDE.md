@@ -258,38 +258,36 @@ deploying a stale `latest`. Its gate is now `uses: ./.github/workflows/ci.yml`
 rather than a copied-out `gates` job: one definition of "the tests pass", shared
 by the PR check and the deploy.
 
-### The Coolify deploy is verified, not fired and forgotten
+### Publishing is deploying: Coolify pulls by itself
 
-`publish.yml`'s `deploy` job runs `scripts/coolify-deploy.sh` after the image is
-pushed, only on `main` or a `v*` tag, inside the `production` GitHub Environment
-(that is where a required reviewer or wait timer would attach). It replaced an
-inline `curl -X POST .../restart` against a hardcoded service UUID, whose exit
-status said only that Coolify *accepted* the request — a deployment that then
-failed to pull, failed to start, or was never scheduled still reported green.
+`publish.yml` ends at the registry. Coolify watches
+`ghcr.io/<owner>/<repo>:latest` and rolls the service on its own schedule —
+**there is no deploy job, no Coolify API token and no webhook in this repo**, and
+an earlier attempt to add one (a `curl` to a hardcoded service UUID) has been
+removed. `tests/int/ci-workflows.int.spec.ts` asserts `publish.yml` has exactly
+the two jobs `ci` and `docker-publish`, so a deploy job reappearing is a visible
+decision rather than a quiet one.
 
-The script: retries 5xx/connection failures, fails fast on 401/403/404/422
-(retrying a bad token five times only buries the error), polls
-`GET /api/v1/deployments/<uuid>` to a terminal state when Coolify returns a
-handle, and health-checks the public URL. **`latest=true` on the restart call is
-load-bearing** — without it Coolify restarts the container on the image it
-already has and the newly published one never rolls out.
+The consequence is the thing to keep in mind: **nobody presses a button between a
+green merge and production.** `ci` is the last gate there is, which is why
+`docker-publish` needs the whole suite and not a subset.
 
-Every input comes from repository variables/secrets (`COOLIFY_URL`,
-`COOLIFY_API_TOKEN`, `COOLIFY_RESOURCE_UUID`, `COOLIFY_HEALTHCHECK_URL`); the
-token only ever travels in an `Authorization` header, never a URL, because CI
-logs and Coolify's access log both capture URLs. If Coolify returns no
-deployment handle (its service-restart endpoint often does not —
-coollabsio/coolify#9755) **and** no health URL is configured, the script fails
-rather than reporting an unverifiable success. `COOLIFY_HEALTHCHECK_STATUS`
-defaults to `404`: the health endpoint is `/api/domain-check`, whose deliberate
-404 for an unknown domain is what the container's own healthcheck expects.
+Two invariants hold the handoff together:
 
-Both workflows are pinned by `tests/int/ci-workflows.int.spec.ts` (triggers, job
-coverage, the gate wiring, no hardcoded host/UUID/token) and the script by
-`tests/int/coolify-deploy.int.spec.ts`, which runs it against a stub Coolify API
-in `tests/fixtures/coolifyStub.ts`. That stub is a **separate process** on
-purpose: the spec drives the script with `spawnSync`, which blocks the event
-loop, so an in-process listener would accept every connection and answer none.
+- **`:latest` must keep being published on `main`** (and the long-sha tag
+  alongside it, which is what makes a running container traceable to a commit
+  once `:latest` has moved). Coolify has nothing else to watch.
+- **The GHCR package must stay PUBLIC.** srv1 pulls through the
+  `ghcr-mirror.liara.ir` pull-through cache because ghcr.io itself is DPI-blocked
+  there, and the mirror holds no upstream credentials — a private package returns
+  404 through it.
+
+After pushing, the workflow pulls each published tag back with
+`docker buildx imagetools inspect` and fails if the digest is not the one it just
+pushed. `docker/build-push-action` reporting success means the upload finished,
+not that GHCR serves a manifest Coolify can pull; with no human in the loop, a
+half-propagated or hijacked tag would otherwise be discovered by Coolify pulling
+it into production. A job summary records the digest, commit and tags.
 
 
 ## Commands

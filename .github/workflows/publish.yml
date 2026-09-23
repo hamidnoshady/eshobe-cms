@@ -1,27 +1,31 @@
-# Build, publish and deploy — in that order, behind the full test suite.
+# Test, then publish the image to GHCR. Deployment is Coolify's job.
 #
-# What changed and why:
+# The pipeline ends at the registry on purpose. Coolify watches
+# `ghcr.io/<owner>/<repo>:latest` and rolls the service itself, so this workflow
+# has exactly one responsibility: never publish a `:latest` that Coolify should
+# not be allowed to pull. Everything here serves that.
 #
-#   * The gate is now the whole of `ci.yml` (called through `workflow_call`),
-#     not a local copy of lint/typecheck/build. A merge that breaks an
-#     integration test, an e2e test or the srv1 compose/migration smoke test no
-#     longer produces a published image.
-#   * The Coolify redeploy is its own job, `deploy`, which runs only after the
-#     image has actually been pushed and only on `main`/tags. It is no longer a
-#     bare `curl` with a hardcoded service UUID and an unverified result: see
-#     `scripts/coolify-deploy.sh`, which retries transient failures, polls the
-#     deployment to a terminal state when Coolify gives it a handle, and then
-#     health-checks the public URL so a rollout that queued but never came up
-#     fails this workflow instead of reporting green.
-#   * Coolify's host, resource UUID and resource kind come from repository
-#     variables/secrets. Nothing about the production topology is hardcoded in
-#     a file that is public in the repo, and a token is only ever sent as an
-#     `Authorization` header.
+#   * The gate is the whole of `ci.yml`, called through `workflow_call` — not a
+#     local copy of lint/typecheck/build. A merge that breaks an integration
+#     test, an e2e test or the srv1 compose/migration smoke test no longer
+#     produces a published image. That matters more than it would with a manual
+#     deploy: nobody presses a button between this workflow and production, so
+#     this gate is the last one there is.
+#   * After the push, the published tag is pulled back and its digest compared
+#     with the one that was pushed. `docker/build-push-action` reports success
+#     on a completed upload, which is not the same as "GHCR serves a manifest
+#     Coolify can pull": a partially-propagated or wrong-architecture manifest
+#     would otherwise be discovered by Coolify pulling it into production.
 #
-# This workflow stays automatic on every push to `main` on purpose: the srv1
-# Komodo stack and the Coolify service both pull `:latest` from GHCR, so a
-# merge that publishes nothing means production silently keeps running the old
-# image. See CLAUDE.md, "CI and publishing are both automatic".
+# This workflow stays automatic on every push to `main`, and must: the srv1
+# Komodo stack and the Coolify service both pull `:latest`, so a merge that
+# publishes nothing leaves production on the previous image while appearing to
+# have shipped. See CLAUDE.md, "CI and publishing are both automatic".
+#
+# The GHCR package must be PUBLIC. srv1 pulls through the ghcr-mirror.liara.ir
+# pull-through cache (ghcr.io itself is DPI-blocked there), and the mirror has
+# no upstream credentials — a private package returns 404 through it. Coolify
+# likewise needs either a public package or its own registry credential.
 name: Publish
 
 on:
@@ -34,7 +38,8 @@ on:
 
 concurrency:
   # Never cancel in progress: a half-finished publish can leave `:latest`
-  # pointing at an image whose deploy never ran.
+  # pointing at a manifest that was never fully uploaded, which Coolify would
+  # then try to pull.
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
@@ -55,8 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ci]
     outputs:
-      # Consumed by `deploy` so the log records exactly which image the Coolify
-      # service was asked to pull.
+      # Recorded in the job summary so a deployed container can be traced back
+      # to the commit and workflow run that produced it.
       digest: ${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
     permissions:
@@ -104,47 +109,52 @@ jobs:
           provenance: true
           sbom: true
 
-  # ---------- Coolify: redeploy, then prove it came up ----------
-  deploy:
-    name: Deploy to Coolify
-    runs-on: ubuntu-latest
-    needs: [ci, docker-publish]
-    # A tag build republishes an already-deployed commit; only the default
-    # branch and release tags should move production. `workflow_dispatch` on a
-    # side branch must not.
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    # The GitHub Environment is what carries the deploy credentials and, if the
-    # repository configures one, the required reviewer / wait timer. Creating
-    # `production` under Settings → Environments is what makes those controls
-    # apply; without it the job still runs with repository-level secrets.
-    environment:
-      name: production
-      url: ${{ vars.COOLIFY_HEALTHCHECK_URL || vars.NEXT_PUBLIC_SERVER_URL }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: scripts/coolify-deploy.sh
-          sparse-checkout-cone-mode: false
-
-      - name: Redeploy and verify
+      - name: Verify the published image is pullable
+        # Nothing between this workflow and production presses a button, so the
+        # last chance to catch a bad publish is here. `build-push-action`
+        # succeeding means the upload completed; it does not mean GHCR now
+        # serves a manifest that Coolify can pull. Pull every published tag
+        # back as a fresh client and require the digest to match what was
+        # pushed — a mismatch means the tag moved under us (a concurrent
+        # publish) and Coolify would deploy something other than this commit.
         env:
-          # Base URL of the Coolify instance, e.g. https://coolify.example.com
-          COOLIFY_URL: ${{ vars.COOLIFY_URL }}
-          # Token with the `deploy` ability (Coolify → Keys & Tokens → API tokens).
-          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
-          # UUID of the Coolify service/application running this image.
-          COOLIFY_RESOURCE_UUID: ${{ secrets.COOLIFY_RESOURCE_UUID || vars.COOLIFY_RESOURCE_UUID }}
-          # 'services' (a compose-based Coolify service, the default) or
-          # 'applications'.
-          COOLIFY_RESOURCE_KIND: ${{ vars.COOLIFY_RESOURCE_KIND || 'services' }}
-          # Public URL proving the new container serves traffic. `/api/domain-check`
-          # answers a deliberate 404 for an unknown domain and is what the
-          # container healthcheck itself uses, so 404 is the healthy answer.
-          COOLIFY_HEALTHCHECK_URL: ${{ vars.COOLIFY_HEALTHCHECK_URL }}
-          COOLIFY_HEALTHCHECK_STATUS: ${{ vars.COOLIFY_HEALTHCHECK_STATUS || '404' }}
-          COOLIFY_TIMEOUT: ${{ vars.COOLIFY_TIMEOUT || '900' }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          echo "Deploying image digest ${{ needs.docker-publish.outputs.digest }}"
-          bash scripts/coolify-deploy.sh
+          set -euo pipefail
+          echo "$TAGS" | while read -r tag; do
+            [ -n "$tag" ] || continue
+            echo "::group::$tag"
+            # `buildx imagetools inspect` reads the registry directly and does
+            # not need the (multi-arch, possibly large) image pulled locally.
+            docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' >manifest.json
+            published="$(jq -r '.digest' manifest.json)"
+            echo "pushed:    $DIGEST"
+            echo "published: $published"
+            if [ "$published" != "$DIGEST" ]; then
+              echo "::error::$tag resolves to $published, not the digest this run pushed ($DIGEST)."
+              exit 1
+            fi
+            echo '::endgroup::'
+          done
+
+      - name: Record what was published
+        # Coolify deploys whatever `:latest` points at, with no record of which
+        # commit that was. This summary is the link back from a running
+        # container to the run, the commit and the tests that gated it.
+        run: |
+          {
+            echo '### Published to GHCR'
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Digest | \`${{ steps.build.outputs.digest }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo
+            echo 'Tags:'
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo
+            echo 'Coolify pulls `:latest` on its own schedule; this workflow does not trigger it.'
+          } >>"$GITHUB_STEP_SUMMARY"

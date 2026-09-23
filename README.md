@@ -257,81 +257,58 @@ covered on every merge without running the suite twice. Jobs:
 A run on a pull request is cancelled when the branch is force-pushed; a run
 called by `publish.yml` is never cancelled, because a deploy is waiting on it.
 
-### `publish.yml` — image, then a verified deploy
+### `publish.yml` — build, test, publish to GHCR
 
 Runs on every push to `main`, on `v*` tags, and on `workflow_dispatch`. It must
-stay automatic: the srv1 Komodo stack and the Coolify service both pull the GHCR
-image it publishes (through the `ghcr-mirror.liara.ir` cache, see
-`docker-compose.srv1.yml`), so a merge that publishes nothing leaves production
-running the previous image while appearing to have shipped.
+stay automatic: **Coolify watches `ghcr.io/<owner>/<repo>:latest` and deploys it
+by itself**, so a merge that publishes nothing leaves production running the
+previous image while appearing to have shipped.
 
 1. **`ci`** — `uses: ./.github/workflows/ci.yml`. Nothing below runs unless the
    entire suite is green on this exact commit.
 2. **`docker-publish`** — builds and pushes to `ghcr.io/<owner>/<repo>:<sha>`
    (long) and `ghcr.io/<owner>/<repo>:latest` on `main`. `vX.Y.Z` tags
    additionally push `X.Y.Z`, `X.Y`, and `X`. Provenance and SBOM are attached.
-3. **`deploy`** — `scripts/coolify-deploy.sh`, in the `production` GitHub
-   Environment, only on `main` or a `v*` tag.
+   It then pulls each published tag back with `docker buildx imagetools inspect`
+   and fails if the digest is not the one it just pushed, and writes a job
+   summary recording the digest, commit and tags.
 
-The deploy step is not a fire-and-forget webhook. It previously was: an inline
-`curl -X POST .../restart` against a hardcoded service UUID, whose exit status
-only meant Coolify *accepted* the request, so a deployment that then failed to
-pull the image or never became healthy still reported green. The script instead:
+**There is no deploy job.** This repo holds no Coolify URL, token or service
+UUID, and sends no webhook. Coolify is responsible for noticing the new
+`:latest` and rolling the service; this workflow is responsible for never
+publishing a `:latest` that should not be deployed.
 
-- retries transient failures (5xx, connection errors) with a growing delay, and
-  fails immediately on `400/401/403/404/422` — retrying a bad token or a stale
-  UUID just buries the one line that says what is wrong;
-- sends `latest=true` so Coolify **re-pulls** the tag; without it the service
-  restarts on the image it already has and the new one never rolls out;
-- polls `GET /api/v1/deployments/<uuid>` to a terminal state when Coolify
-  returns a deployment handle, failing on `failed`/`cancelled`;
-- then health-checks the public URL until it answers the expected status;
-- fails rather than reporting success if there is neither a deployment handle
-  nor a health URL — an unverifiable deploy is not a passing deploy.
+That split is why `docker-publish` needs the *whole* suite rather than a subset:
+nobody presses a button between a green merge and production, so CI is the last
+gate there is. `tests/int/ci-workflows.int.spec.ts` asserts `publish.yml` has
+exactly the jobs `ci` and `docker-publish`, so adding a deploy job back is a
+visible decision.
 
-The token is only ever sent in an `Authorization` header, never in a URL. The
-script is covered by `tests/int/coolify-deploy.int.spec.ts` (23 cases against a
-stub Coolify API) and the workflows by `tests/int/ci-workflows.int.spec.ts`.
-
-You can run the same script locally against a staging resource:
-
-```sh
-COOLIFY_URL=https://coolify.example.com \
-COOLIFY_API_TOKEN=... \
-COOLIFY_RESOURCE_UUID=... \
-COOLIFY_HEALTHCHECK_URL=https://cms.example.com/api/domain-check \
-COOLIFY_HEALTHCHECK_STATUS=404 \
-  bash scripts/coolify-deploy.sh
-```
+The pull-back check exists for the same reason. `docker/build-push-action`
+reporting success means the upload completed, which is not the same as "GHCR
+serves a manifest Coolify can pull" — without a human in the loop, a
+half-propagated manifest or a tag moved by a concurrent publish would otherwise
+be discovered by Coolify pulling it into production.
 
 ### Required repository configuration
 
 - **Variables** (Settings → Secrets and variables → Actions → _Variables_)
   - `NEXT_PUBLIC_SERVER_URL` — the public control-plane URL baked into the
     Docker image at build time. Defaults to `http://localhost:3000` when unset
-    (safe for staging / pre-DNS deploys).
-  - `COOLIFY_URL` — base URL of the Coolify instance, e.g.
-    `https://coolify.example.com`. **Required** for the deploy job.
-  - `COOLIFY_RESOURCE_KIND` — `services` (default) or `applications`.
-  - `COOLIFY_HEALTHCHECK_URL` — public URL proving the new container serves,
-    e.g. `https://cms.example.com/api/domain-check`.
-  - `COOLIFY_HEALTHCHECK_STATUS` — expected status, comma-separated. Defaults to
-    `404`, which is what `/api/domain-check` correctly answers for an unknown
-    domain and what the container's own healthcheck expects. A `200` there would
-    mean the endpoint authorised a host it should not have.
-  - `COOLIFY_TIMEOUT` — seconds to wait for the rollout (default `900`).
-- **Secrets** (same page, _Secrets_)
-  - `COOLIFY_API_TOKEN` — Coolify API token with the `deploy` ability
-    (Coolify → Keys & Tokens → API tokens). **Required.**
-  - `COOLIFY_RESOURCE_UUID` — UUID of the Coolify service/application. It is
-    read from secrets first, falling back to a variable of the same name; keep
-    it a secret so the production topology is not published in workflow logs.
-- **Environment** — create `production` under Settings → Environments to attach
-  a required reviewer, a wait timer, or environment-scoped copies of the above.
-  Without it the job still runs, using repository-level secrets.
-- **Packages permissions** — `GITHUB_TOKEN` is used for GHCR; under
+    (safe for staging / pre-DNS deploys). This is a **build-time** value inlined
+    into the client bundle; changing it in Coolify's runtime env does nothing,
+    it has to be right when CI builds.
+- **Packages permissions** — `GITHUB_TOKEN` pushes to GHCR; under
   Settings → Actions → General, set _Workflow permissions_ to
-  _Read repository contents and packages permissions_.
+  _Read repository contents and packages permissions_. The workflow itself grants
+  `packages: write` to the publishing job only.
+- **The GHCR package must be public** — under the package's settings, set
+  visibility to Public. srv1 pulls through the `ghcr-mirror.liara.ir`
+  pull-through cache (ghcr.io is DPI-blocked there) and the mirror has no
+  upstream credentials, so a private package returns 404 through it. Coolify
+  likewise needs either a public package or its own registry credential.
 - **Branch protection on `main`** — require the single check **`CI success`**.
   It covers lint, typecheck, build, the Docker/compose smoke test, the
   integration suites and the e2e suites.
+
+No secrets beyond the automatic `GITHUB_TOKEN` are needed.

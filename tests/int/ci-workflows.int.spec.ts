@@ -11,18 +11,22 @@ import { parse } from 'yaml'
  * A workflow file is the one piece of this repository that nothing else
  * exercises: it only ever runs on GitHub, and it only ever runs *after* it is
  * merged. Every regression it can have is therefore discovered in production —
- * a trigger quietly removed, a job dropped out of the gate, a deploy step that
+ * a trigger quietly removed, a job dropped out of the gate, a publish step that
  * stops depending on the tests, a credential inlined into a public file. These
  * assertions are the cheapest place to catch all four.
  *
+ * They matter more than usual here because **publishing is deploying**: Coolify
+ * watches `ghcr.io/<owner>/<repo>:latest` and rolls the service on its own, so
+ * no human approves anything between a green merge and production. CI is the
+ * last gate there is.
+ *
  * The properties pinned here are the ones the pipeline exists for:
- *   1. CI runs automatically (pull request + push to main), not only by hand.
+ *   1. CI runs automatically on every pull request, not only by hand.
  *   2. Every suite the repo owns is a CI job, and `ci-success` aggregates all
  *      of them — adding a job cannot silently fall outside the gate.
  *   3. The publish workflow reuses *that* CI, so "the tests pass" has exactly
- *      one definition.
- *   4. Nothing is built, pushed or deployed before CI is green, and the deploy
- *      additionally waits for the image push.
+ *      one definition, and nothing is built or pushed before it is green.
+ *   4. The image Coolify will pull is verified to exist in the registry.
  *   5. No secret, token or production hostname is hardcoded in the workflows.
  */
 
@@ -184,12 +188,12 @@ describe('the workflow files parse as GitHub Actions, not merely as YAML', () =>
   })
 })
 
-describe('publishing and deploying are gated on that same CI', () => {
+describe('publishing is gated on that same CI', () => {
   const jobs = publish.parsed.jobs
 
   it('still publishes automatically on every push to main', () => {
-    // Deployment consumes `:latest`. A manual-only publish means a merge
-    // changes nothing in production while appearing to have shipped.
+    // Coolify deploys whatever `:latest` points at. A manual-only publish means
+    // a merge changes nothing in production while appearing to have shipped.
     const on = triggers(publish.parsed)
     expect((on.push as { branches: string[] }).branches).toEqual(['main'])
     expect(on).toHaveProperty('workflow_dispatch')
@@ -202,43 +206,45 @@ describe('publishing and deploying are gated on that same CI', () => {
   })
 
   it('builds and pushes the image only after CI succeeds', () => {
+    // With Coolify pulling on its own, publishing IS deploying — there is no
+    // human step in between. This `needs` is the last gate in front of
+    // production, not merely a gate in front of a registry.
     expect(needsOf(jobs['docker-publish'])).toContain('ci')
   })
 
-  it('deploys only after both CI and the image push', () => {
-    expect(needsOf(jobs.deploy).sort()).toEqual(['ci', 'docker-publish'])
+  it('has no deploy job: Coolify pulls the image by itself', () => {
+    // Deliberately not a deploy pipeline. If a job that pushes a deployment is
+    // ever added back, the credential/verification requirements that come with
+    // it have to be reconsidered too — so make its reappearance visible.
+    expect(Object.keys(jobs)).toEqual(['ci', 'docker-publish'])
   })
 
-  it('never deploys from a branch or a dispatch that is not main or a release tag', () => {
-    expect(jobs.deploy.if).toBe(
-      "github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')",
+  it('publishes a moving :latest tag plus an immutable per-commit tag', () => {
+    const meta = (jobs['docker-publish'].steps ?? []).find((step) =>
+      String(step.uses ?? '').startsWith('docker/metadata-action'),
     )
+    const tags = String((meta?.with as { tags?: string })?.tags ?? '')
+
+    // `:latest` is the tag Coolify watches, so it must be published on the
+    // default branch. The long-sha tag is what makes a running container
+    // traceable to a commit once `:latest` has moved on.
+    expect(tags).toContain('type=raw,value=latest,enable={{is_default_branch}}')
+    expect(tags).toContain('type=sha,format=long')
   })
 
-  it('runs the deploy through a GitHub Environment so approval/secrets can be required', () => {
-    expect((jobs.deploy.environment as { name: string }).name).toBe('production')
+  it('verifies the pushed tag actually resolves in the registry', () => {
+    // `docker/build-push-action` reporting success means the upload finished,
+    // not that GHCR serves a manifest Coolify can pull. Since nothing between
+    // here and production checks that, this workflow has to.
+    const runs = (jobs['docker-publish'].steps ?? []).map((step) => step.run ?? '').join('\n')
+    expect(runs).toContain('buildx imagetools inspect')
+    expect(runs).toContain('::error::')
   })
 
-  it('verifies the rollout with the shared script instead of a fire-and-forget curl', () => {
-    const steps = jobs.deploy.steps ?? []
-    const deployStep = steps.find((step) => (step.run ?? '').includes('coolify-deploy.sh'))
-    expect(deployStep, 'deploy job must call scripts/coolify-deploy.sh').toBeDefined()
-
-    // The regression being pinned: a raw `curl` whose exit status says only that
-    // Coolify accepted the request, not that the deployment finished.
-    const runs = steps.map((step) => step.run ?? '').join('\n')
-    expect(runs).not.toMatch(/curl[^\n]*coolify|curl[^\n]*api\/v1/i)
-  })
-
-  it('passes every Coolify input from repository variables or secrets', () => {
-    const env = (publish.parsed.jobs.deploy.steps ?? []).find((step) =>
-      (step.run ?? '').includes('coolify-deploy.sh'),
-    )?.env
-
-    expect(env?.COOLIFY_URL).toContain('vars.COOLIFY_URL')
-    expect(env?.COOLIFY_API_TOKEN).toContain('secrets.COOLIFY_API_TOKEN')
-    expect(env?.COOLIFY_RESOURCE_UUID).toContain('COOLIFY_RESOURCE_UUID')
-    expect(env?.COOLIFY_HEALTHCHECK_URL).toContain('vars.COOLIFY_HEALTHCHECK_URL')
+  it('grants packages:write only to the job that pushes the image', () => {
+    // The workflow default stays contents:read; the write scope is scoped to
+    // one job rather than granted file-wide.
+    expect(jobs['docker-publish'].permissions).toMatchObject({ packages: 'write' })
   })
 })
 
@@ -246,10 +252,11 @@ describe('no production identifiers or credentials are committed in the workflow
   it.each([
     ['ci.yml', ci.raw],
     ['publish.yml', publish.raw],
-  ])('%s hardcodes no Coolify host, UUID or token', (_name, raw) => {
-    // The previous deploy step embedded both the manage.eshobe.com host and the
-    // literal service UUID. Neither is a secret in the cryptographic sense, and
-    // both are a free map of the production control plane in a public repo.
+  ])('%s hardcodes no control-plane host, resource UUID or token', (_name, raw) => {
+    // A previous deploy step embedded both the Coolify host and the literal
+    // service UUID. Neither is a secret in the cryptographic sense, and both are
+    // a free map of the production control plane in a repo. The deploy step is
+    // gone — Coolify pulls by itself — so nothing should reintroduce them.
     expect(raw).not.toMatch(/manage\.eshobe\.com/)
     expect(raw).not.toMatch(/ltabipqxfaajai7jeuc3g5eb/)
 
