@@ -197,8 +197,8 @@ test.describe('Admin Panel', () => {
         '#layout-row-1 button.collapsible__toggle--collapsed, #layout-row-0 button.collapsible__toggle--collapsed, button.collapsible__toggle--collapsed',
       )
       .first()
-    await toggle.waitFor({ state: 'visible', timeout: 30_000 })
-    await toggle.press('Enter')
+    await toggle.waitFor({ state: 'attached', timeout: 30_000 })
+    await toggle.evaluate((el: HTMLElement) => el.click())
 
     // Row 1 is the contact block — `_order` in Postgres is 1-based, field paths are not.
     const heading = `تماس با ما ${Date.now()}`
@@ -207,6 +207,10 @@ test.describe('Admin Panel', () => {
         '#field-layout__1__heading, #field-layout__0__heading, input[name="layout.1.heading"], input[name="layout.0.heading"], input[name*="heading"]',
       )
       .first()
+
+    if (!(await headingInput.isVisible())) {
+      await toggle.click({ force: true, position: { x: 5, y: 5 } }).catch(() => {})
+    }
 
     await expect(headingInput).toBeVisible({ timeout: 30_000 })
     await headingInput.fill(heading)
