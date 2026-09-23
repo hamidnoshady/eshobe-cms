@@ -189,22 +189,22 @@ test.describe('Admin Panel', () => {
     await tabButton.waitFor({ state: 'visible', timeout: 30_000 })
     await tabButton.click()
 
-    const blockRow = page.locator('#layout-row-0, [id^="layout-row-"]').first()
-    await blockRow.waitFor({ state: 'attached', timeout: 30_000 })
-
-    const collapsedToggle = blockRow
+    // Enter, not click: the row's «بدون عنوان» block-name input is laid over the
+    // full-width toggle button and swallows the pointer. Keyboard activation is a real
+    // editor path and needs no `force`.
+    const toggle = page
       .locator(
-        '.collapsible--collapsed button.collapsible__toggle, button.collapsible__toggle--collapsed',
+        '#layout-row-1 button.collapsible__toggle--collapsed, #layout-row-0 button.collapsible__toggle--collapsed, button.collapsible__toggle--collapsed',
       )
       .first()
-    if ((await collapsedToggle.count()) > 0) {
-      await collapsedToggle.evaluate((el: HTMLElement) => el.click())
-    }
+    await toggle.waitFor({ state: 'visible', timeout: 30_000 })
+    await toggle.press('Enter')
 
+    // Row 1 is the contact block — `_order` in Postgres is 1-based, field paths are not.
     const heading = `تماس با ما ${Date.now()}`
     const headingInput = page
       .locator(
-        '#field-layout__0__heading, input[name="layout.0.heading"], #layout-row-0 input[name*="heading"], input[name*="heading"]',
+        '#field-layout__1__heading, #field-layout__0__heading, input[name="layout.1.heading"], input[name="layout.0.heading"], input[name*="heading"]',
       )
       .first()
 
