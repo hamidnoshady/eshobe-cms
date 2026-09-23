@@ -101,7 +101,7 @@ test.describe('provisioning a new site', () => {
     expect(response.errors).toContainEqual(expect.objectContaining({ path: 'domain' }))
   })
 
-  test('goes from nothing to serving seeded content in one action', async ({ request: browserless }) => {
+  test('goes from nothing to serving seeded content in one action', async ({ page }) => {
     const { ok, response } = await provision(admin, {
       defaultLocale: 'fa',
       domain: 'e2e-provisioned.localhost',
@@ -120,24 +120,25 @@ test.describe('provisioning a new site', () => {
     const siteUrl = response.site?.url
     expect(siteUrl).toBeTruthy()
 
-    // The Persian home page on the customer's own domain.
-    const fa = await browserless.get(`${siteUrl}/`)
-    const faBody = await fa.text()
+    // The Persian home page on the customer's own domain. Chromium resolves
+    // *.localhost to loopback; page.goto handles the request.
+    const fa = await page.goto(`${siteUrl}/`)
+    const faBody = (await fa?.text()) ?? ''
 
-    expect(fa.status()).toBe(200)
+    expect(fa?.status()).toBe(200)
     expect(faBody).toContain('به فروشگاه ما خوش آمدید')
     expect(faBody).toContain('محصولات')
 
     // …and its English translation at /en — translated content, translated nav.
-    const en = await browserless.get(`${siteUrl}/en`)
-    const enBody = await en.text()
+    const en = await page.goto(`${siteUrl}/en`)
+    const enBody = (await en?.text()) ?? ''
 
-    expect(en.status()).toBe(200)
+    expect(en?.status()).toBe(200)
     expect(enBody).toContain('Welcome to our shop')
     expect(enBody).toContain('Products')
   })
 
-  test('a suspended site serves a holding page, not its content', async ({ request: browserless }) => {
+  test('a suspended site serves a holding page, not its content', async ({ page }) => {
     const { response } = await provision(admin, {
       defaultLocale: 'fa',
       domain: 'e2e-suspended.localhost',
@@ -151,17 +152,17 @@ test.describe('provisioning a new site', () => {
     const siteUrl = response.site?.url as string
 
     // Its content is reachable while active…
-    const live = await browserless.get(`${siteUrl}/`)
-    expect(await live.text()).toContain('آمادهٔ شروع هستید؟')
+    const live = await page.goto(`${siteUrl}/`)
+    expect(await live?.text()).toContain('آمادهٔ شروع هستید؟')
 
     const suspended = await admin.patch(`/api/sites/${siteId}`, { data: { status: 'suspended' } })
     expect(suspended.ok()).toBe(true)
 
     // …and every path answers with the holding page once suspended.
-    const held = await browserless.get(`${siteUrl}/`)
-    const heldBody = await held.text()
+    const held = await page.goto(`${siteUrl}/`)
+    const heldBody = (await held?.text()) ?? ''
 
-    expect(held.status()).toBe(200)
+    expect(held?.status()).toBe(200)
     expect(heldBody).toContain('موقتاً در دسترس نیست')
 
     // Not the site's own content…
@@ -170,7 +171,7 @@ test.describe('provisioning a new site', () => {
     // …and not indexed: a suspension is not the site's answer to search engines.
     expect(heldBody).toContain('<meta name="robots" content="noindex')
 
-    const deep = await browserless.get(`${siteUrl}/about`)
-    expect(await deep.text()).toContain('موقتاً در دسترس نیست')
+    const deep = await page.goto(`${siteUrl}/about`)
+    expect(await deep?.text()).toContain('موقتاً در دسترس نیست')
   })
 })

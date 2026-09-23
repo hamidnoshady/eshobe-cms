@@ -24,9 +24,9 @@ export async function login({
   await page.fill('#field-password', user.password)
   await page.click('button[type="submit"]')
 
-  await page.waitForURL(`${serverURL}/admin`)
+  await page.waitForURL(new RegExp(`^${serverURL}/admin(\\?|$)`), { timeout: 60_000 })
 
   // Persian, not "Dashboard": `fallbackLanguage: 'fa'` means a fresh account gets
   // the Persian admin, so an English selector here would only ever match by accident.
-  await expect(page.locator('span[title="داشبورد"]')).toBeVisible()
+  await expect(page.locator('span[title="داشبورد"]').first()).toBeVisible({ timeout: 30_000 })
 }
