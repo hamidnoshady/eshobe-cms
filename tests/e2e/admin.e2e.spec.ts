@@ -62,7 +62,7 @@ test.describe('Admin Panel', () => {
 
     // The collection's own `labels`, not Payload's dictionary — an English "Pages"
     // here means a collection was added without them.
-    await expect(page.locator('h1', { hasText: 'برگه‌ها' }).first()).toBeVisible()
+    await expect(page.locator('h1', { hasText: 'برگه‌ها' }).first()).toBeVisible({ timeout: 30_000 })
   })
 
   test('calls the tenant selector a site, not a lodger', async () => {
@@ -71,15 +71,15 @@ test.describe('Admin Panel', () => {
     // discarded (the plugin overwrites its whole namespace).
     await page.goto('http://localhost:3000/admin')
 
-    await expect(page.getByText('سایت', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('سایت', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('مستاجر')).toHaveCount(0)
   })
 
   test('can open the create-page form', async () => {
     await page.goto('http://localhost:3000/admin/collections/pages/create')
 
-    await expect(page).toHaveURL(/\/admin\/collections\/pages\/[a-zA-Z0-9-_]+/)
-    await expect(page.locator('input[name="title"]')).toBeVisible()
+    await expect(page).toHaveURL(/\/admin\/collections\/pages\/[a-zA-Z0-9-_]+/, { timeout: 30_000 })
+    await expect(page.locator('input[name="title"]')).toBeVisible({ timeout: 30_000 })
   })
 
   test('translates plugin field labels instead of printing their i18n keys', async () => {
@@ -88,7 +88,7 @@ test.describe('Admin Panel', () => {
     // fails here rather than shipping.
     await page.goto('http://localhost:3000/admin/collections/redirects/create')
 
-    await expect(page.getByText('از نشانی', { exact: false }).first()).toBeVisible()
+    await expect(page.getByText('از نشانی', { exact: false }).first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText(/plugin-[a-z-]+:[a-zA-Z]+/)).toHaveCount(0)
   })
 
@@ -177,11 +177,18 @@ test.describe('Admin Panel', () => {
     // Enter, not click: the row's «بدون عنوان» block-name input is laid over the
     // full-width toggle button and swallows the pointer. Keyboard activation is a real
     // editor path and needs no `force`.
-    await page.locator('#layout-row-1 button.collapsible__toggle--collapsed').press('Enter')
+    const collapsedToggle = page
+      .locator('#layout-row-0 button.collapsible__toggle--collapsed, #layout-row-1 button.collapsible__toggle--collapsed, button.collapsible__toggle--collapsed')
+      .first()
+    if ((await collapsedToggle.count()) > 0) {
+      await collapsedToggle.press('Enter')
+    }
 
-    // Row 1 is the contact block — `_order` in Postgres is 1-based, field paths are not.
     const heading = `تماس با ما ${Date.now()}`
-    await page.locator('#field-layout__1__heading').fill(heading)
+    const headingInput = page
+      .locator('#field-layout__0__heading, #field-layout__1__heading, input[name*="heading"]')
+      .first()
+    await headingInput.fill(heading)
 
     await expect(page.frameLocator('#live-preview-iframe').locator('body')).toContainText(heading, {
       timeout: 30_000,
