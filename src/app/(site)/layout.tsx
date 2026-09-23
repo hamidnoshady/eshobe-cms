@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 
-import { Vazirmatn } from 'next/font/google'
+import localFont from 'next/font/local'
 import React from 'react'
 
 import { AdminBar } from '@/components/AdminBar'
@@ -19,10 +19,31 @@ import './globals.css'
 import { getServerSideURL } from '@/utilities/getURL'
 
 // One family for both scripts — no per-script font switching on bilingual pages.
-// Self-hosted at build time by next/font, so no external request, no layout shift.
-const vazirmatn = Vazirmatn({
+// Self-hosted at build time by next/font/local, so no external request, no layout shift.
+const vazirmatn = localFont({
   display: 'swap',
-  subsets: ['arabic', 'latin'],
+  src: [
+    {
+      path: '../../fonts/vazirmatn-arabic-400-normal.woff',
+      style: 'normal',
+      weight: '400',
+    },
+    {
+      path: '../../fonts/vazirmatn-arabic-700-normal.woff',
+      style: 'normal',
+      weight: '700',
+    },
+    {
+      path: '../../fonts/vazirmatn-latin-400-normal.woff',
+      style: 'normal',
+      weight: '400',
+    },
+    {
+      path: '../../fonts/vazirmatn-latin-700-normal.woff',
+      style: 'normal',
+      weight: '700',
+    },
+  ],
   variable: '--font-vazirmatn',
 })
 

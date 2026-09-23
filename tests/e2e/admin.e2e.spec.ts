@@ -186,17 +186,17 @@ test.describe('Admin Panel', () => {
     // block row starts shut. Both hide the input from the DOM's point of view.
     await page.getByRole('button', { name: 'محتوا', exact: true }).click()
 
+    const blockRow = page.locator('#layout-row-0')
+    await blockRow.waitFor({ state: 'attached', timeout: 30_000 })
+
     const heading = `تماس با ما ${Date.now()}`
-    const headingInput = page
+    const headingInput = blockRow
       .locator('#field-layout__0__heading, input[name="layout.0.heading"], input[name*="heading"]')
       .first()
 
-    // If the block row is collapsed, click the toggle to expand it.
+    // If the block row is collapsed, click its toggle to expand it.
     if (!(await headingInput.isVisible())) {
-      const toggle = page
-        .locator('#layout-row-0 button.collapsible__toggle, button.collapsible__toggle--collapsed, button.collapsible__toggle')
-        .first()
-      await toggle.click({ force: true })
+      await blockRow.locator('button.collapsible__toggle').first().click({ force: true })
     }
 
     await expect(headingInput).toBeVisible({ timeout: 30_000 })
