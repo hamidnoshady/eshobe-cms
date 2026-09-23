@@ -149,6 +149,41 @@ describe('CI covers every suite the repository owns', () => {
   })
 })
 
+describe('the workflow files parse as GitHub Actions, not merely as YAML', () => {
+  it.each([
+    ['ci.yml', ci.raw],
+    ['publish.yml', publish.raw],
+  ])('%s uses single quotes inside every ${{ }} expression', (_name, raw) => {
+    // GitHub's expression syntax has NO double-quoted string literal. A `" "`
+    // inside `${{ }}` is not a warning and not a runtime error — the workflow
+    // file fails to parse, and the run appears in the Actions tab with zero
+    // jobs and the message "This run likely failed because of a workflow file
+    // issue", which names neither the file nor the line. Every YAML parser and
+    // JSON-schema validator accepts it happily, so this is the only cheap place
+    // to catch it. It cost a red run on `join(needs.*.result, " ")`.
+    const expressions = raw.match(/\$\{\{[^}]*\}\}/g) ?? []
+    expect(expressions.length).toBeGreaterThan(0)
+    for (const expression of expressions) expect(expression).not.toContain('"')
+  })
+
+  it.each([
+    ['ci.yml', ci.raw],
+    ['publish.yml', publish.raw],
+  ])('%s closes every expression it opens, on the same line', (_name, raw) => {
+    // Counting `${{` against every `}}` in the file would be wrong: the
+    // docker/metadata-action tag list legitimately contains its own
+    // `{{is_default_branch}}` / `{{version}}` templates, which are not GitHub
+    // expressions. Check each opener finds a closer on its own line instead.
+    const openers = raw.split('\n').filter((line) => line.includes('${{'))
+    expect(openers.length).toBeGreaterThan(0)
+    for (const line of openers) {
+      expect(line.slice(line.indexOf('${{') + 3), `unclosed expression: ${line.trim()}`).toContain(
+        '}}',
+      )
+    }
+  })
+})
+
 describe('publishing and deploying are gated on that same CI', () => {
   const jobs = publish.parsed.jobs
 

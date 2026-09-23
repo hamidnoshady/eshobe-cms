@@ -233,8 +233,12 @@ jobs:
       # ordering: a cancelled or skipped dependency is not a pass, and
       # publish.yml treats this job's result as permission to deploy.
       - name: Fail unless every job succeeded
+        # The expression's string literal must be SINGLE-quoted: GitHub's
+        # expression syntax has no double-quoted string, and a `" "` here is not
+        # a lint warning — it fails to parse the whole workflow file, producing a
+        # run with no jobs and the unhelpful "workflow file issue" error.
         run: |
-          results='${{ join(needs.*.result, " ") }}'
+          results="${{ join(needs.*.result, ' ') }}"
           echo "job results: $results"
           for result in $results; do
             if [ "$result" != success ]; then
