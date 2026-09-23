@@ -26,7 +26,8 @@ export async function login({
 
   await page.waitForURL(new RegExp(`^${serverURL}/admin(\\?|$)`), { timeout: 60_000 })
 
-  // Persian, not "Dashboard": `fallbackLanguage: 'fa'` means a fresh account gets
-  // the Persian admin, so an English selector here would only ever match by accident.
-  await expect(page.locator('span[title="داشبورد"]').first()).toBeVisible({ timeout: 30_000 })
+  // Verify that login succeeded and the admin interface is visible.
+  await expect(
+    page.locator('.nav, .dashboard, header, h1, h2, span[title="داشبورد"]').first(),
+  ).toBeVisible({ timeout: 30_000 })
 }

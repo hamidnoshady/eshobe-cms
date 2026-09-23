@@ -34,11 +34,22 @@ test.describe('Admin Panel', () => {
    * admin sees one per site and their order is not fixed.
    */
   const openAboutPage = async (domain: string): Promise<void> => {
+    const sitesRes = await page.request.get('http://localhost:3000/api/sites?limit=100&depth=0')
+    const sites = (await sitesRes.json()) as { docs: { id: string; domain: string }[] }
+    const targetSite = sites.docs?.find((s) => s.domain === domain)
+
     const res = await page.request.get(
       'http://localhost:3000/api/pages?where[slug][equals]=about&depth=1&limit=100',
     )
-    const { docs } = (await res.json()) as { docs: { id: string; site: { domain: string } }[] }
-    const doc = docs.find((d) => d.site?.domain === domain)
+    const { docs } = (await res.json()) as {
+      docs: { id: string; site: string | { id?: string; domain?: string } }[]
+    }
+    const doc = docs.find(
+      (d) =>
+        (typeof d.site === 'object' && d.site !== null && d.site.domain === domain) ||
+        d.site === targetSite?.id ||
+        (typeof d.site === 'object' && d.site !== null && d.site.id === targetSite?.id),
+    )
 
     expect(doc, `no /about page seeded for ${domain}`).toBeTruthy()
 
