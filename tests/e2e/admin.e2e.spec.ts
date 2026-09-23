@@ -185,20 +185,21 @@ test.describe('Admin Panel', () => {
     // sits in the «محتوا» tab, and the field is set `initCollapsed: true`, so every
     // block row starts shut. Both hide the input from the DOM's point of view.
     await page.getByRole('button', { name: 'محتوا', exact: true }).click()
-    // Enter, not click: the row's «بدون عنوان» block-name input is laid over the
-    // full-width toggle button and swallows the pointer. Keyboard activation is a real
-    // editor path and needs no `force`.
-    const toggle = page
-      .locator('#layout-row-0 button.collapsible__toggle, button.collapsible__toggle--collapsed, button.collapsible__toggle')
-      .first()
-    await toggle.waitFor({ state: 'visible', timeout: 30_000 })
-    await toggle.press('Enter')
 
     const heading = `تماس با ما ${Date.now()}`
     const headingInput = page
       .locator('#field-layout__0__heading, input[name="layout.0.heading"], input[name*="heading"]')
       .first()
-    await headingInput.waitFor({ state: 'visible', timeout: 30_000 })
+
+    // If the block row is collapsed, click the toggle to expand it.
+    if (!(await headingInput.isVisible())) {
+      const toggle = page
+        .locator('#layout-row-0 button.collapsible__toggle, button.collapsible__toggle--collapsed, button.collapsible__toggle')
+        .first()
+      await toggle.click({ force: true })
+    }
+
+    await expect(headingInput).toBeVisible({ timeout: 30_000 })
     await headingInput.fill(heading)
 
     await expect(page.frameLocator('#live-preview-iframe').locator('body')).toContainText(heading, {
