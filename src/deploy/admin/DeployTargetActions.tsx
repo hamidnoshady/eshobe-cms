@@ -37,6 +37,7 @@ export const DeployTargetActions: React.FC<UIFieldServerProps> = ({ data, id }) 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <ActionButton
+        body={{ id }}
         label="خودآزمایی اتصال"
         successMessage="اتصال برقرار شد و توکن معتبر است."
         url="/api/deploy-targets/self-test"

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { DeployTargets } from '@/collections/DeployTargets'
@@ -73,6 +74,16 @@ describe('the catalogue action panels', () => {
 
     expect(field?.type).toBe('ui')
     expect(field?.admin?.components?.Field).toBe('@/deploy/admin/DeployTargetActions')
+  })
+
+  it('passes the document id in the self-test POST body', () => {
+    // Silent failure: ActionButton without `body` → empty POST → 400 about an
+    // invalid id, which operators read as Coolify's serverUuid being wrong.
+    // The endpoint needs the Payload document id; Coolify ids are nanoid-style.
+    const source = readFileSync('src/deploy/admin/DeployTargetActions.tsx', 'utf8')
+
+    expect(source).toContain('/api/deploy-targets/self-test')
+    expect(source).toMatch(/body=\{\{\s*id\s*\}\}/)
   })
 
   it('keeps both panels first, so the action is above the fields it acts on', () => {

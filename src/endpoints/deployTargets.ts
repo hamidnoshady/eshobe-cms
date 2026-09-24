@@ -45,7 +45,11 @@ export const deployTargetSelfTest: Endpoint = {
     const body = (await req.json?.().catch(() => null)) as null | { id?: unknown }
     const id = typeof body?.id === 'string' ? body.id : null
 
-    if (!isUuid(id)) return json({ message: 'شناسهٔ سرور نامعتبر است.', ok: false }, 400)
+    // Payload document id of the deploy-targets row — not Coolify's serverUuid /
+    // projectUuid (those are nanoid-style and fail this check for a different reason).
+    if (!isUuid(id)) {
+      return json({ message: 'شناسهٔ سند سرور استقرار نامعتبر است.', ok: false }, 400)
+    }
 
     const target = await loadTarget(req, id)
     if (!target) {
