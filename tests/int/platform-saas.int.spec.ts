@@ -287,8 +287,8 @@ describe('admin visibility', () => {
 
   it('files every control-plane collection under a platform nav group', () => {
     // A collection with no group lands in Payload's ungrouped top section, above the
-    // named ones — so one forgotten `group` puts a billing screen above «سکو — ناوگان»
-    // and the operator's nav stops reading as a console.
+    // named ones. The sidebar itself is now driven by src/admin/navigation.ts, but
+    // `admin.group` still labels each collection's breadcrumb, so it must stay set.
     type Grouped = { admin?: { group?: unknown }; slug: string }
     const entries = (payload.config.collections as unknown as (Grouped & { config?: Grouped })[]).map(
       (item) => item.config ?? item,

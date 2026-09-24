@@ -1,7 +1,7 @@
 import type { GlobalConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
-import { PLATFORM_GROUPS } from '@/admin/visibility'
+import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 
 /**
  * How this SaaS behaves — the operator's own control panel, in one document.
@@ -27,6 +27,8 @@ export const PlatformSettings: GlobalConfig = {
     description:
       'رفتار کلی سکو: هویت، سیاست اعمال سقف‌ها، صورتحساب، نگهداشت گزارش‌ها و حالت تعمیر. هر چیزی که برای هر مشتری فرق می‌کند، جای دیگری تعریف می‌شود.',
     group: PLATFORM_GROUPS.operations,
+    // Platform-only (`access.read` is `platformAdmin`); keep it out of customer nav.
+    hidden: hiddenFromCustomers,
   },
   fields: [
     {
