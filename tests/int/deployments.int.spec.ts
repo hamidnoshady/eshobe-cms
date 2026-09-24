@@ -340,6 +340,25 @@ describe('deploy target credentials', () => {
     expect(doc.lastSelfTestOk).toBe(false)
     expect(String(doc.lastSelfTestDetail ?? '')).not.toContain('coolify_test_token_value')
   })
+
+  it('refuses a missing or Coolify-style id as the document id, not as a Coolify UUID check', async () => {
+    // Empty body was the admin-UI bug: operators saw "شناسهٔ سرور نامعتبر" and
+    // re-typed Coolify serverUuid. Those are nanoid-style; this endpoint wants the
+    // Payload document id.
+    const empty = await deployTargetSelfTest.handler!(await reqAsAdmin(withBody({})))
+    const emptyBody = await bodyOf(empty)
+    expect(empty.status).toBe(400)
+    expect(emptyBody.ok).toBe(false)
+    expect(String(emptyBody.message)).toContain('سند')
+
+    const coolifyStyle = await deployTargetSelfTest.handler!(
+      await reqAsAdmin(withBody({ id: 'pufsdfz0bb3617xlms8vu2rt' })),
+    )
+    const coolifyBody = await bodyOf(coolifyStyle)
+    expect(coolifyStyle.status).toBe(400)
+    expect(coolifyBody.ok).toBe(false)
+    expect(String(coolifyBody.message)).toContain('سند')
+  })
 })
 
 // ---------------------------------------------------------------------------
