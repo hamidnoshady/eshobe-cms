@@ -1,6 +1,7 @@
 import type { GlobalConfig } from 'payload'
 
 import { platformAdmin } from '../access/platformAdmin'
+import { hiddenFromCustomers } from '@/admin/visibility'
 import { gatewayOptions } from '@/payments/gateways/registry'
 
 /**
@@ -51,7 +52,18 @@ export const Payments: GlobalConfig = {
   admin: {
     description:
       'کلید روشن/خاموشِ ماژول درگاه‌های پرداخت برای همهٔ سایت‌ها، و فهرست درگاه‌هایی که سکو اجازهٔ استفاده از آن‌ها را می‌دهد.',
-    group: 'فروشگاه',
+    /**
+     * Platform provider *policy* — which PSPs the SaaS permits at all — so it lives
+     * with the operator's other platform settings, not in a customer's Commerce
+     * menu. A site's own enable/configure surface is `payment-gateways`
+     * (Commerce → روش‌های پرداخت). Splitting the two is Wave-16: the operator sets
+     * availability here; the customer switches theirs on there.
+     */
+    group: 'تنظیمات سکو',
+    // `access.read` is already platform-only; `hidden` keeps this out of a
+    // customer's nav so it never shows as a link that 403s (`admin.hidden` is what
+    // `getVisibleEntities` reads — access alone does not remove the nav entry).
+    hidden: hiddenFromCustomers,
   },
   fields: [
     {

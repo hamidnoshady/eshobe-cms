@@ -171,8 +171,20 @@ export default buildConfig({
        * a question nobody asked — this puts the fleet, billing and infrastructure
        * report above it, and renders nothing at all for a customer's staff.
        */
-      beforeDashboard: ['@/admin/OperatorDashboard'],
+      // Two front pages, one slot: `OperatorDashboard` renders for platform staff
+      // and nothing for a customer; `CustomerDashboard` does the reverse. Neither
+      // is an access boundary — both re-check the role and run tenant-scoped.
+      beforeDashboard: ['@/admin/OperatorDashboard', '@/admin/CustomerDashboard'],
       beforeLogin: ['@/components/BeforeLogin'],
+      /**
+       * The audience-aware sidebar. Payload's stock nav groups by each entity's
+       * static `admin.group`, which cannot give a shared collection (`sites`,
+       * `users`) one label for a customer and another for an operator, nor model
+       * product-oriented grouping (Forms = `forms` + `form-submissions`). The
+       * information architecture lives in `src/admin/navigation.ts`; `admin.hidden`
+       * still decides visibility. See `src/admin/nav/EshobeNav.tsx`.
+       */
+      Nav: '@/admin/nav/EshobeNav',
     },
     importMap: {
       baseDir: path.resolve(dirname),

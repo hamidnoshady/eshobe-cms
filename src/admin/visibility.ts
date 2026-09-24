@@ -1,5 +1,7 @@
 import type { ClientUser } from 'payload'
 
+import type { User } from '@/payload-types'
+
 import { isPlatformAdmin } from '@/access/platformAdmin'
 
 /**
@@ -36,7 +38,9 @@ import { isPlatformAdmin } from '@/access/platformAdmin'
 const showSiteCollectionsToOperators = (): boolean =>
   process.env.PLATFORM_ADMIN_SHOW_SITE_COLLECTIONS === 'true'
 
-type HiddenArgs = { user: ClientUser }
+// Both collection `admin.hidden` (`{ user: ClientUser }`) and global `admin.hidden`
+// (`{ user: User | null }`) share these helpers, so the arg accepts either shape.
+type HiddenArgs = { user: ClientUser | User | null }
 
 /**
  * A site-content collection: visible to a customer's staff, hidden from the
@@ -54,18 +58,29 @@ export const hiddenFromOperators = ({ user }: HiddenArgs): boolean =>
  */
 export const hiddenFromCustomers = ({ user }: HiddenArgs): boolean => !isPlatformAdmin(user)
 
-/** The admin nav groups of the operator console, in the order they should read. */
+/**
+ * Group labels shown on the operator console's collection breadcrumbs.
+ *
+ * The sidebar itself is now driven by `src/admin/navigation.ts` (via the custom
+ * `EshobeNav`), which models finer, product-oriented groups per audience. These
+ * constants remain the value each control-plane collection carries in
+ * `admin.group`, so the label pill on a list/edit view stays coherent; they are
+ * kept deliberately in step with the platform sidebar's top-level sections.
+ *
+ * The old «سکو —» prefix is gone: it only ever showed to operators, for whom the
+ * whole console *is* the platform, so the prefix was noise.
+ */
 export const PLATFORM_GROUPS = {
   /** Sites, users, keys — who exists on this deployment. */
-  fleet: 'سکو — ناوگان',
+  fleet: 'مشتریان',
   /** Plans, subscriptions, invoices, usage. */
-  billing: 'سکو — اشتراک و صورتحساب',
+  billing: 'اشتراک و صورت‌حساب',
   /** Plugins, themes, feature flags. */
-  extensions: 'سکو — افزونه‌ها و پوسته‌ها',
+  extensions: 'پوسته‌ها و افزونه‌ها',
   /** Storage, CDN, domains, registrar. */
   infrastructure: 'زیرساخت',
   /** Webhooks, audit, settings. */
-  operations: 'سکو — عملیات',
+  operations: 'عملیات',
 } as const
 
 /** The nav group every site-content collection shares, so a customer's panel reads as one section. */

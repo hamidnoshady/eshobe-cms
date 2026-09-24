@@ -1,6 +1,7 @@
 import type { GlobalConfig } from 'payload'
 
 import { platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { hiddenFromCustomers } from '@/admin/visibility'
 import {
   encryptDomainResellerCredentials,
   maskDomainResellerCredential,
@@ -40,6 +41,9 @@ export const DomainReseller: GlobalConfig = {
     description:
       'پیکربندی حساب نمایندگی دامنهٔ IRPower برای کل پلتفرم. کلید API فقط روی سرور و به‌صورت رمزنگاری‌شده نگهداری می‌شود؛ مشتریان هرگز آن را نمی‌بینند.',
     group: 'زیرساخت',
+    // Platform-only registrar credentials — `access.read` already enforces it;
+    // `hidden` keeps the entry out of a customer's nav (see Payments for why both).
+    hidden: hiddenFromCustomers,
   },
   fields: [
     {
