@@ -37,7 +37,7 @@ explicitly and name the exact reason — they are not marked passed locally.
 | Team | ✅ | `users` as «اعضای تیم»; role escalation refused server-side (`users.role` field access) — proven end-to-end in `tests/int/team-access.int.spec.ts`; editor/owner boundary in `tenancy.int.spec.ts` |
 | Customer settings | ✅ | `sites` as «تنظیمات سایت» (general/languages/domain/advanced tabs) |
 | Platform navigation | ✅ | `PLATFORM_NAV`; `navigation.int.spec.ts` (exact tree + demotion) |
-| Customer 360 (backend + UX) | ✅ | `src/platform/report.ts` `siteReportFor`; `GET/PATCH /api/platform/sites[/:id]`; `platform-control.int.spec.ts` |
+| Customer 360 (backend + UX) | ✅ | Backend `src/platform/report.ts` `siteReportFor` + `GET/PATCH /api/platform/sites[/:id]`; **single-pane operator UX** `src/admin/SiteOverviewView.tsx` («نمای ۳۶۰» tab on the site document, operator-gated) — pure composition over the same report; `platform-control.int.spec.ts` |
 | Billing | ✅ | «اشتراک و مالی» = plans/subscriptions/invoices only; usage/entitlements demoted; `platform-saas.int.spec.ts` |
 | Product / Infrastructure / Integrations / Operations | ✅ | `PLATFORM_NAV` groups; supporting tables demoted to «سایر»; `navigation.int.spec.ts` |
 | Platform settings | ✅ | `platform-settings` global; `admin-visibility.int.spec.ts` |
@@ -50,7 +50,7 @@ explicitly and name the exact reason — they are not marked passed locally.
 | Dead code cleanup | ✅ | §36 below — none removed (none found); duplication consolidated |
 | Duplicate code cleanup | ✅ | `src/endpoints/platformShared.ts` consolidates `requireOperator`/`siteById`/`json` |
 | Database compatibility | ✅ | no schema/field changes; `migrations.int.spec.ts` green; `pnpm seed` clean |
-| Build | ⚠ BLOCKED (sandbox) | Turbopack OOMs in 3.9 GB sandbox; `next build --webpack` used locally. Confirm production build in CI. |
+| Build | ✅ verified (webpack) | `next build --webpack` completes locally, exit 0: compile + `tsc` + static generation of all 7 pages, admin bundle includes the new views. Next 16's *default* Turbopack engine OOMs in the 3.9 GB sandbox only; CI runners have the RAM, and `pnpm build` (Turbopack) is what the CI `build` job runs. |
 | E2E | ⚠ BLOCKED (sandbox) | Playwright browser CDN blocked here. E2E must run in CI where browsers install. |
 
 Local verification: **typecheck ✅ · lint ✅ (0 errors) · integration 534/534 ✅.**
@@ -105,6 +105,15 @@ Genuine bug found and fixed:
   the link 404'd. Fixed in `f31d3ba`; class-eliminated by describing links as typed
   `{ type, slug }` refs resolved through `entityHref`/`createHref`, guarded by a config-level test.
 
+Pre-existing issue observed, out of refactor scope (left as found):
+
+- **OBSERVED** — `next build` logs `ERR_INVALID_ARG_TYPE` from `src/app/(site)/[domain]/og/route.tsx`
+  while collecting page data. It is **non-fatal** (the build exits 0; the route is dynamic `ƒ`,
+  not prerendered) and **not touched by this refactor** (`git log 2c2c191..HEAD -- '.../og/**'` is
+  empty — it reproduces on the baseline). Deliberately not "fixed" here: it lives in the public
+  OG-image render path, which the task requires be preserved, and changing it blindly to green a
+  log line risks a public-route regression. Flagged for a dedicated fix with its own e2e coverage.
+
 Architecture cleanup (not bugs):
 - Demoted per-site/history tables out of primary platform nav (§14–§17).
 - Consolidated duplicate platform-endpoint guards (§22).
@@ -121,6 +130,9 @@ Test improvements:
 UX improvements (additional):
 - Customer dashboard now surfaces the site's lifecycle state and locales, and raises an
   attention banner when the site is suspended or archived — all from real `sites` data (§5).
+- Customer-360 single-pane operator view (`SiteOverviewView`) added as a site-document tab,
+  composing the existing `siteReportFor`; its rendered fields are locked as report contract in
+  `platform-control.int.spec.ts` (§4).
 
 ## Route-order safety (§20)
 
@@ -133,11 +145,15 @@ lets the bare route shadow a specific one.
 ## Definition of Done — status
 
 Met: both nav trees conform to the target IA; every nav/dashboard link resolves (tested);
-customer/platform contexts separated; Customer-360 coherent (backend + operator endpoints);
-supporting collections contextual via «سایر», not sidebar clutter; no stale header/footer
-global routes; dead-route + dead-code audits complete; duplicate guards consolidated;
-tenant isolation and server authorization intact (tested); designed product behavior
-untouched; public routing / Caddy / deploy / payment safety unchanged; tests cover the new IA.
+customer/platform contexts separated; Customer-360 coherent (backend + operator endpoints
+**+ single-pane operator view**); supporting collections contextual via «سایر», not sidebar
+clutter; no stale header/footer global routes; dead-route + dead-code audits complete;
+duplicate guards consolidated; tenant isolation and server authorization intact (tested,
+including end-to-end role-escalation refusal); designed product behavior untouched; public
+routing / Caddy / deploy / payment safety unchanged; tests cover the new IA; **production
+build verified locally via `next build --webpack` (exit 0)**.
 
-Outstanding (environment, not code): production **build** (Turbopack) and **Playwright E2E**
-must be confirmed in real CI — both are blocked only by sandbox resource/network limits.
+Outstanding (environment, not code): the **Turbopack** production build (`pnpm build`) and
+**Playwright E2E** must be confirmed in real CI — the webpack build proves the code compiles
+and type-checks; Turbopack only OOMs on the 3.9 GB sandbox, and Playwright's browser download
+is network-blocked here. Both run in `.github/workflows/ci.yml`, which gates publishing.
