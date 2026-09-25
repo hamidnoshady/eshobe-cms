@@ -184,13 +184,16 @@ https:// {
     # locally-stored media keep working on the customer's own origin, and the theme
     # never has to implement — or be trusted with — a proxy back to the CMS.
     #
-    # The map is GENERATED, never hand-written: `scripts/render-theme-routes.mjs`
-    # writes it from `GET /api/platform/routing`, which emits only `live` + `edge`
-    # deployments and only *verified* aliases. A hand-maintained table is one
-    # forgotten line away from a customer's domain serving another customer's shop.
-    # The file is committed empty-by-default so a deployment with no themes at all
-    # still parses; `default ""` is what makes the matcher below fall through.
-    import /etc/caddy/theme-routes.caddy
+    # The map is GENERATED, never hand-written: the web process rewrites it after
+    # every routing-affecting deployment transition (src/deploy/routing.ts, from the
+    # same table `GET /api/platform/routing` serves to scripts/render-theme-routes.mjs),
+    # emitting only `live` + `edge` deployments of active sites on their verified
+    # domain, plus *verified* aliases. A hand-maintained table is one forgotten line
+    # away from a customer's domain serving another customer's shop. Caddy runs with
+    # `--watch` (docker-compose.prod.yml) and reloads when it changes. The file is
+    # committed empty-by-default so a deployment with no themes at all still parses;
+    # `default ""` is what makes the matcher below fall through.
+    import /etc/caddy/theme-routes/theme-routes.caddy
 
     @themed expression `{theme_upstream} != ""`
     handle @themed {

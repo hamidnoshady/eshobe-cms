@@ -1,8 +1,9 @@
 # Generated — do not edit by hand.
 #
-# Written by `node scripts/render-theme-routes.mjs` from the CMS's own
-# `GET /api/platform/routing`, which returns one entry per site whose theme
-# deployment is `live` in `edge` mode, plus that site's *verified* aliases.
+# Rewritten by the CMS itself (src/deploy/routing.ts, when THEME_ROUTES_FILE is set)
+# or by `node scripts/render-theme-routes.mjs` from `GET /api/platform/routing` —
+# one entry per active site whose theme deployment is `live` in `edge` mode on its
+# verified domain, plus that site's *verified* aliases.
 #
 # `map` runs early in Caddy's directive order, so `{theme_upstream}` is set before
 # the `@themed` matcher in the Caddyfile reads it. The `default ""` row is what lets

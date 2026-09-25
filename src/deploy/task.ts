@@ -1,11 +1,14 @@
 import type { PayloadRequest, TaskConfig } from 'payload'
 
-import { pollDeployment, verifyDeployment } from './service'
+import { regenerateThemeRoutes } from './routing'
+import { advanceDeployment, setDeploymentStatus } from './service'
 
 /**
- * The queue task that walks in-flight deployments forward.
+ * The queue task that walks in-flight deployments forward — from `queued` (the row
+ * `POST …/deployment` wrote) through the Coolify create, the build and the health
+ * check to `live`.
  *
- * Without it, `building` only advances when somebody presses a button. A Coolify
+ * Without it, nothing advances unless somebody presses a button. A Coolify
  * build finishing at 2am should make the site live at 2am, and a CMS restart
  * mid-build must pick the deployment back up rather than leave it `building`
  * forever — that stuck row is the failure this exists to prevent, and it is the one
@@ -46,7 +49,7 @@ export const advanceDeployments = async (req: PayloadRequest): Promise<{ advance
     pagination: false,
     req,
     sort: 'updatedAt',
-    where: { status: { in: ['creating', 'building', 'verifying'] } },
+    where: { status: { in: ['queued', 'creating', 'building', 'verifying'] } },
   })
 
   let advanced = 0
@@ -56,38 +59,32 @@ export const advanceDeployments = async (req: PayloadRequest): Promise<{ advance
     const updatedAt = Date.parse(String(row.updatedAt ?? ''))
 
     if (Number.isFinite(updatedAt) && Date.now() - updatedAt > STALE_AFTER_MS) {
-      await req.payload.update({
-        collection: 'site-deployments',
-        data: {
-          lastError: 'استقرار بیش از یک ساعت بدون تغییر ماند و ناموفق در نظر گرفته شد.',
-          status: 'failed',
-        },
-        depth: 0,
-        id,
-        overrideAccess: true,
-        req,
+      await setDeploymentStatus(req, id, 'failed', {
+        lastError: 'استقرار بیش از یک ساعت بدون تغییر ماند و ناموفق در نظر گرفته شد.',
       })
       advanced += 1
       continue
     }
 
     try {
-      if (row.status === 'verifying') {
-        await verifyDeployment(req, id)
-        advanced += 1
-        continue
-      }
-
-      const polled = await pollDeployment(req, id)
-      if (polled.changed) advanced += 1
-      // A build that just finished is verified on the same tick rather than waiting a
-      // full minute for the next one — the gap between "built" and "serving" is the
-      // part a watching operator experiences as the feature being slow.
-      if (polled.status === 'verifying') await verifyDeployment(req, id)
+      const outcome = await advanceDeployment(req, id)
+      if (outcome.changed) advanced += 1
     } catch (error) {
       // One bad row must not stop the queue for the other nine.
       req.payload.logger.error({ err: error as Error, msg: `deployment ${id} poll failed` })
     }
+  }
+
+  /**
+   * The routing map is regenerated on every transition that changes it; this is the
+   * safety net for a regeneration that failed (a full disk, a permission error) or
+   * a routing change made outside the deploy service. Unchanged maps are not
+   * rewritten, so an idle fleet costs one query a minute and no Caddy reload.
+   */
+  try {
+    await regenerateThemeRoutes(req.payload)
+  } catch (error) {
+    req.payload.logger.error({ err: error as Error, msg: 'theme routes: periodic regeneration failed' })
   }
 
   return { advanced }

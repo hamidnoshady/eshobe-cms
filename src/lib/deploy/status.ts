@@ -113,3 +113,52 @@ export const DOMAIN_MODE_LABELS: Record<DomainMode, string> = {
   edge: 'دامنه روی Caddy، پراکسی به پوسته',
   preview: 'فقط زیردامنهٔ پیش‌نمایش',
 }
+
+/** The modes in which a deployment answers for the customer's own domain. */
+export const isProductionMode = (mode: unknown): boolean => mode === 'edge' || mode === 'direct'
+
+/**
+ * The states a site lifecycle change has to stop: everything that holds, or is about
+ * to hold, a running application. `queued` is included so a suspended site cannot
+ * have a deploy start behind its back a minute later.
+ */
+export const ACTIVE_DEPLOYMENT_STATUSES = ['queued', 'creating', 'building', 'verifying', 'live'] as const
+
+/**
+ * The hostname the theme application itself answers on — what a health check, a
+ * revalidation notice and the Caddy upstream address.
+ *
+ * `domain` is the hostname the deployment is *for*: the preview name in `preview`
+ * mode, the customer's domain in `edge` and `direct`. In `edge` mode those differ —
+ * Caddy holds the customer's domain and the application only has its preview name
+ * in Coolify — so reaching the application means using `previewDomain`.
+ */
+export const serviceHostOf = (deployment: {
+  domain?: unknown
+  domainMode?: unknown
+  previewDomain?: unknown
+}): string => {
+  const domain = String(deployment.domain ?? '')
+  const preview = String(deployment.previewDomain ?? '')
+  if (deployment.domainMode === 'edge') return preview || domain
+  return domain || preview
+}
+
+export const STALE_DOMAIN_MESSAGE =
+  'دامنهٔ اصلی سایت پس از این استقرار تغییر کرده است. برای فعال‌شدن پوسته روی دامنهٔ جدید، استقرار مجدد انجام دهید.'
+
+/**
+ * A live `edge`/`direct` deployment built for a hostname the site no longer uses.
+ *
+ * Derived, never stored: the routing table already drops such a row (so the new
+ * domain falls through to the built-in renderer), and a stored flag would be one
+ * more thing a domain write could forget to set. The row itself ran fine — this is
+ * not a failure, it is a redeploy the operator owes the site.
+ */
+export const needsRedeploy = (
+  deployment: { domain?: unknown; domainMode?: unknown; status?: unknown },
+  site: { domain?: unknown },
+): boolean =>
+  deployment.status === 'live' &&
+  isProductionMode(deployment.domainMode) &&
+  String(deployment.domain ?? '') !== String(site.domain ?? '')

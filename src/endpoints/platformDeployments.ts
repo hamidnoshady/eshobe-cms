@@ -1,17 +1,26 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { THEME_PACKAGE_SYNC_CONTEXT_KEY } from '@/collections/ThemePackages'
 import { fetchThemeManifest } from '@/deploy/github'
+import { buildRoutingTable } from '@/deploy/routing'
 import {
+  advanceDeployment,
   createDeployment,
-  pollDeployment,
-  runDeployment,
   stopDeployment,
+  stopSiteDeployments,
+  updateInfoFor,
   verifyDeployment,
 } from '@/deploy/service'
 import { idOf, isUuid } from '@/lib/ids'
 import { isSafeGitRef } from '@/lib/deploy/manifest'
-import { DOMAIN_MODES, type DomainMode } from '@/lib/deploy/status'
+import {
+  DOMAIN_MODES,
+  STALE_DOMAIN_MESSAGE,
+  isProductionMode,
+  needsRedeploy,
+  type DomainMode,
+} from '@/lib/deploy/status'
 import { emitPlatformEvent } from '@/platform/webhooks'
 
 import { json, param, requireOperator, siteById } from './platformShared'
@@ -34,12 +43,15 @@ import { json, param, requireOperator, siteById } from './platformShared'
  * that does not look like one. `payload.config` spreads this array with the SaaS one,
  * ahead of `platformControlEndpoints`, for exactly that reason.
  *
- * ## Why `POST …/deployment` answers 202
+ * ## Why `POST …/deployment` (and `/redeploy`, `/rollback`) answer 202
  *
  * Because a Coolify build takes minutes and this request cannot wait for it. The
- * response carries the deployment row's id; `GET …/deployment` is how the console
- * follows it. A synchronous version of this route would time out at the proxy and
- * leave the operator unable to tell a slow build from a failed one.
+ * handler validates, writes a `queued` row and returns its id; the jobs queue
+ * (`advanceDeployments`) does the network work, and `GET …/deployment` is how the
+ * console follows it. `POST …/deployment/poll` advances one row on demand, which is
+ * what the console's «بررسی وضعیت» button and its polling call. A synchronous
+ * version of any of these would time out at the proxy and leave the operator unable
+ * to tell a slow build from a failed one.
  */
 
 /** Session-only. Registering a repository the platform will build and run is a human decision. */
@@ -62,9 +74,18 @@ const readBody = async (
   }
 }
 
-/** The row shape a console renders. Never includes `revalidateSecret` or a key's raw value. */
-const deploymentRow = (doc: Record<string, unknown>): Record<string, unknown> => ({
+/**
+ * The row shape a console renders. Never includes `revalidateSecret`, `apiKey` or a
+ * key's raw value — built field by field so a column added later stays out until
+ * somebody decides it belongs here.
+ */
+const deploymentRow = (
+  doc: Record<string, unknown>,
+  site: Record<string, unknown>,
+  names: { packages: Map<string, string>; targets: Map<string, string> },
+): Record<string, unknown> => ({
   appUuid: doc.appUuid ?? null,
+  attention: needsRedeploy(doc, site) ? STALE_DOMAIN_MESSAGE : null,
   commitSha: doc.commitSha ?? null,
   createdAt: doc.createdAt ?? null,
   deployedAt: doc.deployedAt ?? null,
@@ -74,13 +95,70 @@ const deploymentRow = (doc: Record<string, unknown>): Record<string, unknown> =>
   id: String(doc.id),
   lastError: doc.lastError ?? null,
   logTail: doc.logTail ?? null,
+  needsRedeploy: needsRedeploy(doc, site),
+  packageName: names.packages.get(String(idOf(doc.themePackage))) ?? null,
   previewDomain: doc.previewDomain ?? null,
   ref: doc.ref ?? null,
   site: idOf(doc.site),
   status: doc.status ?? 'queued',
   target: idOf(doc.target),
+  targetName: names.targets.get(String(idOf(doc.target))) ?? null,
   themePackage: idOf(doc.themePackage),
 })
+
+/** A deployment row, only if it belongs to the site in the URL — never another site's row by id. */
+const deploymentOfSite = async (
+  req: PayloadRequest,
+  site: Record<string, unknown>,
+  deploymentId: string,
+): Promise<null | Record<string, unknown>> => {
+  if (!isUuid(deploymentId)) return null
+  const doc = (await req.payload.findByID({
+    collection: 'site-deployments',
+    depth: 0,
+    disableErrors: true,
+    id: deploymentId,
+    overrideAccess: true,
+    req,
+  })) as null | Record<string, unknown>
+  return doc && String(idOf(doc.site)) === String(site.id) ? doc : null
+}
+
+/**
+ * The deployment a redeploy starts from: the one serving the customer's domain, else
+ * a live preview, else the most recent attempt (a first deploy that failed is the
+ * case a "try again" button exists for).
+ */
+const redeploySource = (
+  site: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+): null | Record<string, unknown> => {
+  const active = idOf(site.activeDeployment)
+  return (
+    rows.find((row) => active && String(row.id) === active) ??
+    rows.find((row) => row.status === 'live' && isProductionMode(row.domainMode)) ??
+    rows.find((row) => row.status === 'live') ??
+    rows.find((row) => row.status !== 'removed') ??
+    null
+  )
+}
+
+const recentDeployments = async (
+  req: PayloadRequest,
+  siteId: string,
+  limit = 25,
+): Promise<Record<string, unknown>[]> => {
+  const { docs } = await req.payload.find({
+    collection: 'site-deployments',
+    depth: 0,
+    limit,
+    overrideAccess: true,
+    req,
+    sort: '-createdAt',
+    where: { site: { equals: siteId } },
+  })
+  return docs as unknown as Record<string, unknown>[]
+}
 
 // ---------------------------------------------------------------------------
 // The catalogue
@@ -125,6 +203,7 @@ export const themePackagesListEndpoint: Endpoint = {
         siteTypes: Array.isArray(doc.siteTypes) ? (doc.siteTypes as unknown[]).map(String) : [],
         status: doc.status ?? 'draft',
         syncedAt: doc.manifestSyncedAt ?? null,
+        syncedCommitSha: doc.syncedCommitSha ?? null,
         syncError: doc.syncError ?? null,
       })),
     })
@@ -188,6 +267,9 @@ export const themePackageSyncEndpoint: Endpoint = {
 
     const updated = await req.payload.update({
       collection: 'theme-packages',
+      // Tells `forgetSyncedCommitOnRefEdit` this write *is* the sync — the one writer
+      // allowed to set the ref and the commit it resolved together.
+      context: { [THEME_PACKAGE_SYNC_CONTEXT_KEY]: true },
       data: {
         buildPack: manifest.build.buildPack,
         contractVersion: manifest.contractVersion,
@@ -199,6 +281,10 @@ export const themePackageSyncEndpoint: Endpoint = {
         port: manifest.build.port,
         proxiesApi: manifest.proxiesApi,
         siteTypes: manifest.siteTypes,
+        // What the ref resolved to *now* — the basis of every "new version available"
+        // notice. Null when GitHub would not say; that notice is then withheld rather
+        // than guessed.
+        syncedCommitSha: result.sha,
         syncError: null,
       },
       depth: 0,
@@ -301,7 +387,18 @@ export const themePackagePublishEndpoint: Endpoint = {
 // Per-site deployment lifecycle
 // ---------------------------------------------------------------------------
 
-/** `GET /api/platform/sites/:id/deployment` — what is running, and its history. */
+/**
+ * `GET /api/platform/sites/:id/deployment` — what is running, what needs doing, and
+ * the history.
+ *
+ * Two derived signals ride along, both computed from this site's own rows and the
+ * packages *they* reference — never a fleet-wide read:
+ *
+ *  - `needsRedeploy` — a live `edge`/`direct` deployment was built for a primary
+ *    domain the site has since left (`needsRedeploy` in `src/lib/deploy/status.ts`);
+ *  - `update` — the package would deploy a different commit than the one running
+ *    (`updateInfoFor`), from the commit the last sync resolved. No GitHub call here.
+ */
 export const siteDeploymentGetEndpoint: Endpoint = {
   path: '/platform/sites/:id/deployment',
   method: 'get',
@@ -312,23 +409,58 @@ export const siteDeploymentGetEndpoint: Endpoint = {
     const site = await siteById(req, param(req, 'id'))
     if (!site) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
 
-    const { docs } = await req.payload.find({
-      collection: 'site-deployments',
-      depth: 0,
-      limit: 25,
-      overrideAccess: true,
-      req,
-      sort: '-createdAt',
-      where: { site: { equals: String(site.id) } },
-    })
+    const docs = await recentDeployments(req, String(site.id))
 
-    const rows = (docs as unknown as Record<string, unknown>[]).map(deploymentRow)
+    const packageIds = [...new Set(docs.map((doc) => idOf(doc.themePackage)).filter(Boolean))] as string[]
+    const targetIds = [...new Set(docs.map((doc) => idOf(doc.target)).filter(Boolean))] as string[]
+
+    const packages = packageIds.length
+      ? ((
+          await req.payload.find({
+            collection: 'theme-packages',
+            depth: 0,
+            limit: packageIds.length,
+            overrideAccess: true,
+            pagination: false,
+            req,
+            where: { id: { in: packageIds } },
+          })
+        ).docs as unknown as Record<string, unknown>[])
+      : []
+    const targets = targetIds.length
+      ? ((
+          await req.payload.find({
+            collection: 'deploy-targets',
+            depth: 0,
+            limit: targetIds.length,
+            overrideAccess: true,
+            pagination: false,
+            req,
+            where: { id: { in: targetIds } },
+          })
+        ).docs as unknown as Record<string, unknown>[])
+      : []
+
+    const names = {
+      packages: new Map(packages.map((pkg) => [String(pkg.id), String(pkg.name ?? pkg.key ?? '')])),
+      targets: new Map(targets.map((target) => [String(target.id), String(target.name ?? '')])),
+    }
+
+    const rows = docs.map((doc) => deploymentRow(doc, site, names))
+    const source = redeploySource(site, docs)
+    const current = source ? (rows.find((row) => row.id === String(source.id)) ?? null) : null
+    const sourcePackage = source
+      ? (packages.find((pkg) => String(pkg.id) === String(idOf(source.themePackage))) ?? null)
+      : null
+    const update = source && source.status === 'live' ? updateInfoFor(source, sourcePackage) : null
 
     return json({
-      current: rows.find((row) => row.status === 'live') ?? rows[0] ?? null,
+      current,
       deployments: rows,
+      needsRedeploy: rows.some((row) => row.needsRedeploy === true),
       ok: true,
       renderedBy: site.renderedBy ?? 'platform',
+      update,
     })
   },
 }
@@ -375,20 +507,83 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
 
     if (!created.ok) return json({ message: created.message, ok: false }, created.status)
 
-    /**
-     * Fire-and-forget, with the same reasoning `emitPlatformEvent` uses for its HTTP
-     * fan-out: the caller gets its 202 immediately, and the row is the contract for
-     * everything after. An awaited build here is a 504 at the proxy and an operator
-     * who cannot tell slow from broken.
-     */
-    void runDeployment(req, created.deploymentId).catch((err: unknown) => {
-      req.payload.logger.error({
-        err: err as Error,
-        msg: `deployment ${created.deploymentId} crashed`,
-      })
+    // The queue takes it from here; the row is the contract for everything after.
+    return json({ deployment: created.deploymentId, ok: true, ref: created.ref, status: 'queued' }, 202)
+  },
+}
+
+/**
+ * `POST /api/platform/sites/:id/deployment/redeploy` — build the site's theme again.
+ *
+ * The upgrade button and the retry button: a *new* row for the same package, target
+ * and domain mode as the deployment the site runs (`redeploySource`), at the ref the
+ * package would deploy now (`effectiveRefFor` — pin, else default branch), for the
+ * site's *current* primary domain. That last part is what clears `needsRedeploy`
+ * after a domain change.
+ *
+ * `{ ref?, domainMode? }` may override those two, and nothing else: the repository,
+ * the package and the target come from the source row, so this route cannot be used
+ * to build something the operator did not already deploy to this site. Every check
+ * `createDeployment` makes — site active, package published, site type, plan
+ * entitlement, verified domain, `proxiesApi` for `direct` — runs again.
+ */
+export const siteDeploymentRedeployEndpoint: Endpoint = {
+  path: '/platform/sites/:id/deployment/redeploy',
+  method: 'post',
+  handler: async (req) => {
+    const denied = await requireOperator(req)
+    if (denied) return denied
+
+    const site = await siteById(req, param(req, 'id'))
+    if (!site) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
+
+    const { body, error } = await readBody(req)
+    if (error) return error
+
+    const ref = body?.ref === undefined || body.ref === null || body.ref === '' ? null : String(body.ref)
+    if (ref !== null && !isSafeGitRef(ref)) {
+      return json({ message: 'نام شاخه یا تگ نامعتبر است.', ok: false }, 400)
+    }
+
+    if (body?.domainMode && !(DOMAIN_MODES as readonly string[]).includes(String(body.domainMode))) {
+      return json(
+        { message: `«domainMode» باید یکی از ${DOMAIN_MODES.join('، ')} باشد.`, ok: false },
+        400,
+      )
+    }
+
+    const source = redeploySource(site, await recentDeployments(req, String(site.id)))
+    if (!source) {
+      return json(
+        { message: 'این سایت هنوز استقراری ندارد؛ ابتدا یک پوسته مستقر کنید.', ok: false },
+        409,
+      )
+    }
+
+    const modeRaw = body?.domainMode ? String(body.domainMode) : String(source.domainMode ?? 'preview')
+
+    const created = await createDeployment({
+      domainMode: modeRaw as DomainMode,
+      packageRef: String(idOf(source.themePackage)),
+      ref,
+      req,
+      site,
+      targetRef: String(idOf(source.target)),
     })
 
-    return json({ deployment: created.deploymentId, ok: true, status: 'queued' }, 202)
+    if (!created.ok) return json({ message: created.message, ok: false }, created.status)
+
+    return json(
+      {
+        deployment: created.deploymentId,
+        domainMode: modeRaw,
+        ok: true,
+        ref: created.ref,
+        source: String(source.id),
+        status: 'queued',
+      },
+      202,
+    )
   },
 }
 
@@ -406,17 +601,14 @@ export const siteDeploymentPollEndpoint: Endpoint = {
     const { body } = await readBody(req)
     const deploymentId = String(body?.deployment ?? '')
     if (!isUuid(deploymentId)) return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
-
-    const polled = await pollDeployment(req, deploymentId)
-
-    // A build that just finished is verified in the same call: the operator pressed
-    // one button and wants one answer, and `verifying` is not a state worth showing.
-    if (polled.status === 'verifying') {
-      const verified = await verifyDeployment(req, deploymentId)
-      return json({ message: verified.message, ok: verified.ok, status: verified.ok ? 'live' : 'failed' })
+    if (!(await deploymentOfSite(req, site, deploymentId))) {
+      return json({ message: 'این استقرار برای این سایت نیست.', ok: false }, 404)
     }
 
-    return json({ ok: true, status: polled.status })
+    // The same step the queue takes: a queued row starts, a build is polled, and a
+    // build that just finished is verified in the same call.
+    const advanced = await advanceDeployment(req, deploymentId)
+    return json({ message: advanced.message, ok: advanced.status !== 'failed', status: advanced.status })
   },
 }
 
@@ -434,6 +626,9 @@ export const siteDeploymentVerifyEndpoint: Endpoint = {
     const { body } = await readBody(req)
     const deploymentId = String(body?.deployment ?? '')
     if (!isUuid(deploymentId)) return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
+    if (!(await deploymentOfSite(req, site, deploymentId))) {
+      return json({ message: 'این استقرار برای این سایت نیست.', ok: false }, 404)
+    }
 
     const verified = await verifyDeployment(req, deploymentId)
     return json({ message: verified.message, ok: verified.ok }, verified.ok ? 200 : 422)
@@ -454,8 +649,11 @@ export const siteDeploymentStopEndpoint: Endpoint = {
     const { body } = await readBody(req)
     const deploymentId = String(body?.deployment ?? '')
     if (!isUuid(deploymentId)) return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
+    if (!(await deploymentOfSite(req, site, deploymentId))) {
+      return json({ message: 'این استقرار برای این سایت نیست.', ok: false }, 404)
+    }
 
-    const reason = String(body?.reason ?? 'توقف دستی توسط مدیر پلتفرم.')
+    const reason = String(body?.reason ?? 'توقف دستی توسط مدیر پلتفرم.').slice(0, 500)
     const result = await stopDeployment(req, deploymentId, reason)
     return json(result, result.ok ? 200 : 404)
   },
@@ -513,11 +711,7 @@ export const siteDeploymentRollbackEndpoint: Endpoint = {
 
     if (!created.ok) return json({ message: created.message, ok: false }, created.status)
 
-    void runDeployment(req, created.deploymentId).catch((err: unknown) => {
-      req.payload.logger.error({ err: err as Error, msg: `rollback ${created.deploymentId} crashed` })
-    })
-
-    return json({ commit, deployment: created.deploymentId, ok: true }, 202)
+    return json({ commit, deployment: created.deploymentId, ok: true, status: 'queued' }, 202)
   },
 }
 
@@ -538,24 +732,7 @@ export const siteDeploymentRevertEndpoint: Endpoint = {
     const site = await siteById(req, param(req, 'id'))
     if (!site) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
 
-    const { docs } = await req.payload.find({
-      collection: 'site-deployments',
-      depth: 0,
-      limit: 25,
-      overrideAccess: true,
-      pagination: false,
-      req,
-      where: {
-        and: [
-          { site: { equals: String(site.id) } },
-          { status: { in: ['live', 'verifying', 'building', 'creating'] } },
-        ],
-      },
-    })
-
-    for (const row of docs as unknown as Record<string, unknown>[]) {
-      await stopDeployment(req, String(row.id), 'بازگشت به رندرر داخلی.')
-    }
+    const { failed, stopped } = await stopSiteDeployments(req, String(site.id), 'بازگشت به رندرر داخلی.')
 
     await req.payload.update({
       collection: 'sites',
@@ -566,7 +743,7 @@ export const siteDeploymentRevertEndpoint: Endpoint = {
       req,
     })
 
-    return json({ ok: true, reverted: docs.length })
+    return json({ failed, ok: true, reverted: stopped.length })
   },
 }
 
@@ -578,8 +755,9 @@ export const siteDeploymentRevertEndpoint: Endpoint = {
  * Generated, never hand-written — a hand-maintained map is one forgotten line away
  * from a customer's domain serving another customer's storefront.
  *
- * Only `edge`-mode deployments appear. `preview` ones are reached on the target's own
- * wildcard, and `direct` ones have left Caddy entirely.
+ * The rules for which rows qualify live in `buildRoutingTable`, shared with the
+ * in-process regeneration of `theme-routes.caddy`. The response carries hostnames
+ * only — no row ids, keys or secrets.
  */
 export const routingTableEndpoint: Endpoint = {
   path: '/platform/routing',
@@ -588,79 +766,7 @@ export const routingTableEndpoint: Endpoint = {
     const denied = await requireOperator(req)
     if (denied) return denied
 
-    const { docs } = await req.payload.find({
-      collection: 'site-deployments',
-      depth: 0,
-      limit: 500,
-      overrideAccess: true,
-      pagination: false,
-      req,
-      where: {
-        and: [{ status: { equals: 'live' } }, { domainMode: { equals: 'edge' } }],
-      },
-    })
-
-    const routes: { host: string; upstream: string }[] = []
-
-    for (const row of docs as unknown as Record<string, unknown>[]) {
-      const siteId = idOf(row.site)
-      if (!siteId) continue
-
-      const site = (await req.payload.findByID({
-        collection: 'sites',
-        depth: 0,
-        disableErrors: true,
-        id: siteId,
-        overrideAccess: true,
-        req,
-      })) as null | Record<string, unknown>
-
-      const upstream = String(row.previewDomain ?? '')
-      if (!site?.domain || !upstream) continue
-
-      /**
-       * A site that is not `active` is not routed to its theme, however live the
-       * deployment is.
-       *
-       * Suspension is enforced by the built-in renderer: `getSiteContext().serving`
-       * is `status === 'active'`, and a suspended site gets `SiteHolding` instead of
-       * content. An externally deployed theme does not consult that — it holds its
-       * own API key and renders whatever `/api/site` gives it. So leaving a suspended
-       * site in this map means the one customer who stopped paying is the one whose
-       * storefront keeps working, which is the exact opposite of the intent.
-       *
-       * Dropping the route falls the hostname back to `web:3000`, where the existing
-       * holding page answers. The deployment row is left alone — suspension is
-       * usually temporary, and resuming the site should not require a rebuild.
-       */
-      if (String(site.status ?? '') !== 'active') continue
-
-      /**
-       * The host comes from the *deployment*, not from the site, and a drift between
-       * the two drops the route rather than papering over it.
-       *
-       * `row.domain` is the hostname this application was created with, and it is the
-       * hostname the upstream's own vhost answers to. If the customer has since
-       * changed their domain, routing the new one here sends every request to a
-       * Coolify app that will 404 it — a broken site that looks like a CMS bug. A
-       * missing route instead falls through to `web:3000` and the built-in renderer,
-       * which is the outcome we want while a redeploy is pending.
-       */
-      const host = String(row.domain ?? '')
-      if (!host || host !== String(site.domain)) continue
-
-      routes.push({ host, upstream })
-
-      for (const alias of Array.isArray(site.domains) ? site.domains : []) {
-        const entry = alias as { hostname?: unknown; verified?: unknown }
-        // An unverified alias resolves no tenant and gets no certificate; routing it
-        // would be routing a hostname nobody proved they own.
-        if (entry?.verified === true && entry.hostname) {
-          routes.push({ host: String(entry.hostname), upstream })
-        }
-      }
-    }
-
+    const routes = await buildRoutingTable(req.payload, req)
     return json({ generatedAt: new Date().toISOString(), ok: true, routes })
   },
 }
@@ -675,6 +781,7 @@ export const platformDeploymentEndpoints: Endpoint[] = [
   themePackagePublishEndpoint,
   routingTableEndpoint,
   // Site-scoped literals — all of these must precede `/platform/sites/:id`.
+  siteDeploymentRedeployEndpoint,
   siteDeploymentPollEndpoint,
   siteDeploymentVerifyEndpoint,
   siteDeploymentStopEndpoint,

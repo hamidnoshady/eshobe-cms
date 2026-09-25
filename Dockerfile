@@ -129,6 +129,14 @@ COPY --from=builder /app/public ./public
 RUN mkdir -p /app/media && chown nextjs:nodejs /app/media
 ENV MEDIA_DIR=/app/media
 
+# WAVE-11 — the Caddy host → theme-upstream map. The app rewrites it (atomically) when
+# THEME_ROUTES_FILE points here; docker-compose.prod.yml mounts a named volume on this
+# directory, shared read-only with Caddy. A fresh named volume is seeded from the
+# image, so the committed empty map is what a new deployment starts from — and it is
+# owned by `nextjs`, or the app could not replace it.
+RUN mkdir -p /app/theme-routes && chown nextjs:nodejs /app/theme-routes
+COPY --from=builder --chown=nextjs:nodejs /app/theme-routes.caddy /app/theme-routes/theme-routes.caddy
+
 # Set the correct permission for prerender cache
 RUN mkdir .next
 RUN chown nextjs:nodejs .next

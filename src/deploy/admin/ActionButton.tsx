@@ -34,6 +34,8 @@ export type ActionButtonProps = {
   confirm?: string
   disabled?: boolean
   label: string
+  /** Called after a 2xx, e.g. to re-read a list the action changed. */
+  onSuccess?: () => Promise<void> | void
   /** Shown on 2xx. The server's `message` wins when it sends one. */
   successMessage?: string
   style?: 'danger' | 'none' | 'primary' | 'secondary'
@@ -48,6 +50,7 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
   confirm,
   disabled,
   label,
+  onSuccess,
   style = 'secondary',
   successMessage,
   url,
@@ -97,8 +100,11 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
       setResult({ ok: true, text: serverMessage ?? successMessage ?? 'انجام شد.' })
 
       // The document this button sits on is now stale — a sync rewrote the manifest
-      // fields, a deploy added a row. Re-fetch rather than patch local state.
+      // fields, a deploy added a row. Re-fetch rather than patch local state; a client
+      // panel holding its own copy (the deployment console) is told directly, because
+      // `router.refresh()` re-renders server components only.
       router.refresh()
+      await onSuccess?.()
     } catch {
       setResult({ ok: false, text: 'ارتباط با سرور برقرار نشد.' })
     } finally {
