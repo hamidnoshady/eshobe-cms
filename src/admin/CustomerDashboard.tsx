@@ -6,8 +6,9 @@ import type { Site } from '@/payload-types'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { formatNumber } from '@/lib/format'
+import { storeOverview, type StoreOverview } from '@/lib/storeOverview'
 
-import { createHref, entityHref } from './navigation'
+import { collection, createHref, entityHref } from './navigation'
 import {
   CUSTOMER_QUICK_ACTIONS,
   CUSTOMER_STAT_LINKS,
@@ -102,7 +103,18 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
   const counts: Record<string, number> = {}
 
   try {
-    const sites = await payload.find({ collection: 'sites', depth: 0, limit: 1, req })
+    // `overrideAccess: false` scopes every read to the caller's own site(s). The
+    // Local API defaults to `overrideAccess: true`, which SKIPS the multi-tenant
+    // plugin's read constraint — so without this a customer's dashboard would show
+    // the platform-wide count across every tenant, and pick some other customer's
+    // site for the header. Same rule as `src/lib/site-query.ts`.
+    const sites = await payload.find({
+      collection: 'sites',
+      depth: 0,
+      limit: 1,
+      overrideAccess: false,
+      req,
+    })
     site = sites.docs[0] ?? null
 
     const results = await Promise.all(
@@ -110,6 +122,7 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
         try {
           const { totalDocs } = await payload.count({
             collection: slug as Parameters<typeof payload.count>[0]['collection'],
+            overrideAccess: false,
             req,
           })
           return [slug, totalDocs] as const
@@ -123,6 +136,38 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
     payload.logger.error({ err: error as Error, msg: 'customer dashboard load failed' })
   }
 
+  // Store control-centre summary — only for a `store` site, and tenant-scoped by
+  // `storeOverview` itself. A failure must not blank the rest of the page.
+  let store: StoreOverview | null = null
+  if (site?.type === 'store') {
+    try {
+      store = await storeOverview(req)
+    } catch (error) {
+      payload.logger.error({ err: error as Error, msg: 'store overview load failed' })
+    }
+  }
+
+  // Things that need the customer's attention, most urgent first.
+  const warnings: string[] = []
+  if (site?.domain && !site.domainVerified) {
+    warnings.push('دامنهٔ شما هنوز تأیید نشده است؛ تا تأیید DNS، گواهی TLS صادر نمی‌شود.')
+  }
+  if (store) {
+    if (store.products.outOfStock > 0) {
+      warnings.push(`${fa(store.products.outOfStock)} محصول ناموجود است.`)
+    }
+    if (store.products.lowStock > 0) {
+      warnings.push(`${fa(store.products.lowStock)} محصول رو به اتمام است.`)
+    }
+    if (store.payments.configured === 0) {
+      warnings.push('هیچ درگاه پرداختی پیکربندی نشده است؛ سفارش‌ها قابل پرداخت نیستند.')
+    } else if (store.payments.needsAttention > 0) {
+      warnings.push(`${fa(store.payments.needsAttention)} درگاه پرداخت فعال، آزمایش اتصال ناموفق دارد.`)
+    }
+  }
+
+  const ordersHref = entityHref(adminRoute, collection('orders'))
+  const productsHref = entityHref(adminRoute, collection('products'))
   const siteUrl = site?.domain ? `https://${site.domain}` : null
   const statusLabel = site?.domainVerified
     ? 'دامنه تأییدشده'
@@ -138,6 +183,16 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
           {site?.domain ? `${site.domain} — ${statusLabel}` : statusLabel}
         </p>
       </header>
+
+      {warnings.length > 0 ? (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          {warnings.map((warning) => (
+            <div className="banner banner--type-warning" key={warning} style={{ margin: 0 }}>
+              {warning}
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <Section title="دسترسی سریع">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
@@ -166,6 +221,20 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
           />
         ))}
       </Section>
+
+      {store ? (
+        <Section title="فروشگاه">
+          <StatLink
+            href={ordersHref}
+            label="سفارش‌های در انتظار پرداخت"
+            value={store.orders.pending}
+          />
+          <StatLink href={ordersHref} label="سفارش‌های پرداخت‌شده" value={store.orders.paid} />
+          <StatLink href={productsHref} label="محصولات منتشرشده" value={store.products.published} />
+          <StatLink href={productsHref} label="رو به اتمام" value={store.products.lowStock} />
+          <StatLink href={productsHref} label="ناموجود" value={store.products.outOfStock} />
+        </Section>
+      ) : null}
     </div>
   )
 }
