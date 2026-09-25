@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest'
 
 import configPromise from '@/payload.config'
-import { CUSTOMER_NAV, PLATFORM_NAV, resolveNavGroups } from '@/admin/navigation'
+import { CUSTOMER_NAV, OTHER_GROUP_LABEL, PLATFORM_NAV, resolveNavGroups } from '@/admin/navigation'
 
 type Entity = { admin?: { group?: unknown; hidden?: unknown }; slug: string }
 
@@ -106,35 +106,46 @@ describe('admin nav visibility (config-level)', () => {
     expect(orphans, 'a visible entity is missing from CUSTOMER_NAV').toEqual([])
   })
 
-  it('places every operator-visible entity in the platform sidebar — no orphans', async () => {
+  it('leaves no operator-visible entity unreachable — everything resolves into some group', async () => {
+    // The static PLATFORM_NAV map intentionally omits the demoted supporting tables
+    // (they are not primary products), so "orphan against the map" is now expected
+    // for those. The invariant that still must hold is *reachability*: after
+    // `resolveNavGroups` sweeps unmapped-but-visible entities into «سایر», every
+    // operator-visible entity appears in exactly one resolved group.
     const cfg = await loadConfig()
     const visible = visibleFor(cfg, operator)
-    const map = navKeys(PLATFORM_NAV)
-    const orphans = [
+    const groups = resolveNavGroups({ adminRoute: '/admin', user: operator, visible })
+    const reachable = new Set(groups.flatMap((g) => g.entities.map((e) => `${e.type}:${e.slug}`)))
+    const unreachable = [
       ...visible.collections.map((s) => `collection:${s}`),
       ...visible.globals.map((s) => `global:${s}`),
-    ].filter((k) => !map.has(k))
-    expect(orphans, 'a visible entity is missing from PLATFORM_NAV').toEqual([])
+    ].filter((k) => !reachable.has(k))
+    expect(unreachable, 'an operator-visible entity resolves into no nav group at all').toEqual([])
   })
 
-  it('keeps supporting/history collections beside their parent, not as their own section', async () => {
-    // The product-oriented rule: a submissions/events/deliveries table is reached
-    // through its parent's area, never as an unrelated first-level sibling.
-    const pairs: [string, string][] = [
-      ['form-submissions', 'forms'],
-      ['cdn-events', 'cdn-zones'],
-      ['webhook-deliveries', 'webhooks'],
-      ['reseller-domain-operations', 'reseller-domains'],
-      ['reseller-domain-events', 'reseller-domains'],
-      ['site-theme-settings', 'theme-packages'],
-      ['site-deployments', 'theme-packages'],
-    ]
-    for (const [child, parent] of pairs) {
-      const nav = child.startsWith('form') ? CUSTOMER_NAV : PLATFORM_NAV
-      const childGroup = groupOf(nav, 'collection', child)
-      const parentGroup = groupOf(nav, 'collection', parent)
-      expect(childGroup, `${child} is not placed`).toBeTruthy()
-      expect(childGroup, `${child} should sit in the same group as ${parent}`).toBe(parentGroup)
+  it('groups a customer submissions table with its parent form, not as its own section', async () => {
+    // The product-oriented rule for the customer tree: form-submissions is reached
+    // through the same «وب‌سایت» area as forms, never as an unrelated sibling.
+    expect(groupOf(CUSTOMER_NAV, 'collection', 'form-submissions')).toBe(
+      groupOf(CUSTOMER_NAV, 'collection', 'forms'),
+    )
+  })
+
+  it('demotes platform supporting/history tables out of every primary group', async () => {
+    // The platform equivalent: per-site override and history/event tables are not
+    // primary products. They must not appear in any PLATFORM_NAV group (they land in
+    // «سایر» at resolve time instead — proven in navigation.int.spec.ts).
+    const primary = new Set(PLATFORM_NAV.flatMap((g) => g.entities.map((e) => e.slug)))
+    for (const slug of [
+      'usage-records',
+      'site-entitlements',
+      'site-theme-settings',
+      'cdn-events',
+      'webhook-deliveries',
+      'reseller-domain-operations',
+      'reseller-domain-events',
+    ]) {
+      expect(primary, `${slug} must not be a primary platform product`).not.toContain(slug)
     }
   })
 })
@@ -148,7 +159,9 @@ describe('admin nav resolution against the real config', () => {
       visible: visibleFor(cfg, editor),
     })
     const labels = groups.map((g) => g.label)
-    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی', 'تنظیمات سایت', 'تیم'])
+    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی و انتشار', 'تیم', 'تنظیمات'])
+    // A customer sees every website group and nothing falls through to «سایر».
+    expect(labels).not.toContain(OTHER_GROUP_LABEL)
     // A control-plane link never appears in a customer's resolved nav.
     const allSlugs = groups.flatMap((g) => g.entities.map((e) => e.slug))
     expect(allSlugs).not.toContain('plans')
@@ -163,18 +176,35 @@ describe('admin nav resolution against the real config', () => {
       visible: visibleFor(cfg, operator),
     })
     const labels = groups.map((g) => g.label)
+    // The seven primary product groups, in order — then «سایر» last, because a real
+    // operator can see the demoted supporting tables and they sweep into the catch-all.
     expect(labels).toEqual([
       'مشتریان',
-      'اشتراک و صورت‌حساب',
-      'پوسته‌ها و افزونه‌ها',
+      'اشتراک و مالی',
+      'محصول',
       'زیرساخت',
       'یکپارچه‌سازی',
       'عملیات',
       'تنظیمات سکو',
+      OTHER_GROUP_LABEL,
     ])
+    // No site-content leaks into the operator's console.
     const allSlugs = groups.flatMap((g) => g.entities.map((e) => e.slug))
     expect(allSlugs).not.toContain('pages')
     expect(allSlugs).not.toContain('posts')
+    // The demoted tables are exactly what «سایر» holds — reachable, never primary.
+    const other = groups.find((g) => g.label === OTHER_GROUP_LABEL)
+    expect(other?.entities.map((e) => e.slug).sort()).toEqual(
+      [
+        'cdn-events',
+        'reseller-domain-events',
+        'reseller-domain-operations',
+        'site-entitlements',
+        'site-theme-settings',
+        'usage-records',
+        'webhook-deliveries',
+      ].sort(),
+    )
   })
 
   it('every control-plane collection carries a non-empty admin.group for its breadcrumb', async () => {

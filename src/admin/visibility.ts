@@ -71,15 +71,17 @@ export const hiddenFromCustomers = ({ user }: HiddenArgs): boolean => !isPlatfor
  * whole console *is* the platform, so the prefix was noise.
  */
 export const PLATFORM_GROUPS = {
-  /** Sites, users, keys — who exists on this deployment. */
+  /** Sites & users — who exists on this deployment. */
   fleet: 'مشتریان',
-  /** Plans, subscriptions, invoices, usage. */
-  billing: 'اشتراک و صورت‌حساب',
-  /** Plugins, themes, feature flags. */
-  extensions: 'پوسته‌ها و افزونه‌ها',
-  /** Storage, CDN, domains, registrar. */
+  /** Plans, subscriptions, invoices, usage, entitlements. */
+  billing: 'اشتراک و مالی',
+  /** Features, themes (templates/packages/settings), plugins — the product catalogue. */
+  product: 'محصول',
+  /** Storage, CDN, domains, registrar, deploy targets, payment policy. */
   infrastructure: 'زیرساخت',
-  /** Webhooks, audit, settings. */
+  /** API keys & webhooks (+ deliveries) — machine-to-machine surfaces. */
+  integrations: 'یکپارچه‌سازی',
+  /** Deployments & the audit trail — day-to-day running of the fleet. */
   operations: 'عملیات',
 } as const
 

@@ -5,7 +5,18 @@ import type { PayloadRequest, ServerProps } from 'payload'
 import type { Site } from '@/payload-types'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { customerSiteSummary } from '@/lib/customerSiteSummary'
 import { formatNumber } from '@/lib/format'
+import { locales } from '@/lib/locales'
+import { storeOverview, type StoreOverview } from '@/lib/storeOverview'
+
+import { collection, createHref, entityHref } from './navigation'
+import {
+  CUSTOMER_QUICK_ACTIONS,
+  CUSTOMER_STAT_LINKS,
+  CUSTOMER_STAT_SLUGS,
+  type DashboardStat,
+} from './dashboardLinks'
 
 /**
  * What a customer's staff see when they open `/admin`.
@@ -86,40 +97,77 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
   if (!payload || isPlatformAdmin(user)) return null
 
   const adminRoute = payload.config.routes?.admin ?? '/admin'
-  const base = adminRoute === '/' ? '' : adminRoute
   const req = { context: {}, payload, user } as unknown as PayloadRequest
 
-  // Tenant-scoped: the multi-tenant plugin narrows each of these to the caller's
-  // own site(s). A failure here must not blank the front page.
+  // Tenant-scoped (see `customerSiteSummary`): the multi-tenant plugin narrows each
+  // read to the caller's own site(s). A failure here must not blank the front page.
   let site: Site | null = null
-  const counts: Record<string, number> = {}
+  let counts: Record<string, number> = {}
 
   try {
-    const sites = await payload.find({ collection: 'sites', depth: 0, limit: 1, req })
-    site = sites.docs[0] ?? null
-
-    const countable = ['pages', 'posts', 'products', 'orders', 'form-submissions'] as const
-    const results = await Promise.all(
-      countable.map(async (slug) => {
-        try {
-          const { totalDocs } = await payload.count({ collection: slug, req })
-          return [slug, totalDocs] as const
-        } catch {
-          return [slug, 0] as const
-        }
-      }),
-    )
-    for (const [slug, total] of results) counts[slug] = total
+    const summary = await customerSiteSummary(req, CUSTOMER_STAT_SLUGS)
+    site = summary.site
+    counts = summary.counts
   } catch (error) {
     payload.logger.error({ err: error as Error, msg: 'customer dashboard load failed' })
   }
 
+  // Store control-centre summary — only for a `store` site, and tenant-scoped by
+  // `storeOverview` itself. A failure must not blank the rest of the page.
+  let store: StoreOverview | null = null
+  if (site?.type === 'store') {
+    try {
+      store = await storeOverview(req)
+    } catch (error) {
+      payload.logger.error({ err: error as Error, msg: 'store overview load failed' })
+    }
+  }
+
+  // Things that need the customer's attention, most urgent first. The site's own
+  // lifecycle state comes before anything else: a suspended site is not serving, so
+  // a domain or stock warning under it would be noise.
+  const warnings: string[] = []
+  if (site?.status === 'suspended') {
+    warnings.push('سایت شما معلق شده است و در دسترس بازدیدکنندگان نیست؛ برای رفع تعلیق با پشتیبانی در تماس باشید.')
+  } else if (site?.status === 'archived') {
+    warnings.push('سایت شما بایگانی شده است و منتشر نمی‌شود.')
+  }
+  if (site?.domain && !site.domainVerified) {
+    warnings.push('دامنهٔ شما هنوز تأیید نشده است؛ تا تأیید DNS، گواهی TLS صادر نمی‌شود.')
+  }
+  if (store) {
+    if (store.products.outOfStock > 0) {
+      warnings.push(`${fa(store.products.outOfStock)} محصول ناموجود است.`)
+    }
+    if (store.products.lowStock > 0) {
+      warnings.push(`${fa(store.products.lowStock)} محصول رو به اتمام است.`)
+    }
+    if (store.payments.configured === 0) {
+      warnings.push('هیچ درگاه پرداختی پیکربندی نشده است؛ سفارش‌ها قابل پرداخت نیستند.')
+    } else if (store.payments.needsAttention > 0) {
+      warnings.push(`${fa(store.payments.needsAttention)} درگاه پرداخت فعال، آزمایش اتصال ناموفق دارد.`)
+    }
+  }
+
+  const ordersHref = entityHref(adminRoute, collection('orders'))
+  const productsHref = entityHref(adminRoute, collection('products'))
   const siteUrl = site?.domain ? `https://${site.domain}` : null
   const statusLabel = site?.domainVerified
     ? 'دامنه تأییدشده'
     : site?.domain
       ? 'در انتظار تأیید دامنه'
       : 'دامنه‌ای ثبت نشده'
+
+  // Site lifecycle — distinct from domain verification: «فعال» is serving, the
+  // others are not. Straight from `sites.status`, never inferred.
+  const lifecycleLabel =
+    site?.status === 'suspended' ? 'معلق' : site?.status === 'archived' ? 'بایگانی‌شده' : 'فعال'
+  // The site's own locales, by their platform label («فارسی», «English»), the
+  // default marked. Falls back to the code for a locale not in the platform list.
+  const localeNames = (site?.availableLocales ?? []).map((code) => {
+    const label = locales.find((locale) => locale.code === code)?.label ?? code
+    return code === site?.defaultLocale ? `${label} (پیش‌فرض)` : label
+  })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
@@ -128,30 +176,63 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
         <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
           {site?.domain ? `${site.domain} — ${statusLabel}` : statusLabel}
         </p>
+        <p style={{ color: 'var(--theme-elevation-500)', fontSize: '.8rem', margin: 0 }}>
+          {`وضعیت: ${lifecycleLabel}`}
+          {localeNames.length > 0 ? ` · زبان‌ها: ${localeNames.join('، ')}` : ''}
+        </p>
       </header>
+
+      {warnings.length > 0 ? (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          {warnings.map((warning) => (
+            <div className="banner banner--type-warning" key={warning} style={{ margin: 0 }}>
+              {warning}
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <Section title="دسترسی سریع">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
-          <Action href={`${base}/collections/pages/create`} label="ساخت برگه" />
-          <Action href={`${base}/collections/posts/create`} label="ساخت نوشته" />
-          <Action href={`${base}/collections/media/create`} label="بارگذاری رسانه" />
-          <Action href={`${base}/collections/products/create`} label="افزودن محصول" />
-          <Action href={`${base}/globals/header`} label="ویرایش پیمایش" />
+          {CUSTOMER_QUICK_ACTIONS.map((action) => (
+            <Action
+              href={
+                action.create
+                  ? createHref(adminRoute, action.entity.slug)
+                  : entityHref(adminRoute, action.entity)
+              }
+              key={`${action.entity.slug}-${action.create ? 'create' : 'edit'}`}
+              label={action.label}
+            />
+          ))}
           {siteUrl ? <Action external href={siteUrl} label="مشاهدهٔ سایت" /> : null}
         </div>
       </Section>
 
       <Section title="یک نگاه به سایت">
-        <StatLink href={`${base}/collections/pages`} label="برگه‌ها" value={counts.pages ?? 0} />
-        <StatLink href={`${base}/collections/posts`} label="نوشته‌ها" value={counts.posts ?? 0} />
-        <StatLink href={`${base}/collections/products`} label="محصولات" value={counts.products ?? 0} />
-        <StatLink href={`${base}/collections/orders`} label="سفارش‌ها" value={counts.orders ?? 0} />
-        <StatLink
-          href={`${base}/collections/form-submissions`}
-          label="پاسخ‌های فرم"
-          value={counts['form-submissions'] ?? 0}
-        />
+        {CUSTOMER_STAT_LINKS.map((stat: DashboardStat) => (
+          <StatLink
+            href={entityHref(adminRoute, stat.entity)}
+            key={stat.entity.slug}
+            label={stat.label}
+            value={counts[stat.entity.slug] ?? 0}
+          />
+        ))}
       </Section>
+
+      {store ? (
+        <Section title="فروشگاه">
+          <StatLink
+            href={ordersHref}
+            label="سفارش‌های در انتظار پرداخت"
+            value={store.orders.pending}
+          />
+          <StatLink href={ordersHref} label="سفارش‌های پرداخت‌شده" value={store.orders.paid} />
+          <StatLink href={productsHref} label="محصولات منتشرشده" value={store.products.published} />
+          <StatLink href={productsHref} label="رو به اتمام" value={store.products.lowStock} />
+          <StatLink href={productsHref} label="ناموجود" value={store.products.outOfStock} />
+        </Section>
+      ) : null}
     </div>
   )
 }

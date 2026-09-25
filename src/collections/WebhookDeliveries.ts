@@ -31,7 +31,7 @@ export const WebhookDeliveries: CollectionConfig<'webhook-deliveries'> = {
     defaultColumns: ['createdAt', 'webhook', 'event', 'ok', 'statusCode', 'durationMs'],
     description:
       'گزارش ارسال وب‌هوک‌ها. بدنهٔ رویداد ذخیره می‌شود تا قابل بازفرست باشد؛ از پاسخ گیرنده فقط کد وضعیت و یک کیلوبایت اول نگه داشته می‌شود و امضا هرگز ذخیره نمی‌شود.',
-    group: PLATFORM_GROUPS.operations,
+    group: PLATFORM_GROUPS.integrations,
     hidden: hiddenFromCustomers,
     useAsTitle: 'event',
   },

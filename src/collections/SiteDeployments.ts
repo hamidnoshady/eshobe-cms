@@ -51,7 +51,7 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
     defaultColumns: ['site', 'themePackage', 'status', 'domain', 'commitSha', 'deployedAt'],
     description:
       'هر ردیف، یک اجرای واقعی از یک پوسته روی یک سایت است. وضعیت را فقط کار استقرار می‌نویسد؛ ردیف‌های قدیمی برای بازگشت به نسخهٔ قبل نگه داشته می‌شوند.',
-    group: PLATFORM_GROUPS.extensions,
+    group: PLATFORM_GROUPS.operations,
     hidden: hiddenFromCustomers,
     useAsTitle: 'domain',
   },

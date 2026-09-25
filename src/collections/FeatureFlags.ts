@@ -33,7 +33,7 @@ export const FeatureFlags: CollectionConfig<'feature-flags'> = {
     defaultColumns: ['key', 'label', 'category', 'defaultEnabled'],
     description:
       'فهرست امکاناتی که طرح‌ها باز می‌کنند و سایت‌ها می‌توانند استثنا بخورند. کلید، شناسهٔ ماشینی است و در API همین برگردانده می‌شود.',
-    group: PLATFORM_GROUPS.extensions,
+    group: PLATFORM_GROUPS.product,
     hidden: hiddenFromCustomers,
     useAsTitle: 'label',
   },

@@ -102,7 +102,7 @@ export const Webhooks: CollectionConfig<'webhooks'> = {
     defaultColumns: ['name', 'url', 'enabled', 'consecutiveFailures', 'lastDeliveryAt'],
     description:
       'اعلان‌های خروجی سکو به سامانه‌های دیگر. هر ارسال با کلید محرمانه امضا می‌شود؛ نشانی باید https و عمومی باشد.',
-    group: PLATFORM_GROUPS.operations,
+    group: PLATFORM_GROUPS.integrations,
     hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },

@@ -1,7 +1,6 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
-import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { isUuid } from '@/lib/ids'
 import { clampLimit, clampPage } from '@/lib/platform-control'
 import { clampInt, isQuotaMetric, QUOTA_METRICS, slugKey, type QuotaMetric } from '@/lib/saas/plans'
@@ -10,6 +9,8 @@ import { quotaReportForSite, resolveEntitlement, subscriptionForSite, usageForSi
 import { emitPlatformEvent } from '@/platform/webhooks'
 import { recordUsage } from '@/platform/usage'
 import { applyThemeTemplate, pluginsForSite, saasOverview } from '@/platform/saas-report'
+
+import { json, param, requireOperator, search, siteById } from './platformShared'
 
 /**
  * `/api/platform/*` — the SaaS half of the control surface.
@@ -47,31 +48,10 @@ import { applyThemeTemplate, pluginsForSite, saasOverview } from '@/platform/saa
  * come before `/platform/sites/:id` — the fleet file records the same trap.
  */
 
-const noStore = { 'cache-control': 'no-store' }
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { headers: noStore, status })
-
-const requireOperator = async (req: PayloadRequest): Promise<null | Response> => {
-  if (await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user))) return null
-  return json({ message: 'این بخش فقط برای مدیر پلتفرم است.', ok: false }, 403)
-}
-
 /** Session-only: a key must not be able to mutate the platform's own commercial records. */
 const requireAdminSession = (req: PayloadRequest): null | Response => {
   if (isPlatformAdmin(req.user)) return null
   return json({ message: 'این عملیات فقط با نشست مدیر پلتفرم انجام می‌شود.', ok: false }, 403)
-}
-
-const param = (req: PayloadRequest, name: string): string =>
-  String((req.routeParams as Record<string, unknown> | undefined)?.[name] ?? '')
-
-const search = (req: PayloadRequest): URLSearchParams => {
-  try {
-    return new URL(req.url ?? '', 'http://localhost').searchParams
-  } catch {
-    return new URLSearchParams()
-  }
 }
 
 const readBody = async (req: PayloadRequest): Promise<{ body?: Record<string, unknown>; error?: Response }> => {
@@ -84,19 +64,6 @@ const readBody = async (req: PayloadRequest): Promise<{ body?: Record<string, un
   } catch {
     return { error: json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400) }
   }
-}
-
-const siteById = async (req: PayloadRequest, id: string): Promise<null | Record<string, unknown>> => {
-  if (!isUuid(id)) return null
-  const doc = await req.payload.findByID({
-    id,
-    collection: 'sites',
-    depth: 0,
-    disableErrors: true,
-    overrideAccess: true,
-    req,
-  })
-  return (doc as unknown as null | Record<string, unknown>) ?? null
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
-import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { fetchThemeManifest } from '@/deploy/github'
 import {
   createDeployment,
@@ -14,6 +13,8 @@ import { idOf, isUuid } from '@/lib/ids'
 import { isSafeGitRef } from '@/lib/deploy/manifest'
 import { DOMAIN_MODES, type DomainMode } from '@/lib/deploy/status'
 import { emitPlatformEvent } from '@/platform/webhooks'
+
+import { json, param, requireOperator, siteById } from './platformShared'
 
 /**
  * `/api/platform/theme-packages/*` and `/api/platform/sites/:id/deployment*` — the
@@ -41,24 +42,11 @@ import { emitPlatformEvent } from '@/platform/webhooks'
  * leave the operator unable to tell a slow build from a failed one.
  */
 
-const noStore = { 'cache-control': 'no-store' }
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { headers: noStore, status })
-
-const requireOperator = async (req: PayloadRequest): Promise<null | Response> => {
-  if (await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user))) return null
-  return json({ message: 'این بخش فقط برای مدیر پلتفرم است.', ok: false }, 403)
-}
-
 /** Session-only. Registering a repository the platform will build and run is a human decision. */
 const requireAdminSession = (req: PayloadRequest): null | Response => {
   if (isPlatformAdmin(req.user)) return null
   return json({ message: 'این عملیات فقط با نشست مدیر پلتفرم انجام می‌شود.', ok: false }, 403)
 }
-
-const param = (req: PayloadRequest, name: string): string =>
-  String((req.routeParams as Record<string, unknown> | undefined)?.[name] ?? '')
 
 const readBody = async (
   req: PayloadRequest,
@@ -72,19 +60,6 @@ const readBody = async (
   } catch {
     return { error: json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400) }
   }
-}
-
-const siteById = async (req: PayloadRequest, id: string): Promise<null | Record<string, unknown>> => {
-  if (!isUuid(id)) return null
-  const doc = await req.payload.findByID({
-    id,
-    collection: 'sites',
-    depth: 0,
-    disableErrors: true,
-    overrideAccess: true,
-    req,
-  })
-  return (doc as unknown as null | Record<string, unknown>) ?? null
 }
 
 /** The row shape a console renders. Never includes `revalidateSecret` or a key's raw value. */

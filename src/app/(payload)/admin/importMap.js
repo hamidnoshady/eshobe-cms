@@ -23,6 +23,7 @@ import { BlocksFeatureClient as BlocksFeatureClient_e70f5e05f09f93e00b997edb1ef0
 import { FolderTableCell as FolderTableCell_f9c02e79a4aed9a3924487c0cd4cafb1 } from '@payloadcms/next/rsc'
 import { FolderField as FolderField_f9c02e79a4aed9a3924487c0cd4cafb1 } from '@payloadcms/next/rsc'
 import { WatchTenantCollection as WatchTenantCollection_1d0591e3cf4f332c83a86da13a0de59a } from '@payloadcms/plugin-multi-tenant/client'
+import { default as default_9eb83c83fe7de033695b1717126ab241 } from '@/admin/SiteOverviewView'
 import { default as default_2046d7864983bfb889aa4e9d207cebf8 } from '@/deploy/admin/DeploymentView'
 import { default as default_f73c2cf723071d8a624fa0c68ef80684 } from '@/provisioning/NewSiteButton'
 import { default as default_b65188f9bfb30318173e978b78c9b237 } from '@/provisioning/AdminView'
@@ -71,6 +72,7 @@ export const importMap = {
   "@payloadcms/next/rsc#FolderTableCell": FolderTableCell_f9c02e79a4aed9a3924487c0cd4cafb1,
   "@payloadcms/next/rsc#FolderField": FolderField_f9c02e79a4aed9a3924487c0cd4cafb1,
   "@payloadcms/plugin-multi-tenant/client#WatchTenantCollection": WatchTenantCollection_1d0591e3cf4f332c83a86da13a0de59a,
+  "@/admin/SiteOverviewView#default": default_9eb83c83fe7de033695b1717126ab241,
   "@/deploy/admin/DeploymentView#default": default_2046d7864983bfb889aa4e9d207cebf8,
   "@/provisioning/NewSiteButton#default": default_f73c2cf723071d8a624fa0c68ef80684,
   "@/provisioning/AdminView#default": default_b65188f9bfb30318173e978b78c9b237,
