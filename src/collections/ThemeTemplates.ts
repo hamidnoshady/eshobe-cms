@@ -42,7 +42,7 @@ export const ThemeTemplates: CollectionConfig<'theme-templates'> = {
     defaultColumns: ['name', 'key', 'active', 'siteTypes'],
     description:
       'کتابخانهٔ پوسته‌های آماده که سایت جدید از روی آن‌ها ساخته می‌شود. اعمال یک پوسته، یک کپی است — ویرایش این فهرست، سایت‌های موجود را تغییر نمی‌دهد.',
-    group: PLATFORM_GROUPS.extensions,
+    group: PLATFORM_GROUPS.product,
     hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },

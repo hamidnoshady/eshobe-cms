@@ -68,7 +68,7 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
     defaultColumns: ['name', 'key', 'status', 'repository', 'defaultRef', 'contractVersion'],
     description:
       'پوسته‌هایی که روی سرور مستقر و اجرا می‌شوند. مخزن و شاخه را وارد کنید، «همگام‌سازی از گیت‌هاب» را بزنید تا eshobe.theme.json خوانده شود، و بعد منتشر کنید. فقط پوستهٔ «منتشرشده» در ساخت سایت پیشنهاد می‌شود.',
-    group: PLATFORM_GROUPS.extensions,
+    group: PLATFORM_GROUPS.product,
     hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },

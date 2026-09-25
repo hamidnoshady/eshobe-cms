@@ -34,7 +34,7 @@ describe('resolveNavGroups', () => {
       visible: everythingVisible(CUSTOMER_NAV),
     })
     const labels = groups.map((g) => g.label)
-    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی', 'تنظیمات سایت', 'تیم'])
+    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی', 'تیم', 'تنظیمات'])
     // No platform group leaks in, and nothing falls through to «سایر».
     expect(labels).not.toContain('مشتریان')
     expect(labels).not.toContain(OTHER_GROUP_LABEL)
@@ -49,8 +49,8 @@ describe('resolveNavGroups', () => {
     const labels = groups.map((g) => g.label)
     expect(labels).toEqual([
       'مشتریان',
-      'اشتراک و صورت‌حساب',
-      'پوسته‌ها و افزونه‌ها',
+      'اشتراک و مالی',
+      'محصول',
       'زیرساخت',
       'یکپارچه‌سازی',
       'عملیات',

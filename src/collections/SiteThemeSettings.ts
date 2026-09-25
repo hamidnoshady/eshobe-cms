@@ -46,7 +46,7 @@ export const SiteThemeSettings: CollectionConfig<'site-theme-settings'> = {
     defaultColumns: ['site', 'themePackage', 'updatedAt'],
     description:
       'مقادیری که این پوسته از شما می‌خواهد — مثل کلید نقشه. فهرست متغیرها را خود پوسته تعیین می‌کند؛ مقدار محرمانه رمزنگاری‌شده ذخیره می‌شود و دیگر نمایش داده نمی‌شود.',
-    group: PLATFORM_GROUPS.extensions,
+    group: PLATFORM_GROUPS.product,
     hidden: hiddenFromCustomers,
     useAsTitle: 'id',
   },

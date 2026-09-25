@@ -127,7 +127,6 @@ describe('admin nav visibility (config-level)', () => {
       ['reseller-domain-operations', 'reseller-domains'],
       ['reseller-domain-events', 'reseller-domains'],
       ['site-theme-settings', 'theme-packages'],
-      ['site-deployments', 'theme-packages'],
     ]
     for (const [child, parent] of pairs) {
       const nav = child.startsWith('form') ? CUSTOMER_NAV : PLATFORM_NAV
@@ -148,7 +147,7 @@ describe('admin nav resolution against the real config', () => {
       visible: visibleFor(cfg, editor),
     })
     const labels = groups.map((g) => g.label)
-    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی', 'تنظیمات سایت', 'تیم'])
+    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی', 'تیم', 'تنظیمات'])
     // A control-plane link never appears in a customer's resolved nav.
     const allSlugs = groups.flatMap((g) => g.entities.map((e) => e.slug))
     expect(allSlugs).not.toContain('plans')
@@ -165,8 +164,8 @@ describe('admin nav resolution against the real config', () => {
     const labels = groups.map((g) => g.label)
     expect(labels).toEqual([
       'مشتریان',
-      'اشتراک و صورت‌حساب',
-      'پوسته‌ها و افزونه‌ها',
+      'اشتراک و مالی',
+      'محصول',
       'زیرساخت',
       'یکپارچه‌سازی',
       'عملیات',

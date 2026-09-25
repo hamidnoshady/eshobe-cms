@@ -92,8 +92,9 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
       collection('footer'),
       collection('forms'),
       collection('form-submissions'),
-      collection('redirects'),
+      // SEO & search, then redirects — the «SEO و جستجو» / «تغییر مسیرها» pair.
       collection('search'),
+      collection('redirects'),
     ],
   },
   {
@@ -103,10 +104,11 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
   {
     label: 'فروشگاه',
     entities: [
+      // Overview / products / orders / payments / settings order.
       collection('products'),
       collection('orders'),
+      collection('payment-gateways', 'پرداخت'),
       collection('store', 'تنظیمات فروشگاه'),
-      collection('payment-gateways', 'روش‌های پرداخت'),
     ],
   },
   {
@@ -114,44 +116,48 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     entities: [collection('theme')],
   },
   {
-    label: 'تنظیمات سایت',
-    entities: [collection('sites', 'سایت من')],
-  },
-  {
     label: 'تیم',
     entities: [collection('users')],
+  },
+  {
+    label: 'تنظیمات',
+    entities: [collection('sites', 'تنظیمات سایت')],
   },
 ]
 
 /**
  * The platform / operator console. Every entity here runs the SaaS. Supporting
  * history/event and per-site catalogue tables live beside their parent rather
- * than as top-level items — see the label overrides.
+ * than as top-level items — see the label overrides. The group order mirrors the
+ * product information architecture: who the customers are, then money, then the
+ * product catalogue, then the infrastructure that runs it, then integrations,
+ * then day-to-day operations, then the platform's own settings.
  */
 export const PLATFORM_NAV: NavGroupDef[] = [
   {
     label: 'مشتریان',
-    entities: [collection('sites'), collection('users'), collection('api-keys')],
+    entities: [collection('sites'), collection('users')],
   },
   {
-    label: 'اشتراک و صورت‌حساب',
+    label: 'اشتراک و مالی',
     entities: [
       collection('plans'),
       collection('subscriptions'),
       collection('invoices'),
+      // Usage & entitlements are per-customer detail; until the Customer-360 view
+      // lands they stay here (kept reachable) rather than as top-level siblings.
       collection('usage-records'),
       collection('site-entitlements'),
     ],
   },
   {
-    label: 'پوسته‌ها و افزونه‌ها',
+    label: 'محصول',
     entities: [
-      collection('theme-packages'),
+      collection('feature-flags', 'قابلیت‌ها'),
       collection('theme-templates'),
-      collection('plugins'),
-      collection('feature-flags'),
-      collection('site-deployments'),
+      collection('theme-packages'),
       collection('site-theme-settings'),
+      collection('plugins'),
     ],
   },
   {
@@ -168,20 +174,23 @@ export const PLATFORM_NAV: NavGroupDef[] = [
       collection('cdn-zones', 'CDN — زون‌ها'),
       collection('cdn-events'),
       collection('storage-connections'),
-      collection('deploy-targets'),
+      collection('deploy-targets', 'سرورهای انتشار'),
+      // Platform payment policy — which gateway adapters are globally allowed —
+      // is infrastructure, distinct from a customer's per-site gateway config.
+      global('payments', 'پرداخت'),
     ],
   },
   {
     label: 'یکپارچه‌سازی',
-    entities: [collection('webhooks'), collection('webhook-deliveries')],
+    entities: [collection('api-keys'), collection('webhooks'), collection('webhook-deliveries')],
   },
   {
     label: 'عملیات',
-    entities: [collection('audit-log')],
+    entities: [collection('site-deployments', 'انتشارها'), collection('audit-log')],
   },
   {
     label: 'تنظیمات سکو',
-    entities: [global('platform-settings'), global('payments', 'ارائه‌دهندگان پرداخت')],
+    entities: [global('platform-settings')],
   },
 ]
 

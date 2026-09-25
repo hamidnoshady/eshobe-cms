@@ -58,7 +58,7 @@ export const Plugins: CollectionConfig<'plugins'> = {
     defaultColumns: ['name', 'type', 'enabled', 'scope', 'credentialsSummary'],
     description:
       'افزونه‌های نصب‌شده روی این نصب: نوع از فهرست بستهٔ پشتیبانی‌شده انتخاب می‌شود، تنظیمات و کلید هر افزونه رمزنگاری‌شده ذخیره می‌شود. افزونه کد اجرا نمی‌کند؛ یک ثبت پیکربندی است.',
-    group: PLATFORM_GROUPS.extensions,
+    group: PLATFORM_GROUPS.product,
     hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },

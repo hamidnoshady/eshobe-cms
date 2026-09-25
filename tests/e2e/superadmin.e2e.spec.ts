@@ -161,7 +161,7 @@ test.describe('the operator panel', () => {
     // the audience-aware EshobeNav. With the escape hatch on, any site-content
     // collection a platform admin can now see lands in the trailing «سایر» group,
     // not among these.
-    await expect(page.getByText('اشتراک و صورت‌حساب').first()).toBeVisible()
+    await expect(page.getByText('اشتراک و مالی').first()).toBeVisible()
     await expect(page.getByText('عملیات').first()).toBeVisible()
   })
 
