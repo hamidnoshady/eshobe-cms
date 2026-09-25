@@ -15,13 +15,16 @@ explicitly and name the exact reason — they are not marked passed locally.
 | `ffbfca3` | test: lock in server-side site-type block gating over the API |
 | `ed86850` | refactor: conform nav IA to target tree; harden nav + migration tests |
 | `758a197` | refactor: dedupe platform-endpoint operator guard + site lookup; add endpoint-order guard |
+| `b353f87` | docs: this report |
+| `2734510` | feat: dashboard surfaces site lifecycle state + locales; warns on suspend/archive |
+| `2f328d6` | test: prove role escalation is refused on a real write (team boundary) |
 
 ## §35 Final completeness matrix
 
 | Area | Status | Evidence |
 |---|---|---|
 | Customer navigation | ✅ | `src/admin/navigation.ts` (CUSTOMER_NAV); `tests/int/navigation.int.spec.ts` (exact tree), `tests/int/admin-visibility.int.spec.ts` |
-| Customer dashboard | ✅ | `src/admin/CustomerDashboard.tsx`; `tests/int/admin-dashboard-links.int.spec.ts`, `customer-site-summary.int.spec.ts` |
+| Customer dashboard | ✅ | `src/admin/CustomerDashboard.tsx` — site name, primary domain, lifecycle state (active/suspended/archived), domain verification, locales, at-a-glance counts, store panel, real attention warnings; `admin-dashboard-links.int.spec.ts`, `customer-site-summary.int.spec.ts` |
 | Website / Pages | ✅ | `src/collections/Pages`; grouped under «وب‌سایت»; `blocks.int.spec.ts`, `editing.int.spec.ts` |
 | Navigation (header/footer) | ✅ | tenant-scoped `header`/`footer` collections under «وب‌سایت»; NOT converted to globals; `admin-visibility.int.spec.ts` |
 | Forms | ✅ | `forms` + `form-submissions` grouped as one «وب‌سایت» workflow; `admin-visibility.int.spec.ts` (submissions beside forms) |
@@ -31,7 +34,7 @@ explicitly and name the exact reason — they are not marked passed locally.
 | Products / Orders / Payments | ✅ | «فروشگاه» group; `store.int.spec.ts`, `api-keys.int.spec.ts` |
 | Design & Publishing | ✅ | «طراحی و انتشار» group (theme); catalogue/domain/deploy are platform-owned by design |
 | Themes / Domains | ✅ | platform-owned catalogue + `sites` domain fields; `platform-saas.int.spec.ts`, `domain-reseller*.int.spec.ts` |
-| Team | ✅ | `users` as «اعضای تیم»; owner/editor boundary server-enforced (`tenancy.int.spec.ts`) |
+| Team | ✅ | `users` as «اعضای تیم»; role escalation refused server-side (`users.role` field access) — proven end-to-end in `tests/int/team-access.int.spec.ts`; editor/owner boundary in `tenancy.int.spec.ts` |
 | Customer settings | ✅ | `sites` as «تنظیمات سایت» (general/languages/domain/advanced tabs) |
 | Platform navigation | ✅ | `PLATFORM_NAV`; `navigation.int.spec.ts` (exact tree + demotion) |
 | Customer 360 (backend + UX) | ✅ | `src/platform/report.ts` `siteReportFor`; `GET/PATCH /api/platform/sites[/:id]`; `platform-control.int.spec.ts` |
@@ -39,7 +42,7 @@ explicitly and name the exact reason — they are not marked passed locally.
 | Product / Infrastructure / Integrations / Operations | ✅ | `PLATFORM_NAV` groups; supporting tables demoted to «سایر»; `navigation.int.spec.ts` |
 | Platform settings | ✅ | `platform-settings` global; `admin-visibility.int.spec.ts` |
 | Tenant isolation | ✅ | `tenancy.int.spec.ts` (read/update/delete another site refused) |
-| Permission model | ✅ | `access-control.int.spec.ts`, `tenancy.int.spec.ts` (editor cannot publish) |
+| Permission model | ✅ | `access-control.int.spec.ts`, `tenancy.int.spec.ts` (editor cannot publish), `team-access.int.spec.ts` (no role escalation) |
 | API-key security | ✅ | `api-keys.int.spec.ts` (raw once, hash stored, scope enforced, cannot mint platform key) |
 | Secret handling | ✅ | `ApiKeys.keyHash` hidden + server-only; `deploymentRow` excludes `revalidateSecret`; platform secrets encrypted (`lib/saas/crypto`) |
 | Route ordering | ✅ | `payload.config.ts` order + `tests/int/endpoint-order.int.spec.ts` (new guard) |
@@ -50,7 +53,16 @@ explicitly and name the exact reason — they are not marked passed locally.
 | Build | ⚠ BLOCKED (sandbox) | Turbopack OOMs in 3.9 GB sandbox; `next build --webpack` used locally. Confirm production build in CI. |
 | E2E | ⚠ BLOCKED (sandbox) | Playwright browser CDN blocked here. E2E must run in CI where browsers install. |
 
-Local verification: **typecheck ✅ · lint ✅ (0 errors) · integration 532/532 ✅.**
+Local verification: **typecheck ✅ · lint ✅ (0 errors) · integration 534/534 ✅.**
+
+### §27 Performance
+
+The dashboard read paths were checked for the listed anti-patterns and are clean:
+`customerSiteSummary` uses one `find(limit:1)` for the site plus `count()` per stat
+tile (never fetching whole collections); `storeOverview` uses `count()` for totals and
+bounded `find(limit:5)`/`find(limit:50)` for recent orders and gateways. No N+1, no
+unbounded collection read, no duplicate site query — the operator fleet report reuses
+the same `count`-based helpers.
 
 ## §36 Dead-code report
 
@@ -103,7 +115,12 @@ UX improvements (not bugs):
 
 Test improvements:
 - Full nav-tree conformance test; endpoint-order regression guard; migration test made
-  environment-isolated so it passes locally and in CI with identical assertions (§32 option A).
+  environment-isolated so it passes locally and in CI with identical assertions (§32 option A);
+  end-to-end role-escalation refusal test (`team-access.int.spec.ts`).
+
+UX improvements (additional):
+- Customer dashboard now surfaces the site's lifecycle state and locales, and raises an
+  attention banner when the site is suspended or archived — all from real `sites` data (§5).
 
 ## Route-order safety (§20)
 
