@@ -254,3 +254,103 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
   `subscriptions`, `invoices`, `site-entitlements`, `usage-records` — **is**
   registered, and `tests/int/store.int.spec.ts` asserts the split so a new collection
   cannot quietly join the wrong side.
+
+---
+
+# Deployable themes (Wave 11)
+
+Code: `src/endpoints/platformDeployments.ts` (HTTP), `src/deploy/{service,routing,lifecycle,task,tenantSettings}.ts`
+(services), `src/lib/deploy/*` (pure: manifest, status machine, crypto, map renderer),
+`tests/int/{deployments,deploy-lifecycle,theme-settings}.int.spec.ts`,
+`tests/e2e/deployments.e2e.spec.ts`. How the system behaves is
+[`docs/theme-deployments.md`](./theme-deployments.md); this section is the wire contract.
+
+## 9. Who may call it
+
+Every `/api/platform/theme-packages*`, `/api/platform/routing` and
+`/api/platform/sites/:id/deployment*` route takes the same §1 boundary: a
+**platform-admin session** or a **`role: "platform"` API key** (`requireOperator`). A
+`role: "site"` key and an anonymous caller get **403** on every one of them — including
+reads — and the int and e2e suites assert it for the whole family. **Publishing a package is
+admin-session only** (registering code to run on the operator's servers is a human
+decision), so a platform key gets 403 there too.
+
+No Caddy carve-out, for the §2 reason: these are called with the control plane's own
+`Host`, and "deploy arbitrary code for any customer" must not be one `curl` away from a
+shop's homepage.
+
+Every response is `cache-control: no-store` JSON with `ok` and, on refusal, a Persian
+`message`. No response carries a token, a key's raw value, a revalidation secret or
+`enc:` ciphertext.
+
+## 10. The routes
+
+| Route | Body | Answers |
+|---|---|---|
+| `GET /api/platform/theme-packages` | — | `{ packages: [{ id, key, name, status, repository, defaultRef, pinnedCommit, syncedCommitSha, syncedAt, syncError, siteTypes, proxiesApi, contractVersion, buildPack, envSchema, requiredFeature, defaultTarget, description }] }`. `envSchema` is the declared shape only — never a site's values. |
+| `POST /api/platform/theme-packages/:id/sync` | `{ ref? }` (default: the package's `defaultRef`) | Reads `eshobe.theme.json` from GitHub **now** (synchronous; 10 s timeout per request). 200 `{ commit, manifest, package }`; stores the manifest, `defaultRef = ref` and `syncedCommitSha = commit`. 400 unsafe ref, 404 unknown package, 422 `{ errors }` when GitHub or the manifest refuses (the previous manifest is kept, `syncError` recorded). |
+| `POST /api/platform/theme-packages/:id/publish` | `{ status?: 'published' \| 'deprecated' \| 'draft' }` | **Admin session only.** 200 `{ status }`; 409 `{ problems }` when publishing a package with no manifest, no contract version or no active target. |
+| `POST /api/deploy-targets/self-test` | `{ id }` (the target's document id) | Collection endpoint. Calls Coolify `GET /servers` **now**. 200 `{ servers }`; 400 bad id; 404 unknown/unreadable target; 422 server uuid not found; 502 Coolify unreachable or refused. Recorded on the row either way. |
+| `GET /api/platform/sites/:id/deployment` | — | `{ current, deployments[], needsRedeploy, renderedBy, update }` — see below. |
+| `POST /api/platform/sites/:id/deployment` | `{ package, domainMode?: 'preview' \| 'edge' \| 'direct', ref?, target? }` | **202** `{ deployment, ref, status: 'queued' }`. Validation only; no network. 400 unknown mode / unsafe ref / missing package, 402 plan lacks `requiredFeature`, 404 unknown site or package, 409 site not active / package unpublished / wrong site type / domain unverified for `edge`/`direct` / `direct` without `proxiesApi` / no target or no wildcard domain. |
+| `POST /api/platform/sites/:id/deployment/redeploy` | `{ ref?, domainMode? }` | **202** `{ deployment, source, ref, domainMode, status: 'queued' }` — a new row from the deployment the site runs (its package and target; its mode unless overridden), at the package's current ref, for the site's current domain. All create checks apply. 400 unsafe ref / unknown mode, 409 no deployment to redeploy or any create refusal. Repository, package and target cannot be chosen here. |
+| `POST /api/platform/sites/:id/deployment/rollback` | `{ deployment }` | **202** `{ commit, deployment, status: 'queued' }` — a new row pinned to that row's `commitSha` (beats the package's pin). 404 unknown row, 409 row of another site / row without a commit / any create refusal. |
+| `POST /api/platform/sites/:id/deployment/poll` | `{ deployment }` | Advances one row one step **now**: `queued` runs the Coolify side (create/re-point app, env, start build), `creating`/`building` asks Coolify, `verifying` health-checks and promotes. 200 `{ ok, status, message? }`. 400 bad id, 404 row of another site. |
+| `POST /api/platform/sites/:id/deployment/verify` | `{ deployment }` | Health-check and promote a `verifying` row **now**. 200 or 422 `{ ok, message }`. |
+| `POST /api/platform/sites/:id/deployment/stop` | `{ deployment, reason? }` | Stops the Coolify application **now** (never deletes), marks the row `stopped`, revokes its key, hands the site back to the built-in renderer if it served it. 200 `{ ok, applicationStopped, message }` — `applicationStopped: false` with a message when Coolify did not acknowledge (retry). 404 row of another site. |
+| `POST /api/platform/sites/:id/deployment/revert` | — | Stops every deployment of the site holding an application and sets `renderedBy: 'platform'`. 200 `{ reverted, failed[] }`. |
+| `GET /api/platform/routing` | — | `{ generatedAt, routes: [{ host, upstream }] }` — the Caddy map's input: live `edge` rows of active sites on their verified, unchanged primary domain, plus verified aliases. Hostnames only. |
+
+Network work happens **immediately** only in `sync`, `self-test`, `poll`, `verify` and
+`stop`. Create, redeploy and rollback answer 202 after writing a `queued` row; the jobs
+queue (`advanceDeployments`, once a minute) does the Coolify work, and the console polls
+`GET …/deployment` and `…/poll` while anything is pending.
+
+### `GET …/deployment`
+
+```jsonc
+{
+  "ok": true,
+  "renderedBy": "deployment",          // who serves the customer domain
+  "needsRedeploy": false,              // any live edge/direct row built for another domain
+  "current": {                         // the row the site runs (active → live → latest)
+    "id": "…", "status": "live", "domainMode": "edge",
+    "domain": "acme.ir", "previewDomain": "acme-ir-bazaar.sites.example.com",
+    "packageName": "بازار", "themePackage": "…", "targetName": "تهران ۱", "target": "…",
+    "ref": "main", "commitSha": "…", "appUuid": "…",
+    "needsRedeploy": false, "attention": null,   // Persian message when needsRedeploy
+    "lastError": null, "logTail": "…", "createdAt": "…", "deployedAt": "…", "healthCheckedAt": "…"
+  },
+  "deployments": [ /* the last 25 rows, same shape, newest first */ ],
+  "update": {                          // null unless `current` is live
+    "deployedCommit": "…", "latestCommit": "…", // pin, else the commit the last sync resolved
+    "packageRef": "main", "updateAvailable": true
+  }
+}
+```
+
+`update` makes no GitHub request; a sync is what refreshes `latestCommit`. It compares
+commit shas, and "available" means "different from what the package would deploy now".
+
+## 11. The tenant's route
+
+`GET|POST /api/site-theme-settings/current?site=<id>` is **not** on the platform surface. It
+is the customer's own: an admin session of a member of that site (owners write, editors
+read, platform staff both), and a site key gets 403. `POST { site, values: { KEY: value },
+clear?: [KEY] }`. It answers `{ package, fields: [{ key, label, help, required, secret,
+value? , set? }], canEdit }` — secrets as `set: true|false`, never their value. See
+`docs/theme-deployments.md` §8.
+
+## 12. Rules that are easy to break
+
+- **Deployment literals before the bare site route.** Every
+  `/platform/sites/:id/deployment*` endpoint is spread (with the SaaS ones) before
+  `platformControlEndpoints`; `tests/int/endpoint-order.int.spec.ts` asserts the whole
+  list and `tests/e2e/deployments.e2e.spec.ts` checks each over the real router by a body
+  only its own handler produces.
+- **Nothing here accepts a repository.** Create takes a package key or id; redeploy and
+  rollback take nothing that names code. A field where anyone types a Git URL is a "build
+  and run arbitrary code on our server" field.
+- **The routing table is the edge's only input.** `buildRoutingTable` is shared by this
+  route and the in-process map regeneration; a rule added in one place and not the other
+  is a customer domain served by the wrong renderer.

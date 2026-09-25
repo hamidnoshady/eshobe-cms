@@ -58,7 +58,11 @@ test.describe('provisioning a new site', () => {
       // cascade cleanup is deliberately off.
       await admin.delete(`/api/users?where[tenants.tenant][equals]=${id}`)
 
-      for (const collection of ['pages', 'header', 'footer', 'theme', 'forms']) {
+      // Every per-site collection provisioning writes — a store site gets starter
+      // products and a store document. Left behind, they outlive the site with a null
+      // `site` and `store.int.spec.ts` (which finds products by title) trips over them
+      // when both suites share a database.
+      for (const collection of ['pages', 'products', 'header', 'footer', 'theme', 'store', 'forms']) {
         await admin.delete(`/api/${collection}?where[site][equals]=${id}`)
       }
 

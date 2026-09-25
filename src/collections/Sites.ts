@@ -14,6 +14,7 @@ import {
 import { locales } from '../lib/locales'
 import { slugifyField } from '../lib/slug'
 import { PLATFORM_GROUPS } from '@/admin/visibility'
+import { siteDeploymentLifecycle } from '@/deploy/lifecycle'
 
 /** Same list the platform offers, in select-field shape. */
 const localeOptions = locales.map(({ code, label }) => ({ label, value: code }))
@@ -248,11 +249,30 @@ export const Sites: CollectionConfig = {
               label: 'استقرار پوسته',
             },
           },
+          /**
+           * The customer's half of a deployable theme: the values the theme's manifest
+           * asks the *site* for. Shown to the site's own staff and to operators; the
+           * view checks membership and `/api/site-theme-settings/current` enforces it.
+           * `href` for the same reason as the tab above.
+           */
+          themeSettings: {
+            Component: '@/deploy/admin/ThemeSettingsView',
+            meta: { title: 'تنظیمات پوسته' },
+            path: '/theme-settings',
+            tab: {
+              condition: ({ req }) => Boolean(req?.user),
+              href: '/theme-settings',
+              label: 'تنظیمات پوسته',
+            },
+          },
         },
       },
     },
   },
   hooks: {
+    // Suspension/archival stop the site's theme applications; domain changes
+    // re-render the Caddy map (`src/deploy/lifecycle.ts`).
+    afterChange: [siteDeploymentLifecycle],
     beforeChange: resetVerificationOnHostChange,
     beforeValidate: normalizeAndValidateDomains,
   },
@@ -407,8 +427,11 @@ export const Sites: CollectionConfig = {
      * whose traffic no longer arrives at Caddy must not sit there waiting to issue a
      * certificate nobody will ever request.
      *
-     * Written only by the deploy service. Platform-admin even at field level — a
-     * customer's owner flipping this would point their own domain at nothing.
+     * Written only by the deploy service (with `overrideAccess`), so no caller may
+     * write it — not even a platform admin. The admin form carries this field, and a
+     * form opened before a deploy went live would otherwise put the stale value back
+     * on its next unrelated save, pointing the site at a renderer that is not serving
+     * it.
      */
     {
       name: 'renderedBy',
@@ -424,7 +447,7 @@ export const Sites: CollectionConfig = {
         { label: 'سکو (رندرر داخلی)', value: 'platform' },
         { label: 'پوستهٔ مستقرشده', value: 'deployment' },
       ],
-      access: { update: platformAdminFieldAccess },
+      access: { create: () => false, update: () => false },
       admin: {
         description:
           'با استقرار یک پوستهٔ نصب‌شدنی خودکار تغییر می‌کند. دستی تغییر ندهید؛ «بازگشت به رندرر داخلی» راه درست است.',
@@ -436,7 +459,8 @@ export const Sites: CollectionConfig = {
       type: 'relationship',
       relationTo: 'site-deployments',
       label: 'استقرار فعال',
-      access: { update: platformAdminFieldAccess },
+      // Same reason as `renderedBy`: the deploy service is the only writer.
+      access: { create: () => false, update: () => false },
       admin: {
         description: 'ردیف استقراری که هم‌اکنون به این دامنه سرویس می‌دهد.',
         position: 'sidebar',

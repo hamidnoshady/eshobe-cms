@@ -24,7 +24,11 @@ export const DEPLOYMENT_STATUSES = [
   'failed',
   /** Deliberately stopped — a suspended site, or superseded by a newer deployment. */
   'stopped',
-  /** The Coolify application is gone. Terminal; the row survives as history. */
+  /**
+   * The Coolify application is gone. Terminal; the row survives as history. The CMS
+   * never deletes an application itself (it only stops them), so this records one an
+   * operator removed in Coolify by hand.
+   */
   'removed',
 ] as const
 
@@ -73,9 +77,6 @@ export const canTransition = (from: unknown, to: DeploymentStatus): boolean => {
   return TRANSITIONS[from].includes(to)
 }
 
-/** The states in which a deployment is the one answering for its site. */
-export const isServing = (status: unknown): boolean => status === 'live'
-
 /** The states from which work is still expected — what a poller keeps watching. */
 export const isPending = (status: unknown): boolean =>
   status === 'queued' || status === 'creating' || status === 'building' || status === 'verifying'
@@ -83,19 +84,6 @@ export const isPending = (status: unknown): boolean =>
 /** The states holding a Coolify application that still exists and costs money. */
 export const holdsApplication = (status: unknown): boolean =>
   isDeploymentStatus(status) && status !== 'removed' && status !== 'queued'
-
-/**
- * How a site's traffic is served.
- *
- * `platform` — this Next app renders it, the behaviour every existing site has.
- * `deployment` — a theme application does, with Caddy in front (docs/theme-deployments.md §5).
- *
- * This lives on `sites` because `/api/domain-check` and the alias-redirect logic both
- * need it: a site whose traffic no longer arrives at Caddy must not sit waiting to
- * issue a certificate nobody will request.
- */
-export const RENDERED_BY = ['platform', 'deployment'] as const
-export type RenderedBy = (typeof RENDERED_BY)[number]
 
 /**
  * Where a deployment's traffic is addressed from — the decision §5 of the design doc
@@ -113,3 +101,47 @@ export const DOMAIN_MODE_LABELS: Record<DomainMode, string> = {
   edge: 'دامنه روی Caddy، پراکسی به پوسته',
   preview: 'فقط زیردامنهٔ پیش‌نمایش',
 }
+
+/** The modes in which a deployment answers for the customer's own domain. */
+export const isProductionMode = (mode: unknown): boolean => mode === 'edge' || mode === 'direct'
+
+/**
+ * The states a site lifecycle change has to stop: everything that holds, or is about
+ * to hold, a running application. `queued` is included so a suspended site cannot
+ * have a deploy start behind its back a minute later.
+ */
+export const ACTIVE_DEPLOYMENT_STATUSES = ['queued', 'creating', 'building', 'verifying', 'live'] as const
+
+/**
+ * The hostname that reaches the theme application itself, whatever the customer's
+ * DNS says — what a health check, a revalidation notice and the Caddy upstream use.
+ *
+ * `domain` is the hostname the deployment is *for* (its public origin): the preview
+ * name in `preview` mode, the customer's domain in `edge` and `direct`. Neither
+ * production mode reaches the application through it reliably: in `edge` Caddy
+ * keeps the customer domain's `/api/*` on the CMS, and in `direct` the customer's
+ * DNS may still point at Caddy — whose built-in renderer answering 200 would pass a
+ * health check the theme never took. Every deployment has a preview hostname in
+ * Coolify, so that is the one used.
+ */
+export const applicationHostOf = (deployment: { domain?: unknown; previewDomain?: unknown }): string =>
+  String(deployment.previewDomain ?? '') || String(deployment.domain ?? '')
+
+export const STALE_DOMAIN_MESSAGE =
+  'دامنهٔ اصلی سایت پس از این استقرار تغییر کرده است. برای فعال‌شدن پوسته روی دامنهٔ جدید، استقرار مجدد انجام دهید.'
+
+/**
+ * A live `edge`/`direct` deployment built for a hostname the site no longer uses.
+ *
+ * Derived, never stored: the routing table already drops such a row (so the new
+ * domain falls through to the built-in renderer), and a stored flag would be one
+ * more thing a domain write could forget to set. The row itself ran fine — this is
+ * not a failure, it is a redeploy the operator owes the site.
+ */
+export const needsRedeploy = (
+  deployment: { domain?: unknown; domainMode?: unknown; status?: unknown },
+  site: { domain?: unknown },
+): boolean =>
+  deployment.status === 'live' &&
+  isProductionMode(deployment.domainMode) &&
+  String(deployment.domain ?? '') !== String(site.domain ?? '')

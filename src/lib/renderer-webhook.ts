@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto'
 import type { PayloadRequest } from 'payload'
 
 import { decryptDeploySecret } from '@/lib/deploy/crypto'
+import { applicationHostOf } from '@/lib/deploy/status'
 
 /**
  * Tell the *other* renderers that a site's content changed.
@@ -18,10 +19,13 @@ import { decryptDeploySecret } from '@/lib/deploy/crypto'
  * ```
  * POST <each target's URL>
  *   content-type: application/json
- *   x-eshobe-timestamp: <ISO-8601>
- *   x-eshobe-signature: sha256=<hex hmac of "<timestamp>.<raw body>">
+ *   x-eshobe-timestamp: <ISO-8601>              (sent, NOT signed — see `signRendererBody`)
+ *   x-eshobe-signature: sha256=<hex HMAC-SHA256(secret, raw body)>
  *   { "paths": ["/acme.ir/en/pricing"], "siteId": "…", "timestamp": "ISO-8601" }
  * ```
+ *
+ * The signature covers the raw body bytes and nothing else — the v1 contract in
+ * `docs/THEME_API.md` §17, which deployed themes verify byte for byte.
  *
  * The key depends on the target: a deployment managed here signs with that
  * deployment's own `ESHOBE_REVALIDATE_SECRET`, and the `REVALIDATE_WEBHOOK_URL`
@@ -58,7 +62,9 @@ export type RendererEndpoint = { secret: string; url: string }
  * customer on the fleet.
  *
  * So: the site's own live deployments contribute `https://<host>/api/revalidate`
- * keyed by that deployment's `ESHOBE_REVALIDATE_SECRET`, and the env var stays as a
+ * keyed by that deployment's `ESHOBE_REVALIDATE_SECRET`, where `<host>` is the
+ * application's own hostname (`applicationHostOf` — its preview name, because in
+ * `edge` mode Caddy keeps the customer domain's `/api/*` on the CMS), and the env var stays as a
  * deployment-wide fallback for a renderer that is not managed here. Both, not either:
  * an operator running a separate static renderer alongside Coolify-hosted themes
  * needs both told.
@@ -86,7 +92,7 @@ export const rendererEndpointsFor = async (
     })
 
     for (const row of docs as unknown as Record<string, unknown>[]) {
-      const host = String(row.domain ?? '')
+      const host = applicationHostOf(row)
       const secret = decryptDeploySecret(row.revalidateSecret as null | string)
       if (host && secret) endpoints.push({ secret, url: `https://${host}/api/revalidate` })
     }
@@ -100,6 +106,16 @@ export const rendererEndpointsFor = async (
 
   return endpoints
 }
+
+/**
+ * `sha256=<hex HMAC-SHA256(secret, body)>` — the v1 renderer signature.
+ *
+ * Exported so the contract is pinned by a test against independently computed bytes
+ * (`tests/int/renderer-webhook.int.spec.ts`): the rest of the platform signs
+ * `<timestamp>.<body>`, and this is the one place that must not be "fixed" to match.
+ */
+export const signRendererBody = (secret: string, body: string): string =>
+  `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
 
 const post = (
   req: PayloadRequest,
@@ -127,7 +143,7 @@ const post = (
    * `x-eshobe-timestamp` is still sent, unsigned, so a receiver can log or
    * rate-limit on it and so v2 has a header to start signing.
    */
-  const signature = `sha256=${createHmac('sha256', endpoint.secret).update(body).digest('hex')}`
+  const signature = signRendererBody(endpoint.secret, body)
 
   void fetch(endpoint.url, {
     body,

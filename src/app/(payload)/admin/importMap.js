@@ -25,6 +25,7 @@ import { FolderField as FolderField_f9c02e79a4aed9a3924487c0cd4cafb1 } from '@pa
 import { WatchTenantCollection as WatchTenantCollection_1d0591e3cf4f332c83a86da13a0de59a } from '@payloadcms/plugin-multi-tenant/client'
 import { default as default_9eb83c83fe7de033695b1717126ab241 } from '@/admin/SiteOverviewView'
 import { default as default_2046d7864983bfb889aa4e9d207cebf8 } from '@/deploy/admin/DeploymentView'
+import { default as default_14177ef858092cb1bd5bb56db13bbd8f } from '@/deploy/admin/ThemeSettingsView'
 import { default as default_f73c2cf723071d8a624fa0c68ef80684 } from '@/provisioning/NewSiteButton'
 import { default as default_b65188f9bfb30318173e978b78c9b237 } from '@/provisioning/AdminView'
 import { default as default_9980c03876844b08f72c9b6dc4add562 } from '@/api-keys/IssueKeyButton'
@@ -74,6 +75,7 @@ export const importMap = {
   "@payloadcms/plugin-multi-tenant/client#WatchTenantCollection": WatchTenantCollection_1d0591e3cf4f332c83a86da13a0de59a,
   "@/admin/SiteOverviewView#default": default_9eb83c83fe7de033695b1717126ab241,
   "@/deploy/admin/DeploymentView#default": default_2046d7864983bfb889aa4e9d207cebf8,
+  "@/deploy/admin/ThemeSettingsView#default": default_14177ef858092cb1bd5bb56db13bbd8f,
   "@/provisioning/NewSiteButton#default": default_f73c2cf723071d8a624fa0c68ef80684,
   "@/provisioning/AdminView#default": default_b65188f9bfb30318173e978b78c9b237,
   "@/api-keys/IssueKeyButton#default": default_9980c03876844b08f72c9b6dc4add562,

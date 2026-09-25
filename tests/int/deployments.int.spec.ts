@@ -20,7 +20,7 @@ import {
   themePackagesListEndpoint,
 } from '@/endpoints/platformDeployments'
 import { readDeployTargetToken } from '@/collections/hooks/deploySecrets'
-import { buildEnvironment } from '@/deploy/environment'
+import { buildEnvironment, storedTenantValues } from '@/deploy/environment'
 import { createDeployment, previewHostname, setDeploymentStatus } from '@/deploy/service'
 import { decryptDeploySecret } from '@/lib/deploy/crypto'
 import { parseThemeManifest, type ThemeManifest } from '@/lib/deploy/manifest'
@@ -685,16 +685,33 @@ describe('the theme environment', () => {
       req,
     })
 
+    // An ordinary read — even one with `overrideAccess`, which skips field access —
+    // gets the mask: the afterRead hook is the layer `overrideAccess` cannot bypass.
     const stored = (await payload.findByID({
       collection: 'site-theme-settings',
       depth: 0,
       id: String(settings.id),
       overrideAccess: true,
     })) as unknown as Record<string, unknown>
-
-    // Encrypted at rest, and `access.read: false` keeps it off every API response.
     expect(String(stored.secretValues ?? '')).not.toContain('tenant-secret-value')
-    expect(decryptDeploySecret(stored.secretValues as string)).toContain('tenant-secret-value')
+    expect(String(stored.secretValues ?? '')).not.toContain('enc:')
+
+    // Encrypted at rest: the raw column, read with the deploy job's own context flag.
+    const raw = (await payload.findByID({
+      collection: 'site-theme-settings',
+      context: { eshobeDeploySecretRead: true },
+      depth: 0,
+      id: String(settings.id),
+      overrideAccess: true,
+    })) as unknown as Record<string, unknown>
+    expect(String(raw.secretValues ?? '')).toMatch(/^enc:/)
+    expect(String(raw.secretValues ?? '')).not.toContain('tenant-secret-value')
+    expect(decryptDeploySecret(raw.secretValues as string)).toContain('tenant-secret-value')
+
+    // And the one sanctioned reader decrypts it for a deploy.
+    expect((await storedTenantValues(req, siteId.acme, packageId)).secrets.MAP_API_KEY).toBe(
+      'tenant-secret-value',
+    )
 
     const site = (await payload.findByID({
       collection: 'sites',
@@ -777,6 +794,7 @@ describe('the routing table', () => {
       id: siteId.acme,
       overrideAccess: true,
     })
+    const wasVerified = site.domainVerified === true
 
     const row = await payload.create({
       collection: 'site-deployments',
@@ -808,15 +826,54 @@ describe('the routing table', () => {
       overrideAccess: true,
     })
 
+    // An unverified primary domain gets no certificate and resolves no tenant, so it
+    // is not routed either, however live the deployment is.
+    await payload.update({
+      collection: 'sites',
+      data: { domainVerified: false },
+      id: siteId.acme,
+      overrideAccess: true,
+    })
+    const unverified = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
+    expect(unverified.routes).toEqual([])
+
+    await payload.update({
+      collection: 'sites',
+      data: { domainVerified: true },
+      id: siteId.acme,
+      overrideAccess: true,
+    })
+
     const listed = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
     const hosts = listed.routes.map((route: { host: string }) => route.host)
 
     expect(hosts).toContain(String(site.domain))
     expect(listed.routes[0].upstream).toBe('acme-preview.sites.test.invalid')
 
+    // The drift rule: the row remembers the hostname Coolify was configured with, so
+    // a site that has since moved domains drops out of the table rather than pointing
+    // its new hostname at an app that will 404 it.
+    await payload.update({
+      collection: 'site-deployments',
+      data: { domain: 'moved-elsewhere.example' },
+      id: String(row.id),
+      overrideAccess: true,
+    })
+    const drifted = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
+    expect(drifted.routes).toEqual([])
+
+    await payload.update({
+      collection: 'site-deployments',
+      data: { domain: String(site.domain) },
+      id: String(row.id),
+      overrideAccess: true,
+    })
+    const restored = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
+    expect(restored.routes.map((r: { host: string }) => r.host)).toContain(String(site.domain))
+
     // Suspension: a site that stopped paying must not be the one site whose
-    // storefront keeps working. The deployment stays live and the row is untouched —
-    // the route simply disappears until the site is active again.
+    // storefront keeps working. The route disappears *and* the deployment is stopped
+    // (`src/deploy/lifecycle.ts`) — its preview hostname must not keep serving either.
     await payload.update({
       collection: 'sites',
       data: { status: 'suspended' },
@@ -826,7 +883,12 @@ describe('the routing table', () => {
 
     const suspended = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
     expect(suspended.routes).toEqual([])
+    expect((await payload.findByID({ collection: 'site-deployments', id: String(row.id) })).status).toBe(
+      'stopped',
+    )
 
+    // Resuming restores eligibility, not the old container: nothing is routed until
+    // somebody deploys again.
     await payload.update({
       collection: 'sites',
       data: { status: 'active' },
@@ -834,22 +896,18 @@ describe('the routing table', () => {
       overrideAccess: true,
     })
     const resumed = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
-    expect(resumed.routes.map((r: { host: string }) => r.host)).toContain(String(site.domain))
+    expect(resumed.routes).toEqual([])
 
-    // And the drift rule: the row remembers the hostname Coolify was configured with,
-    // so a site that has since moved domains drops out of the table rather than
-    // pointing its new hostname at an app that will 404 it.
-    await payload.update({
-      collection: 'site-deployments',
-      data: { domain: 'moved-elsewhere.example' },
-      id: String(row.id),
-      overrideAccess: true,
-    })
-
-    const drifted = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
-    expect(drifted.routes).toEqual([])
+    // Hostnames only — nothing that authenticates anything.
+    expect(JSON.stringify(restored)).not.toMatch(/enc:|eshobe_live_|esrv_|apiToken|revalidateSecret/)
 
     await payload.delete({ collection: 'site-deployments', id: String(row.id), overrideAccess: true })
+    await payload.update({
+      collection: 'sites',
+      data: { domainVerified: wasVerified },
+      id: siteId.acme,
+      overrideAccess: true,
+    })
   })
 })
 

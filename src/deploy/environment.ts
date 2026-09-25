@@ -2,8 +2,7 @@ import type { PayloadRequest } from 'payload'
 
 import { contractVersion } from '@eshobe/site-runtime'
 
-import { readThemeSettingSecrets } from '@/collections/hooks/deploySecrets'
-import { idOf } from '@/lib/ids'
+import { DEPLOY_SECRET_READ_CONTEXT_KEY, readThemeSettingSecrets } from '@/collections/hooks/deploySecrets'
 import { validateTenantEnv, type ThemeManifest } from '@/lib/deploy/manifest'
 
 /**
@@ -36,7 +35,7 @@ export type EnvironmentInput = {
   req: PayloadRequest
   revalidateSecret: string
   site: Record<string, unknown>
-  /** The hostname this deployment answers on — preview subdomain or the customer's own. */
+  /** The deployment's public origin host — the preview subdomain, or the customer's own domain in `edge`/`direct`. */
   serviceDomain: string
   themePackageId: string
 }
@@ -71,26 +70,41 @@ const currencyFor = async (req: PayloadRequest, siteId: string): Promise<null | 
   return currency ? String(currency) : null
 }
 
-/** The customer's stored answers for this (site, package) pair, plaintext + decrypted secrets. */
-export const tenantValuesFor = async (
+export type StoredTenantValues = { plain: Record<string, string>; secrets: Record<string, string> }
+
+/**
+ * The customer's stored answers for this (site, package) pair — plaintext and
+ * decrypted secrets, kept apart so a caller that must not show a secret cannot
+ * mistake one for the other.
+ *
+ * The only reader of `secretValues` besides the save path: it sets the context flag
+ * the masking hook checks, exactly as `readDeployTargetToken` does for Coolify tokens.
+ */
+export const storedTenantValues = async (
   req: PayloadRequest,
   siteId: string,
   themePackageId: string,
-): Promise<Record<string, string>> => {
-  const { docs } = await req.payload.find({
-    collection: 'site-theme-settings',
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-    pagination: false,
-    req,
-    where: {
-      and: [{ site: { equals: siteId } }, { themePackage: { equals: themePackageId } }],
-    },
-  })
+): Promise<StoredTenantValues & { id: null | string }> => {
+  req.context[DEPLOY_SECRET_READ_CONTEXT_KEY] = true
+  let row: undefined | Record<string, unknown>
+  try {
+    const { docs } = await req.payload.find({
+      collection: 'site-theme-settings',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      pagination: false,
+      req,
+      where: {
+        and: [{ site: { equals: siteId } }, { themePackage: { equals: themePackageId } }],
+      },
+    })
+    row = docs[0] as unknown as undefined | Record<string, unknown>
+  } finally {
+    delete req.context[DEPLOY_SECRET_READ_CONTEXT_KEY]
+  }
 
-  const row = docs[0] as unknown as undefined | Record<string, unknown>
-  if (!row) return {}
+  if (!row) return { id: null, plain: {}, secrets: {} }
 
   const plain =
     row.values && typeof row.values === 'object' && !Array.isArray(row.values)
@@ -102,14 +116,30 @@ export const tenantValuesFor = async (
         )
       : {}
 
-  return { ...plain, ...readThemeSettingSecrets(row.secretValues) }
+  return { id: String(row.id), plain, secrets: readThemeSettingSecrets(row.secretValues) }
+}
+
+/** Plaintext and secret answers merged — the shape the build environment consumes. */
+export const tenantValuesFor = async (
+  req: PayloadRequest,
+  siteId: string,
+  themePackageId: string,
+): Promise<Record<string, string>> => {
+  const { plain, secrets } = await storedTenantValues(req, siteId, themePackageId)
+  return { ...plain, ...secrets }
 }
 
 export const buildEnvironment = async (input: EnvironmentInput): Promise<EnvironmentResult> => {
   const { apiKey, manifest, req, revalidateSecret, site, serviceDomain, themePackageId } = input
   const siteId = String(site.id)
 
-  const tenantRaw = await tenantValuesFor(req, siteId, themePackageId)
+  // Only what this version of the manifest still declares. A variable a theme update
+  // removed is not the customer's mistake, and refusing the deploy over it would make
+  // every upgrade that drops a variable fail until somebody cleaned the settings.
+  const declared = new Set(manifest.env.filter((v) => v.source === 'tenant').map((v) => v.key))
+  const tenantRaw = Object.fromEntries(
+    Object.entries(await tenantValuesFor(req, siteId, themePackageId)).filter(([key]) => declared.has(key)),
+  )
   const { errors, values: tenant } = validateTenantEnv(manifest, tenantRaw)
 
   const locales = Array.isArray(site.availableLocales)
@@ -159,6 +189,3 @@ export const buildEnvironment = async (input: EnvironmentInput): Promise<Environ
 
   return { errors, variables }
 }
-
-/** `site.id` off a relationship that may be an id or a populated doc — the `idOf` rule, restated for readability. */
-export const siteIdOf = (value: unknown): null | string => idOf(value)

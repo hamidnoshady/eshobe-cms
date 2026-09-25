@@ -4,25 +4,36 @@ import { generateApiKey } from '@/lib/api-keys'
 import { encryptDeploySecret, decryptDeploySecret, generateRevalidateSecret } from '@/lib/deploy/crypto'
 import { isUuid, idOf } from '@/lib/ids'
 import { isSafeGitRef, parseRepository, parseThemeManifest, type ThemeManifest } from '@/lib/deploy/manifest'
-import { canTransition, holdsApplication, type DeploymentStatus, type DomainMode } from '@/lib/deploy/status'
+import {
+  ACTIVE_DEPLOYMENT_STATUSES,
+  STALE_DOMAIN_MESSAGE,
+  canTransition,
+  holdsApplication,
+  isProductionMode,
+  applicationHostOf,
+  type DeploymentStatus,
+  type DomainMode,
+} from '@/lib/deploy/status'
 import { resolveEntitlement } from '@/platform/entitlements'
 import { applyThemeTemplate } from '@/platform/saas-report'
 import { emitPlatformEvent } from '@/platform/webhooks'
 import { readDeployTargetToken } from '@/collections/hooks/deploySecrets'
-import { CoolifyClient, coolifyAppName, scrubDetail, type DeployTarget } from './coolify'
+import { CoolifyClient, boundedLabel, coolifyAppName, scrubDetail, type DeployTarget } from './coolify'
 import { buildEnvironment } from './environment'
 import { resolveCommitSha } from './github'
+import { requestThemeRoutesRegeneration } from './routing'
 
 /**
- * The deploy service — everything between "a customer picked a theme" and "it is
- * serving".
+ * The deploy service — everything between "an operator picked a theme for a site"
+ * and "it is serving".
  *
- * ## Why this is a job and not a request handler
+ * ## Why this runs in the jobs queue and not in a request handler
  *
- * A Coolify build takes minutes. `POST /api/platform/sites/:id/deployment` answers
- * 202 with a row id and returns; this runs behind it. An endpoint that waited would
- * time out behind Caddy, and the operator would be left with a spinner and a half-
- * created application nothing in the CMS knows about.
+ * A Coolify build takes minutes. `POST /api/platform/sites/:id/deployment` validates,
+ * writes a `queued` row and answers 202; `advanceDeployments` (src/deploy/task.ts)
+ * picks the row up and walks it through `advanceDeployment` below. An endpoint that
+ * waited would time out behind Caddy, and the operator would be left with a spinner
+ * and a half-created application nothing in the CMS knows about.
  *
  * ## The invariant every step is arranged around
  *
@@ -35,12 +46,24 @@ import { resolveCommitSha } from './github'
  * The second invariant, cheaper to state and more expensive to miss: **`appUuid` is
  * persisted before anything else can fail.** An orphaned Coolify application with no
  * row pointing at it is the one state that costs a human being an afternoon.
+ *
+ * ## One application per (site, theme, production|preview)
+ *
+ * The application name is deterministic (`coolifyAppName`), so a redeploy, a rollback
+ * or a retry after a lost create response reuses the application instead of making a
+ * second one. Two consequences are handled here rather than left to chance: a reused
+ * application is re-pointed at the new commit and hostnames before it is built, and a
+ * superseded row that shares the new row's application is marked stopped *without*
+ * stopping the application the new row now runs on. Preview deployments get their own
+ * application and hostname, so a rehearsal never rebuilds production's container.
  */
 
 export type DeployOutcome = { deploymentId: string; ok: true } | { message: string; ok: false }
 
 /** Truncate and scrub anything on its way to a field an admin will read. */
 const logLine = (value: unknown): string => scrubDetail(value, 4000)
+
+const isCommitSha = (value: unknown): value is string => /^[0-9a-f]{40}$/i.test(String(value ?? ''))
 
 /**
  * Write a status, refusing an illegal move.
@@ -54,7 +77,7 @@ export const setDeploymentStatus = async (
   deploymentId: string,
   status: DeploymentStatus,
   extra: Record<string, unknown> = {},
-): Promise<void> => {
+): Promise<boolean> => {
   const current = await req.payload.findByID({
     collection: 'site-deployments',
     depth: 0,
@@ -64,7 +87,7 @@ export const setDeploymentStatus = async (
     req,
   })
 
-  if (!current) return
+  if (!current) return false
 
   const from = (current as { status?: unknown }).status
 
@@ -72,7 +95,7 @@ export const setDeploymentStatus = async (
     req.payload.logger.warn({
       msg: `deployment ${deploymentId}: refused ${String(from)} → ${status}`,
     })
-    return
+    return false
   }
 
   try {
@@ -84,6 +107,7 @@ export const setDeploymentStatus = async (
       overrideAccess: true,
       req,
     })
+    return true
   } catch (error) {
     /**
      * The read above proves the row existed a moment ago, not that it still does. A
@@ -99,6 +123,7 @@ export const setDeploymentStatus = async (
       err: error,
       msg: `deployment ${deploymentId}: could not record status ${status} (row removed?)`,
     })
+    return false
   }
 }
 
@@ -165,26 +190,82 @@ export const manifestOf = (pkg: Record<string, unknown>): null | ThemeManifest =
 }
 
 /**
+ * The ref a new deployment of `pkg` builds, and the one place that decides it.
+ *
+ * Precedence: an explicit ref beats the package's pin, which beats its default
+ * branch. The pin exists so an operator can freeze a theme at a known-good commit
+ * without freezing the *branch* for everyone; an explicit ref is how a rollback
+ * asks for an older one, and it has to win or a rollback would silently redeploy
+ * the pin it is rolling back from.
+ */
+export const effectiveRefFor = (pkg: Record<string, unknown>, explicit?: null | string): string =>
+  String(explicit || pkg.pinnedCommit || pkg.defaultRef || 'main')
+
+/**
+ * The commit a new deployment of `pkg` *without* an explicit ref would build, as far
+ * as the CMS knows without asking GitHub: the pin, or what the last successful sync
+ * resolved the default ref to. `null` when neither is known (never synced, or the
+ * default ref was edited after the last sync).
+ */
+export const latestPackageCommit = (pkg: Record<string, unknown>): null | string => {
+  if (isCommitSha(pkg.pinnedCommit)) return String(pkg.pinnedCommit).toLowerCase()
+  if (isCommitSha(pkg.syncedCommitSha)) return String(pkg.syncedCommitSha).toLowerCase()
+  return null
+}
+
+export type UpdateInfo = {
+  deployedCommit: null | string
+  latestCommit: null | string
+  packageRef: string
+  updateAvailable: boolean
+}
+
+/**
+ * Is there a newer version of the theme a deployment runs?
+ *
+ * Commit shas on both sides, never branch names: `main` today and `main` last month
+ * are the same string and different programs. "Newer" means *different from what the
+ * package would deploy now* — the CMS cannot order commits without asking GitHub, and
+ * an operator who pinned an older commit on purpose is exactly the case where the
+ * running deployment and the package disagree and a redeploy is what reconciles them.
+ */
+export const updateInfoFor = (
+  deployment: Record<string, unknown>,
+  pkg: null | Record<string, unknown>,
+): UpdateInfo => {
+  const deployedCommit = isCommitSha(deployment.commitSha) ? String(deployment.commitSha).toLowerCase() : null
+  const latestCommit = pkg ? latestPackageCommit(pkg) : null
+  return {
+    deployedCommit,
+    latestCommit,
+    packageRef: pkg ? effectiveRefFor(pkg) : '',
+    updateAvailable: Boolean(deployedCommit && latestCommit && deployedCommit !== latestCommit),
+  }
+}
+
+/**
  * The preview hostname a deployment gets before any customer DNS moves.
  *
- * `<site-slug>-<theme-key>.sites.example.com`. Deterministic, so a redeploy of the
- * same pair reuses it, and so `findApplicationByName` has something stable to
- * reconcile against.
+ * `<site-domain>-<theme-key>[-<variant>].sites.example.com`. Deterministic, so a
+ * redeploy of the same pair reuses it, and so `findApplicationByName` has something
+ * stable to reconcile against. An `edge`/`direct` deployment uses the unsuffixed
+ * name (it is also Caddy's upstream); a `preview` deployment passes `'preview'` and
+ * gets a hostname — and an application — of its own.
  */
 export const previewHostname = (
   wildcardDomain: null | string | undefined,
   site: Record<string, unknown>,
   themeKey: string,
+  variant?: null | string,
 ): null | string => {
   const base = String(wildcardDomain ?? '').replace(/^\*\./, '').trim()
   if (!base) return null
-  const label = `${String(site.domain ?? site.id)}-${themeKey}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50)
-  return `${label}.${base}`
+  const label = boundedLabel(`${String(site.domain ?? site.id)}-${themeKey}`, 50, variant)
+  return label ? `${label}.${base}` : null
 }
+
+/** Preview rehearsals get their own Coolify application and hostname; production modes share one. */
+const variantFor = (mode: DomainMode): null | string => (mode === 'preview' ? 'preview' : null)
 
 export type StartDeploymentInput = {
   domainMode?: DomainMode
@@ -198,13 +279,13 @@ export type StartDeploymentInput = {
 /**
  * Validate everything, create the row, and hand back its id. Fast — no network.
  *
- * Every refusal here is a Persian message and a 400, *before* a row exists. The
+ * Every refusal here is a Persian message and a 4xx, *before* a row exists. The
  * refusals that need a row (Coolify said no) are statuses on it. Mixing the two is
  * how a catalogue of half-created deployment rows accumulates from typos.
  */
 export const createDeployment = async (
   input: StartDeploymentInput,
-): Promise<{ deploymentId: string; ok: true } | { message: string; ok: false; status: number }> => {
+): Promise<{ deploymentId: string; ok: true; ref: string } | { message: string; ok: false; status: number }> => {
   const { packageRef, req, site } = input
   const siteId = String(site.id)
 
@@ -277,14 +358,7 @@ export const createDeployment = async (
     return { message: 'سرور استقرار مشخص یا در دسترس نیست.', ok: false, status: 409 }
   }
 
-  /**
-   * Precedence: an explicit ref beats the package's pin, which beats its default
-   * branch. The pin exists so an operator can freeze a theme at a known-good commit
-   * without freezing the *branch* for everyone; an explicit ref is how a rollback
-   * asks for an older one, and it has to win or a rollback would silently redeploy
-   * the pin it is rolling back from.
-   */
-  const effectiveRef = String(input.ref || pkg.pinnedCommit || pkg.defaultRef || 'main')
+  const effectiveRef = effectiveRefFor(pkg, input.ref)
   if (!isSafeGitRef(effectiveRef)) {
     return { message: 'نام شاخه یا تگ نامعتبر است.', ok: false, status: 400 }
   }
@@ -325,11 +399,15 @@ export const createDeployment = async (
     (target as null | Record<string, unknown>)?.wildcardDomain as null | string,
     site,
     String(pkg.key ?? 'theme'),
+    variantFor(domainMode),
   )
 
-  if (domainMode === 'preview' && !preview) {
+  // Every mode needs the wildcard: `preview` is served on it, `edge` uses it as
+  // Caddy's upstream, and `direct` keeps it as the hostname the health check reaches
+  // before customer DNS has moved.
+  if (!preview) {
     return {
-      message: 'برای حالت پیش‌نمایش، سرور استقرار باید «دامنهٔ عام پیش‌نمایش» داشته باشد.',
+      message: 'سرور استقرار باید «دامنهٔ عام پیش‌نمایش» داشته باشد.',
       ok: false,
       status: 409,
     }
@@ -352,7 +430,7 @@ export const createDeployment = async (
     req,
   })
 
-  return { deploymentId: String((created as { id: unknown }).id), ok: true }
+  return { deploymentId: String((created as { id: unknown }).id), ok: true, ref: effectiveRef }
 }
 
 const packageByRef = async (
@@ -478,7 +556,28 @@ export const revokeDeploymentKey = async (
 }
 
 /**
- * Run one deployment to completion.
+ * Move a `queued` row to `creating`, and say whether this caller won it.
+ *
+ * The queue task and the console's poll button can both reach the same queued row.
+ * Two `runDeployment`s on one row would be two Coolify creates; the conditional
+ * update narrows that to whoever's update lands first.
+ */
+const claimQueued = async (req: PayloadRequest, deploymentId: string): Promise<boolean> => {
+  const { docs } = await req.payload.update({
+    collection: 'site-deployments',
+    data: { lastError: null, status: 'creating' },
+    depth: 0,
+    overrideAccess: true,
+    req,
+    where: { and: [{ id: { equals: deploymentId } }, { status: { equals: 'queued' } }] },
+  })
+  return docs.length > 0
+}
+
+/**
+ * Run one deployment's Coolify side: create or re-point the application, write its
+ * environment, start the build. Returns once the build has *started*; the queue
+ * follows it from there (`pollDeployment`, `verifyDeployment`).
  *
  * Long, and deliberately linear: every step is a named failure with a Persian reason
  * written onto the row. Splitting it into a pipeline abstraction would hide exactly
@@ -499,6 +598,13 @@ export const runDeployment = async (
 
   if (!deployment) return { message: 'استقرار پیدا نشد.', ok: false }
 
+  if (deployment.status !== 'queued') {
+    return { message: `استقرار در وضعیت «${String(deployment.status)}» است و اجرا نمی‌شود.`, ok: false }
+  }
+  if (!(await claimQueued(req, deploymentId))) {
+    return { message: 'این استقرار را فرایند دیگری آغاز کرده است.', ok: false }
+  }
+
   const siteId = idOf(deployment.site)
   const site = siteId
     ? ((await req.payload.findByID({
@@ -512,6 +618,10 @@ export const runDeployment = async (
     : null
 
   if (!site) return fail(req, deploymentId, 'سایت این استقرار پیدا نشد.')
+
+  // Re-checked at run time, not only at create: a site suspended while its deploy sat
+  // in the queue must not get a running application a minute later.
+  if (site.status !== 'active') return fail(req, deploymentId, 'سایت فعال نیست؛ استقرار انجام نشد.')
 
   const pkg = (await req.payload.findByID({
     collection: 'theme-packages',
@@ -535,17 +645,24 @@ export const runDeployment = async (
   const repo = parseRepository(pkg.repository)
   if (!repo) return fail(req, deploymentId, 'نشانی مخزن پوسته نامعتبر است.')
 
-  await setDeploymentStatus(req, deploymentId, 'creating', { lastError: null })
-
-  const client = new CoolifyClient(target)
-  const themeKey = String(pkg.key ?? 'theme')
-  const appName = coolifyAppName(String(site.domain ?? site.id), themeKey)
-  const ref = String(deployment.ref ?? pkg.defaultRef ?? 'main')
-  const commitSha = String(pkg.pinnedCommit ?? '') || (await resolveCommitSha(String(pkg.repository), ref))
-
   const domainMode = String(deployment.domainMode ?? 'preview') as DomainMode
   const previewDomain = deployment.previewDomain ? String(deployment.previewDomain) : null
   const siteDomain = String(site.domain ?? '')
+
+  // The customer's domain is read now, not copied from create time: the row must
+  // describe the hostname this build will actually be attached to.
+  if (isProductionMode(domainMode) && site.domainVerified !== true) {
+    return fail(req, deploymentId, 'دامنهٔ اصلی سایت تأیید نشده است؛ فقط حالت پیش‌نمایش ممکن است.')
+  }
+
+  const client = new CoolifyClient(target)
+  const themeKey = String(pkg.key ?? 'theme')
+  const appName = coolifyAppName(siteDomain || String(site.id), themeKey, variantFor(domainMode))
+  const ref = String(deployment.ref ?? effectiveRefFor(pkg))
+  // A sha is a commit, not a branch: Coolify clones `git_branch` and then checks out
+  // `git_commit_sha`, so a pinned or rolled-back deployment clones the default branch.
+  const branch = isCommitSha(ref) ? String(pkg.defaultRef || 'main') : ref
+  const commitSha = isCommitSha(ref) ? ref.toLowerCase() : await resolveCommitSha(String(pkg.repository), ref)
 
   /**
    * Which hostnames the application answers on.
@@ -564,11 +681,12 @@ export const runDeployment = async (
     return fail(req, deploymentId, 'هیچ میزبانی برای این استقرار مشخص نشده است.')
   }
 
-  const serviceDomain = domainMode === 'direct' ? siteDomain : previewDomain!
+  // The public origin: what the row is for, and what the theme builds links from.
+  const rowDomain = domainMode === 'preview' ? previewDomain! : siteDomain
 
   // ---------------------------------------------------------------------------
   // 1. The application. Reconcile first: a create whose response was lost must not
-  //    produce a second one on retry.
+  //    produce a second one on retry, and a redeploy reuses its application.
   // ---------------------------------------------------------------------------
   let appUuid = deployment.appUuid ? String(deployment.appUuid) : ''
 
@@ -584,7 +702,7 @@ export const runDeployment = async (
       buildPack: manifest.build.buildPack,
       dockerfileLocation: manifest.build.dockerfileLocation,
       domains,
-      gitBranch: ref,
+      gitBranch: branch,
       gitCommitSha: commitSha,
       gitRepository:
         target.gitSource === 'public'
@@ -605,18 +723,40 @@ export const runDeployment = async (
 
     appUuid = String(created.data.uuid ?? '')
     if (!appUuid) return fail(req, deploymentId, 'Coolify شناسهٔ اپلیکیشن برنگرداند.')
-  }
 
-  // Before anything else can fail. An application Coolify holds and the CMS does not
-  // know about is the one state nothing here can clean up.
-  await req.payload.update({
-    collection: 'site-deployments',
-    data: { appUuid, commitSha: commitSha ?? null, domain: serviceDomain },
-    depth: 0,
-    id: deploymentId,
-    overrideAccess: true,
-    req,
-  })
+    // Before anything else can fail. An application Coolify holds and the CMS does not
+    // know about is the one state nothing here can clean up.
+    await req.payload.update({
+      collection: 'site-deployments',
+      data: { appUuid, commitSha: commitSha ?? null, domain: rowDomain },
+      depth: 0,
+      id: deploymentId,
+      overrideAccess: true,
+      req,
+    })
+  } else {
+    // Recorded first for the same reason as above, then re-pointed. Without the
+    // patch, an existing application keeps building the commit and hostnames it was
+    // created with — a redeploy that silently ships the old version, or a direct-mode
+    // redeploy after a domain change that still answers on the old domain.
+    await req.payload.update({
+      collection: 'site-deployments',
+      data: { appUuid, commitSha: commitSha ?? null, domain: rowDomain },
+      depth: 0,
+      id: deploymentId,
+      overrideAccess: true,
+      req,
+    })
+
+    const repointed = await client.updateApplication(appUuid, {
+      domains: domains.join(','),
+      git_branch: branch,
+      git_commit_sha: commitSha ?? 'HEAD',
+    })
+    if (!repointed.ok) {
+      return fail(req, deploymentId, `به‌روزرسانی اپلیکیشن در Coolify ناموفق بود: ${repointed.message}`, repointed.detail)
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // 2. Credentials and environment.
@@ -638,7 +778,7 @@ export const runDeployment = async (
     manifest,
     req,
     revalidateSecret,
-    serviceDomain,
+    serviceDomain: rowDomain,
     site,
     themePackageId: String(pkg.id),
   })
@@ -680,7 +820,7 @@ export const runDeployment = async (
   await emitPlatformEvent(req, {
     data: { deployment: deploymentId, package: themeKey, ref, target: target.name },
     event: 'deployment.started',
-    message: `استقرار پوستهٔ «${String(pkg.name ?? themeKey)}» روی ${serviceDomain} آغاز شد.`,
+    message: `استقرار پوستهٔ «${String(pkg.name ?? themeKey)}» روی ${rowDomain} آغاز شد.`,
     site,
     targetCollection: 'site-deployments',
     targetId: deploymentId,
@@ -743,6 +883,27 @@ export const pollDeployment = async (
 }
 
 /**
+ * Why this deployment may not become the site's renderer right now, or `null`.
+ *
+ * Checked at the moment of promotion, against the site as it is *now*: a site
+ * suspended during the build must not come back to life through its theme, and an
+ * `edge`/`direct` build made for a hostname the site has since left must not take
+ * over — it would be attached to the old hostname while the operator believes the
+ * new one is themed.
+ */
+export const promotionBlocker = (
+  deployment: Record<string, unknown>,
+  site: null | Record<string, unknown>,
+): null | string => {
+  if (!site) return 'سایت این استقرار پیدا نشد.'
+  if (site.status !== 'active') return 'سایت فعال نیست؛ پوسته فعال نشد.'
+  if (!isProductionMode(deployment.domainMode)) return null
+  if (String(deployment.domain ?? '') !== String(site.domain ?? '')) return STALE_DOMAIN_MESSAGE
+  if (site.domainVerified !== true) return 'دامنهٔ اصلی سایت تأیید نشده است؛ پوسته روی آن فعال نشد.'
+  return null
+}
+
+/**
  * The last gate: does it actually answer?
  *
  * A build that succeeded is not a site that works — a theme can compile perfectly and
@@ -763,8 +924,27 @@ export const verifyDeployment = async (
   })) as unknown as null | Record<string, unknown>
 
   if (!deployment) return { message: 'استقرار پیدا نشد.', ok: false }
+  if (deployment.status !== 'verifying') {
+    return { message: `استقرار در وضعیت «${String(deployment.status)}» است، نه «در حال بررسی سلامت».`, ok: false }
+  }
 
-  const host = String(deployment.domain ?? '')
+  const site = (await req.payload.findByID({
+    collection: 'sites',
+    depth: 0,
+    disableErrors: true,
+    id: String(idOf(deployment.site)),
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+
+  const blocker = promotionBlocker(deployment, site)
+  if (blocker) {
+    await setDeploymentStatus(req, deploymentId, 'failed', { lastError: blocker })
+    return { message: blocker, ok: false }
+  }
+
+  // The application itself, never the customer's domain (see `applicationHostOf`).
+  const host = applicationHostOf(deployment)
   if (!host) return { message: 'میزبانی برای بررسی وجود ندارد.', ok: false }
 
   const pkg = (await req.payload.findByID({
@@ -812,11 +992,16 @@ export const verifyDeployment = async (
 }
 
 /**
- * Make this deployment the site's renderer, and retire whatever was.
+ * Make this deployment the site's renderer, and retire whatever it replaces.
  *
  * Order matters and is the opposite of intuition: the new row is marked `live`
  * *first*, then the old ones are stopped. Stopping first would leave a window in
  * which the site has no live deployment and `renderedBy` points at nothing.
+ *
+ * What it replaces depends on the mode. A production (`edge`/`direct`) deployment
+ * replaces every other row of the site. A `preview` deployment replaces only other
+ * previews: a rehearsal succeeding must never stop the deployment serving the
+ * customer's domain, and never moves `renderedBy`.
  */
 export const promoteDeployment = async (
   req: PayloadRequest,
@@ -824,12 +1009,15 @@ export const promoteDeployment = async (
 ): Promise<void> => {
   const deploymentId = String(deployment.id)
   const siteId = String(idOf(deployment.site))
+  const mode = String(deployment.domainMode ?? 'preview')
+  const appUuid = deployment.appUuid ? String(deployment.appUuid) : ''
 
-  await setDeploymentStatus(req, deploymentId, 'live', {
+  const promoted = await setDeploymentStatus(req, deploymentId, 'live', {
     deployedAt: new Date().toISOString(),
     healthCheckedAt: new Date().toISOString(),
     lastError: null,
   })
+  if (!promoted) return
 
   const { docs: previous } = await req.payload.find({
     collection: 'site-deployments',
@@ -843,12 +1031,16 @@ export const promoteDeployment = async (
         { site: { equals: siteId } },
         { id: { not_equals: deploymentId } },
         { status: { in: ['live', 'verifying', 'building', 'creating'] } },
+        ...(isProductionMode(mode) ? [] : [{ domainMode: { equals: 'preview' } }]),
       ],
     },
   })
 
   for (const row of previous as unknown as Record<string, unknown>[]) {
-    await stopDeployment(req, String(row.id), 'جایگزین شد با استقرار تازه.')
+    await stopDeployment(req, String(row.id), 'جایگزین شد با استقرار تازه.', {
+      // Same application: the new row is running on it now.
+      stopApplication: !appUuid || String(row.appUuid ?? '') !== appUuid,
+    })
   }
 
   const pkg = (await req.payload.findByID({
@@ -869,21 +1061,15 @@ export const promoteDeployment = async (
     req,
   })) as unknown as null | Record<string, unknown>
 
-  // The tokens the theme renders with. A copy, exactly as `applyThemeTemplate`
-  // documents — a live link would repaint twenty customers when an operator tweaks a
-  // preset.
-  const templateId = idOf(pkg?.themeTemplate)
-  if (templateId && site) {
-    await applyThemeTemplate(req, site, templateId)
-  }
+  if (isProductionMode(mode)) {
+    // The tokens the theme renders with. A copy, exactly as `applyThemeTemplate`
+    // documents — a live link would repaint twenty customers when an operator tweaks a
+    // preset. Only for production: a preview must not repaint the live site.
+    const templateId = idOf(pkg?.themeTemplate)
+    if (templateId && site) {
+      await applyThemeTemplate(req, site, templateId)
+    }
 
-  /**
-   * `renderedBy` only leaves `platform` for a mode where the customer's own domain is
-   * actually involved. A preview deployment is a rehearsal: the site keeps being
-   * served by this app, which is what makes the whole preview step reversible.
-   */
-  const mode = String(deployment.domainMode ?? 'preview')
-  if (mode !== 'preview') {
     await req.payload.update({
       collection: 'sites',
       data: { activeDeployment: deploymentId, renderedBy: 'deployment' },
@@ -893,6 +1079,8 @@ export const promoteDeployment = async (
       req,
     })
   }
+
+  if (mode === 'edge') requestThemeRoutesRegeneration(req, `deployment ${deploymentId} live (edge)`)
 
   await emitPlatformEvent(req, {
     data: { deployment: deploymentId, domainMode: mode },
@@ -904,18 +1092,29 @@ export const promoteDeployment = async (
   })
 }
 
+export type StopOutcome = { applicationStopped: boolean; message: string; ok: boolean }
+
 /**
  * Stop an application without deleting it.
  *
  * The same reasoning as "do not delete a site": Coolify keeps the application, its
  * volumes and its build history, and starting it again is one call. Deleting throws
  * away the only copy of what was running when something broke.
+ *
+ * Idempotent. Stopping a row that is already `stopped` asks Coolify to stop the
+ * application again (the one step that can fail on a flaky network, so repeating it
+ * is how an operator retries) but does not re-revoke, re-emit or touch the site.
+ *
+ * A Coolify failure does not make the row lie: it is still marked `stopped` — its key
+ * is revoked and routing drops it either way — and the failure is written onto the
+ * row so the operator knows the container may still be running.
  */
 export const stopDeployment = async (
   req: PayloadRequest,
   deploymentId: string,
   reason: string,
-): Promise<{ message: string; ok: boolean }> => {
+  options: { stopApplication?: boolean } = {},
+): Promise<StopOutcome> => {
   const deployment = (await req.payload.findByID({
     collection: 'site-deployments',
     depth: 0,
@@ -925,19 +1124,57 @@ export const stopDeployment = async (
     req,
   })) as unknown as null | Record<string, unknown>
 
-  if (!deployment) return { message: 'استقرار پیدا نشد.', ok: false }
+  if (!deployment) return { applicationStopped: false, message: 'استقرار پیدا نشد.', ok: false }
 
-  if (holdsApplication(deployment.status) && deployment.appUuid) {
+  const status = String(deployment.status ?? '')
+  if (status === 'removed') {
+    return { applicationStopped: false, message: 'اپلیکیشن این استقرار حذف شده است.', ok: true }
+  }
+
+  // `failed` keeps its status and its reason — `failed → stopped` is not a legal move
+  // — but a row that failed its health check can still have a container running on
+  // its preview hostname, so the application is stopped all the same.
+  const alreadyStopped = status === 'stopped' || status === 'failed'
+  let applicationStopped = false
+  let stopProblem: null | string = null
+
+  if (options.stopApplication !== false && holdsApplication(status) && deployment.appUuid) {
     const target = await loadTarget(req, String(idOf(deployment.target)))
-    if (target) {
+    if (!target) {
+      stopProblem = 'سرور استقرار در دسترس نیست؛ اپلیکیشن در Coolify متوقف نشد.'
+    } else {
       const result = await new CoolifyClient(target).stop(String(deployment.appUuid))
-      if (!result.ok) {
-        req.payload.logger.warn({ msg: `stop failed for ${deploymentId}: ${result.message}` })
-      }
+      if (result.ok) applicationStopped = true
+      else stopProblem = `توقف اپلیکیشن در Coolify ناموفق بود: ${result.message}`
+    }
+    if (stopProblem) {
+      req.payload.logger.error({
+        msg: `deployment ${deploymentId}: ${stopProblem} — the container may still be serving; retry the stop.`,
+      })
     }
   }
 
-  await setDeploymentStatus(req, deploymentId, 'stopped', { lastError: logLine(reason) })
+  const lastError = logLine(stopProblem ? `${reason} — ${stopProblem}` : reason)
+
+  if (alreadyStopped) {
+    if (status === 'stopped' && (stopProblem || applicationStopped)) {
+      await req.payload.update({
+        collection: 'site-deployments',
+        data: { lastError },
+        depth: 0,
+        id: deploymentId,
+        overrideAccess: true,
+        req,
+      })
+    }
+    return {
+      applicationStopped,
+      message: stopProblem ?? 'استقرار از قبل متوقف بود.',
+      ok: true,
+    }
+  }
+
+  await setDeploymentStatus(req, deploymentId, 'stopped', { lastError })
   await revokeDeploymentKey(req, deployment)
 
   const siteId = String(idOf(deployment.site))
@@ -964,6 +1201,10 @@ export const stopDeployment = async (
     })
   }
 
+  if (status === 'live' && deployment.domainMode === 'edge') {
+    requestThemeRoutesRegeneration(req, `deployment ${deploymentId} stopped (edge)`)
+  }
+
   await emitPlatformEvent(req, {
     data: { deployment: deploymentId, reason },
     event: 'deployment.stopped',
@@ -973,5 +1214,123 @@ export const stopDeployment = async (
     targetId: deploymentId,
   })
 
-  return { message: 'استقرار متوقف شد.', ok: true }
+  return {
+    applicationStopped,
+    message: stopProblem ?? 'استقرار متوقف شد.',
+    ok: true,
+  }
+}
+
+/**
+ * Stop every deployment of a site that holds, or is about to hold, a running
+ * application — what suspension, archival and "revert to the built-in renderer" do.
+ *
+ * Each row is stopped independently: one Coolify call failing must not leave the
+ * site's other applications running, and must not fail the caller. Nothing is
+ * deleted and nothing is restarted later; resuming a site restores its eligibility
+ * to be deployed, not its old containers.
+ */
+export const stopSiteDeployments = async (
+  req: PayloadRequest,
+  siteId: string,
+  reason: string,
+): Promise<{ failed: string[]; stopped: string[] }> => {
+  const { docs } = await req.payload.find({
+    collection: 'site-deployments',
+    depth: 0,
+    limit: 100,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    where: {
+      and: [
+        { site: { equals: siteId } },
+        {
+          or: [
+            { status: { in: [...ACTIVE_DEPLOYMENT_STATUSES] } },
+            { and: [{ status: { equals: 'failed' } }, { appUuid: { exists: true } }] },
+          ],
+        },
+      ],
+    },
+  })
+
+  const stopped: string[] = []
+  const failed: string[] = []
+  const stoppedApps = new Set<string>()
+
+  for (const row of docs as unknown as Record<string, unknown>[]) {
+    const id = String(row.id)
+    const appUuid = row.appUuid ? String(row.appUuid) : ''
+    try {
+      const outcome = await stopDeployment(req, id, reason, {
+        stopApplication: !appUuid || !stoppedApps.has(appUuid),
+      })
+      if (appUuid && outcome.applicationStopped) stoppedApps.add(appUuid)
+      ;(outcome.ok ? stopped : failed).push(id)
+    } catch (error) {
+      failed.push(id)
+      req.payload.logger.error({ err: error as Error, msg: `deployment ${id}: stop failed (${reason})` })
+    }
+  }
+
+  return { failed, stopped }
+}
+
+/**
+ * Take one in-flight deployment one step further — the unit of work the queue task
+ * and the console's «بررسی وضعیت» button share.
+ *
+ * `queued` runs the Coolify side, `creating`/`building` asks Coolify how the build is
+ * going, and `verifying` health-checks and promotes. A build that just finished is
+ * verified in the same call: the gap between "built" and "serving" is the part a
+ * watching operator experiences as the feature being slow.
+ */
+export const advanceDeployment = async (
+  req: PayloadRequest,
+  deploymentId: string,
+): Promise<{ changed: boolean; message?: string; status: string }> => {
+  const row = (await req.payload.findByID({
+    collection: 'site-deployments',
+    depth: 0,
+    disableErrors: true,
+    id: deploymentId,
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+
+  if (!row) return { changed: false, status: 'missing' }
+
+  const status = String(row.status ?? '')
+
+  const statusNow = async (): Promise<string> => {
+    const after = await req.payload.findByID({
+      collection: 'site-deployments',
+      depth: 0,
+      disableErrors: true,
+      id: deploymentId,
+      overrideAccess: true,
+      req,
+    })
+    return String((after as null | { status?: unknown })?.status ?? 'missing')
+  }
+
+  if (status === 'queued') {
+    const outcome = await runDeployment(req, deploymentId)
+    const now = await statusNow()
+    return { changed: now !== status, message: outcome.ok ? undefined : outcome.message, status: now }
+  }
+
+  if (status === 'verifying') {
+    const verified = await verifyDeployment(req, deploymentId)
+    const now = await statusNow()
+    return { changed: now !== status, message: verified.message, status: now }
+  }
+
+  const polled = await pollDeployment(req, deploymentId)
+  if (polled.status === 'verifying') {
+    const verified = await verifyDeployment(req, deploymentId)
+    return { changed: true, message: verified.message, status: await statusNow() }
+  }
+  return polled
 }

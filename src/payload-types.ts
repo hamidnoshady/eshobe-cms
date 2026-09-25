@@ -443,6 +443,10 @@ export interface ThemePackage {
   pinnedCommit?: string | null;
   contractVersion?: number | null;
   manifestSyncedAt?: string | null;
+  /**
+   * کامیتی که «شاخه یا تگ» هنگام آخرین همگام‌سازی به آن اشاره می‌کرد. سایت‌هایی که کامیت دیگری اجرا می‌کنند «نسخهٔ جدید موجود است» می‌بینند.
+   */
+  syncedCommitSha?: string | null;
   siteTypes?: ('business' | 'portfolio' | 'store')[] | null;
   buildPack?: ('nixpacks' | 'dockerfile' | 'static' | 'dockercompose') | null;
   port?: number | null;
@@ -2475,7 +2479,7 @@ export interface Plugin {
   createdAt: string;
 }
 /**
- * مقادیری که این پوسته از شما می‌خواهد — مثل کلید نقشه. فهرست متغیرها را خود پوسته تعیین می‌کند؛ مقدار محرمانه رمزنگاری‌شده ذخیره می‌شود و دیگر نمایش داده نمی‌شود.
+ * مقادیری که هر پوسته از سایت می‌خواهد — مثل کلید نقشه. مشتری آن‌ها را از زبانهٔ «تنظیمات پوسته» روی سایت خودش وارد می‌کند؛ مقدار محرمانه رمزنگاری‌شده ذخیره می‌شود و دیگر نمایش داده نمی‌شود.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "site-theme-settings".
@@ -4241,6 +4245,7 @@ export interface ThemePackagesSelect<T extends boolean = true> {
   pinnedCommit?: T;
   contractVersion?: T;
   manifestSyncedAt?: T;
+  syncedCommitSha?: T;
   siteTypes?: T;
   buildPack?: T;
   port?: T;

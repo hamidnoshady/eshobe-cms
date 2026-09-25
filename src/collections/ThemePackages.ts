@@ -1,4 +1,4 @@
-import type { CollectionConfig, Validate } from 'payload'
+import type { CollectionBeforeChangeHook, CollectionConfig, Validate } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
@@ -55,6 +55,24 @@ const validateSha: Validate = (value) => {
 
 /** Everything the sync writes. Grouped so the form reads as "what the repo said", not "what you may type". */
 const readOnly = { create: () => false as const, update: () => false as const }
+
+/** Set by the sync endpoint on its own write, so the hook below can tell it apart from an edit. */
+export const THEME_PACKAGE_SYNC_CONTEXT_KEY = 'eshobeThemePackageSync'
+
+/**
+ * `syncedCommitSha` answers "which commit does `defaultRef` point at?" — true only for
+ * the `defaultRef` the sync resolved. An operator who edits the ref by hand afterwards
+ * makes that answer wrong, and a wrong answer here is a false "new version available"
+ * (or a missing one) on every site running the package. Cleared rather than kept;
+ * the next sync fills it in again.
+ */
+const forgetSyncedCommitOnRefEdit: CollectionBeforeChangeHook = ({ context, data, operation, originalDoc }) => {
+  if (operation !== 'update' || context?.[THEME_PACKAGE_SYNC_CONTEXT_KEY] === true || !originalDoc) return data
+  if (typeof data.defaultRef === 'string' && data.defaultRef !== originalDoc.defaultRef) {
+    data.syncedCommitSha = null
+  }
+  return data
+}
 
 export const ThemePackages: CollectionConfig<'theme-packages'> = {
   slug: 'theme-packages',
@@ -224,6 +242,17 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
           ],
         },
         {
+          name: 'syncedCommitSha',
+          type: 'text',
+          label: 'کامیت همگام‌شده',
+          access: readOnly,
+          admin: {
+            readOnly: true,
+            description:
+              'کامیتی که «شاخه یا تگ» هنگام آخرین همگام‌سازی به آن اشاره می‌کرد. سایت‌هایی که کامیت دیگری اجرا می‌کنند «نسخهٔ جدید موجود است» می‌بینند.',
+          },
+        },
+        {
           name: 'siteTypes',
           type: 'select',
           label: 'برای نوع سایت',
@@ -345,5 +374,8 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
       ],
     },
   ],
+  hooks: {
+    beforeChange: [forgetSyncedCommitOnRefEdit],
+  },
   timestamps: true,
 }

@@ -1327,11 +1327,12 @@ Payload fires on every `afterChange` (pages/posts/etc.) via `src/hooks/revalidat
 ```http
 POST https://your-renderer.example.com/revalidate
 x-eshobe-signature: sha256=<hex HMAC-SHA256(PAYLOAD_SECRET, rawBody)>
+x-eshobe-timestamp: 2024-05-17T10:00:00Z
 content-type: application/json
 
 { "paths": ["/acme.ir/en/pricing", "/acme.ir/pricing"], "siteId":"...", "timestamp":"2024-05-17T10:00:00Z" }
 ```
-Verify raw body HMAC with `PAYLOAD_SECRET`; then purge cache / revalidate path. Best-effort, 3s timeout, at-most-once — if you need at-least-once, consume jobs queue instead.
+Verify the HMAC over the **raw body bytes only** with `PAYLOAD_SECRET` (a deployed theme: its `ESHOBE_REVALIDATE_SECRET`, §17b); then purge cache / revalidate path. `x-eshobe-timestamp` is informational and is **not** part of the v1 signature — do not prepend it when verifying. (The platform webhooks in `docs/platform-control-api.md` sign `<timestamp>.<body>`; this one does not, and a timestamped renderer signature would be a v2 contract.) Best-effort, 3s timeout, at-most-once — if you need at-least-once, consume jobs queue instead.
 
 #### Domain-check (Caddy)
 `GET /api/domain-check?domain=<host>` → `200 {authorised:true}` if site active+verified else `404`. Caddy's `on_demand_tls { ask http://web:3000/api/domain-check }` gates TLS issuance (prevents CA rate-limit burn). Not theme-related but required for custom domains.
@@ -1439,8 +1440,11 @@ ESHOBE_SITE_TYPE        ESHOBE_CURRENCY        ESHOBE_REVALIDATE_SECRET
 ESHOBE_CONTRACT_VERSION ESHOBE_PUBLIC_ORIGIN
 ```
 
-`ESHOBE_PUBLIC_ORIGIN` is the origin your theme is *actually reachable at*, which in
-preview mode is **not** `ESHOBE_SITE_DOMAIN`. Build absolute URLs from
+`ESHOBE_PUBLIC_ORIGIN` is the origin your theme is *actually reachable at* by visitors:
+the preview hostname in preview mode (which is **not** `ESHOBE_SITE_DOMAIN`), the
+customer's domain in edge and direct mode. In edge mode your app is reached through
+Eshobe's edge with `Host` set to its preview hostname and the visitor's host in
+`X-Forwarded-Host` — build links from this variable, not from `Host`. Build absolute URLs from
 `ESHOBE_PUBLIC_ORIGIN` and canonical/SEO URLs from `ESHOBE_SITE_DOMAIN`; using the latter
 for links emits URLs nobody can follow while the customer is still previewing.
 
@@ -1452,7 +1456,9 @@ during a static build.
 
 If you accept revalidation webhooks, expose `POST /api/revalidate` and verify
 `x-eshobe-signature` with `ESHOBE_REVALIDATE_SECRET` exactly as described in §17 — the
-signature is over the **raw body**. Each deployment gets its own secret, so one compromised
+signature is over the **raw body**, without the timestamp. The CMS calls it on your
+application's own preview hostname (in edge mode the customer domain's `/api/*` belongs to
+the CMS), so with `proxiesApi: true` keep `/api/revalidate` out of your `/api` proxy. Each deployment gets its own secret, so one compromised
 theme cannot forge notices for another. An unsigned or unverified endpoint is a public
 cache-purge button; always verify before acting.
 

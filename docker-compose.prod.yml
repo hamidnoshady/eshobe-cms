@@ -20,6 +20,10 @@ services:
       # `payload jobs:run` in a container of its own — two replicas both run every
       # scheduled publish, and nothing errors when they do.
       JOBS_AUTORUN: ${JOBS_AUTORUN:-true}
+      # WAVE-11 — where this process writes the Caddy theme-routes map after every
+      # routing-affecting deployment transition (src/deploy/routing.ts). Inside the
+      # `theme_routes` volume below, which Caddy mounts read-only and watches.
+      THEME_ROUTES_FILE: ${THEME_ROUTES_FILE:-/app/theme-routes/theme-routes.caddy}
     expose:
       - '3000'
     # One replica. `deploy.replicas` here would double every scheduled publish —
@@ -29,6 +33,8 @@ services:
       # Customer uploads (Media.staticDir = MEDIA_DIR = /app/media). Without a
       # volume every redeploy deletes every uploaded file.
       - media_uploads:/app/media
+      # Seeded from the image on first use with the committed empty map.
+      - theme_routes:/app/theme-routes
     healthcheck:
       # Any HTTP response counts: the ask endpoint 404s without a domain param,
       # which still proves the server is up and able to answer Caddy.
@@ -65,6 +71,13 @@ services:
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
+    # The image's default command plus `--watch`: Caddy re-adapts the Caddyfile —
+    # imports included — every second and reloads when the result changes, which is
+    # how a regenerated theme-routes map takes effect with no Docker socket, no admin
+    # API exposed on the network and no `docker exec`. The map is written atomically,
+    # so a poll never reads half a file; a file that failed to adapt would stop the
+    # watcher (not Caddy), which is why the renderer refuses malformed hostnames.
+    command: ['caddy', 'run', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile', '--watch']
     ports:
       - '80:80'
       - '443:443'
@@ -73,13 +86,13 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # WAVE-11 §5 — the host → theme-upstream map the Caddyfile imports. Writable
-      # rather than `:ro`: `scripts/render-theme-routes.mjs` regenerates it from
-      # `GET /api/platform/routing` whenever a themed deployment goes live or stops,
-      # and a `caddy reload` picks it up. Mounted as a file so the committed
-      # empty-by-default version is what a deployment with no themes starts from — a
-      # missing import is a Caddy that will not boot.
-      - ./theme-routes.caddy:/etc/caddy/theme-routes.caddy
+      # WAVE-11 §5 — the host → theme-upstream map the Caddyfile imports, written by
+      # `web` (THEME_ROUTES_FILE). A directory volume, not a bind-mounted file: the map
+      # is replaced by rename, and a single-file bind mount pins the *old* inode, so
+      # Caddy would keep reading the map from before the first regeneration forever.
+      # `web` starts first (depends_on below) and seeds the volume with the committed
+      # empty map — a missing import is a Caddy that will not boot.
+      - theme_routes:/etc/caddy/theme-routes:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -90,5 +103,6 @@ services:
 volumes:
   pgdata:
   media_uploads:
+  theme_routes:
   caddy_data:
   caddy_config:

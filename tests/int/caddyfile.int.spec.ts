@@ -114,7 +114,7 @@ describe('Caddyfile theme upstream', () => {
   })
 
   it('imports the generated map, and the committed map falls through by default', () => {
-    expect(caddyfile).toContain('import /etc/caddy/theme-routes.caddy')
+    expect(caddyfile).toContain('import /etc/caddy/theme-routes/theme-routes.caddy')
 
     const routes = readFileSync(resolve(process.cwd(), 'theme-routes.caddy'), 'utf8')
 
@@ -136,5 +136,24 @@ describe('Caddyfile theme upstream', () => {
     // X-Forwarded-Host (and in ESHOBE_PUBLIC_ORIGIN at build time).
     expect(block).toContain('header_up Host {theme_upstream}')
     expect(block).toContain('header_up X-Forwarded-Host {host}')
+  })
+
+  it('shares the map with Caddy through a directory volume it watches, not a bind-mounted file', () => {
+    // The map is replaced by rename. A single-file bind mount pins the old inode, so
+    // Caddy would keep reading the map from before the first regeneration; a
+    // directory mount sees the rename. `--watch` is what applies it without a reload
+    // command, a Docker socket or an admin API on the network.
+    const compose = readFileSync(resolve(process.cwd(), 'docker-compose.prod.yml'), 'utf8')
+    expect(compose).toContain('theme_routes:/etc/caddy/theme-routes:ro')
+    expect(compose).toContain('theme_routes:/app/theme-routes')
+    expect(compose).not.toContain('./theme-routes.caddy:/etc/caddy/theme-routes.caddy')
+    expect(compose).toMatch(/command: \[.*'--watch'\]/)
+    expect(compose).toContain('THEME_ROUTES_FILE: ${THEME_ROUTES_FILE:-/app/theme-routes/theme-routes.caddy}')
+
+    // The image seeds that volume with the committed empty map, owned by the runtime user.
+    const dockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf8')
+    expect(dockerfile).toContain(
+      'COPY --from=builder --chown=nextjs:nodejs /app/theme-routes.caddy /app/theme-routes/theme-routes.caddy',
+    )
   })
 })

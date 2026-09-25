@@ -104,13 +104,32 @@ export const normalizeBaseUrl = (value: unknown): null | string => {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`
 }
 
-/** Coolify's application name: lowercase, hyphenated, bounded. It ends up in a container name. */
-export const coolifyAppName = (domain: string, themeKey: string): string =>
-  `${domain}-${themeKey}`
+/**
+ * A lowercase, hyphenated label of at most `max` characters, with `suffix` kept
+ * intact at the end. Truncating *after* appending would let a long domain cut the
+ * suffix off and collide with the unsuffixed name.
+ */
+export const boundedLabel = (base: string, max: number, suffix?: null | string): string => {
+  const tail = suffix ? `-${suffix}` : ''
+  const head = base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'eshobe-site'
+    .slice(0, max - tail.length)
+    .replace(/-+$/g, '')
+  return head ? `${head}${tail}` : ''
+}
+
+/**
+ * Coolify's application name: lowercase, hyphenated, bounded. It ends up in a
+ * container name.
+ *
+ * `variant` separates a preview rehearsal from production: `preview` deployments get
+ * their own application, so previewing a new version of the theme a site is already
+ * serving in `edge`/`direct` mode never rebuilds the container production runs on.
+ */
+export const coolifyAppName = (domain: string, themeKey: string, variant?: null | string): string =>
+  boundedLabel(`${domain}-${themeKey}`, 60, variant) || 'eshobe-site'
 
 const statusFromRaw = (raw: string): DeploymentStatus['status'] => {
   const value = raw.toLowerCase()
@@ -347,15 +366,13 @@ export class CoolifyClient {
     return { data: { raw, status: statusFromRaw(raw) }, ok: true }
   }
 
+  /**
+   * The only way this platform takes an application out of service. There is
+   * deliberately no delete and no start: a stopped application keeps its volumes and
+   * build history for a human to inspect, and bringing a theme back is a new
+   * deployment through the health check, never a container resurrected as it was.
+   */
   async stop(appUuid: string): Promise<CoolifyResult<unknown>> {
     return this.call('GET', `/applications/${appUuid}/stop`)
-  }
-
-  async start(appUuid: string): Promise<CoolifyResult<unknown>> {
-    return this.call('GET', `/applications/${appUuid}/start`)
-  }
-
-  async remove(appUuid: string): Promise<CoolifyResult<unknown>> {
-    return this.call('DELETE', `/applications/${appUuid}`)
   }
 }
