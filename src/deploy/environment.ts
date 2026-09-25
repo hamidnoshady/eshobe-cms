@@ -36,7 +36,7 @@ export type EnvironmentInput = {
   req: PayloadRequest
   revalidateSecret: string
   site: Record<string, unknown>
-  /** The hostname this deployment answers on — preview subdomain or the customer's own. */
+  /** The deployment's public origin host — the preview subdomain, or the customer's own domain in `edge`/`direct`. */
   serviceDomain: string
   themePackageId: string
 }

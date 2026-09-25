@@ -10,7 +10,7 @@ import {
   canTransition,
   holdsApplication,
   isProductionMode,
-  serviceHostOf,
+  applicationHostOf,
   type DeploymentStatus,
   type DomainMode,
 } from '@/lib/deploy/status'
@@ -681,8 +681,8 @@ export const runDeployment = async (
     return fail(req, deploymentId, 'هیچ میزبانی برای این استقرار مشخص نشده است.')
   }
 
+  // The public origin: what the row is for, and what the theme builds links from.
   const rowDomain = domainMode === 'preview' ? previewDomain! : siteDomain
-  const serviceDomain = serviceHostOf({ domain: rowDomain, domainMode, previewDomain })
 
   // ---------------------------------------------------------------------------
   // 1. The application. Reconcile first: a create whose response was lost must not
@@ -778,7 +778,7 @@ export const runDeployment = async (
     manifest,
     req,
     revalidateSecret,
-    serviceDomain,
+    serviceDomain: rowDomain,
     site,
     themePackageId: String(pkg.id),
   })
@@ -943,9 +943,8 @@ export const verifyDeployment = async (
     return { message: blocker, ok: false }
   }
 
-  // The application itself, which in `edge` mode is the preview hostname — the
-  // customer's domain only reaches it once the routing table says so.
-  const host = serviceHostOf(deployment)
+  // The application itself, never the customer's domain (see `applicationHostOf`).
+  const host = applicationHostOf(deployment)
   if (!host) return { message: 'میزبانی برای بررسی وجود ندارد.', ok: false }
 
   const pkg = (await req.payload.findByID({

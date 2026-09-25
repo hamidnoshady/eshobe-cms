@@ -125,24 +125,19 @@ export const isProductionMode = (mode: unknown): boolean => mode === 'edge' || m
 export const ACTIVE_DEPLOYMENT_STATUSES = ['queued', 'creating', 'building', 'verifying', 'live'] as const
 
 /**
- * The hostname the theme application itself answers on — what a health check, a
- * revalidation notice and the Caddy upstream address.
+ * The hostname that reaches the theme application itself, whatever the customer's
+ * DNS says — what a health check, a revalidation notice and the Caddy upstream use.
  *
- * `domain` is the hostname the deployment is *for*: the preview name in `preview`
- * mode, the customer's domain in `edge` and `direct`. In `edge` mode those differ —
- * Caddy holds the customer's domain and the application only has its preview name
- * in Coolify — so reaching the application means using `previewDomain`.
+ * `domain` is the hostname the deployment is *for* (its public origin): the preview
+ * name in `preview` mode, the customer's domain in `edge` and `direct`. Neither
+ * production mode reaches the application through it reliably: in `edge` Caddy
+ * keeps the customer domain's `/api/*` on the CMS, and in `direct` the customer's
+ * DNS may still point at Caddy — whose built-in renderer answering 200 would pass a
+ * health check the theme never took. Every deployment has a preview hostname in
+ * Coolify, so that is the one used.
  */
-export const serviceHostOf = (deployment: {
-  domain?: unknown
-  domainMode?: unknown
-  previewDomain?: unknown
-}): string => {
-  const domain = String(deployment.domain ?? '')
-  const preview = String(deployment.previewDomain ?? '')
-  if (deployment.domainMode === 'edge') return preview || domain
-  return domain || preview
-}
+export const applicationHostOf = (deployment: { domain?: unknown; previewDomain?: unknown }): string =>
+  String(deployment.previewDomain ?? '') || String(deployment.domain ?? '')
 
 export const STALE_DOMAIN_MESSAGE =
   'دامنهٔ اصلی سایت پس از این استقرار تغییر کرده است. برای فعال‌شدن پوسته روی دامنهٔ جدید، استقرار مجدد انجام دهید.'

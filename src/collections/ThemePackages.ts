@@ -66,8 +66,8 @@ export const THEME_PACKAGE_SYNC_CONTEXT_KEY = 'eshobeThemePackageSync'
  * (or a missing one) on every site running the package. Cleared rather than kept;
  * the next sync fills it in again.
  */
-const forgetSyncedCommitOnRefEdit: CollectionBeforeChangeHook = ({ context, data, originalDoc }) => {
-  if (context?.[THEME_PACKAGE_SYNC_CONTEXT_KEY] === true || !originalDoc) return data
+const forgetSyncedCommitOnRefEdit: CollectionBeforeChangeHook = ({ context, data, operation, originalDoc }) => {
+  if (operation !== 'update' || context?.[THEME_PACKAGE_SYNC_CONTEXT_KEY] === true || !originalDoc) return data
   if (typeof data.defaultRef === 'string' && data.defaultRef !== originalDoc.defaultRef) {
     data.syncedCommitSha = null
   }

@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto'
 import type { PayloadRequest } from 'payload'
 
 import { decryptDeploySecret } from '@/lib/deploy/crypto'
-import { serviceHostOf } from '@/lib/deploy/status'
+import { applicationHostOf } from '@/lib/deploy/status'
 
 /**
  * Tell the *other* renderers that a site's content changed.
@@ -63,8 +63,8 @@ export type RendererEndpoint = { secret: string; url: string }
  *
  * So: the site's own live deployments contribute `https://<host>/api/revalidate`
  * keyed by that deployment's `ESHOBE_REVALIDATE_SECRET`, where `<host>` is the
- * application's own hostname (`serviceHostOf` — the preview name in `edge` mode,
- * because Caddy keeps `/api/*` of the customer's domain on the CMS), and the env var stays as a
+ * application's own hostname (`applicationHostOf` — its preview name, because in
+ * `edge` mode Caddy keeps the customer domain's `/api/*` on the CMS), and the env var stays as a
  * deployment-wide fallback for a renderer that is not managed here. Both, not either:
  * an operator running a separate static renderer alongside Coolify-hosted themes
  * needs both told.
@@ -92,7 +92,7 @@ export const rendererEndpointsFor = async (
     })
 
     for (const row of docs as unknown as Record<string, unknown>[]) {
-      const host = serviceHostOf(row)
+      const host = applicationHostOf(row)
       const secret = decryptDeploySecret(row.revalidateSecret as null | string)
       if (host && secret) endpoints.push({ secret, url: `https://${host}/api/revalidate` })
     }
