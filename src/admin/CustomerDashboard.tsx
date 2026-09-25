@@ -7,6 +7,7 @@ import type { Site } from '@/payload-types'
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { customerSiteSummary } from '@/lib/customerSiteSummary'
 import { formatNumber } from '@/lib/format'
+import { locales } from '@/lib/locales'
 import { storeOverview, type StoreOverview } from '@/lib/storeOverview'
 
 import { collection, createHref, entityHref } from './navigation'
@@ -122,8 +123,15 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
     }
   }
 
-  // Things that need the customer's attention, most urgent first.
+  // Things that need the customer's attention, most urgent first. The site's own
+  // lifecycle state comes before anything else: a suspended site is not serving, so
+  // a domain or stock warning under it would be noise.
   const warnings: string[] = []
+  if (site?.status === 'suspended') {
+    warnings.push('سایت شما معلق شده است و در دسترس بازدیدکنندگان نیست؛ برای رفع تعلیق با پشتیبانی در تماس باشید.')
+  } else if (site?.status === 'archived') {
+    warnings.push('سایت شما بایگانی شده است و منتشر نمی‌شود.')
+  }
   if (site?.domain && !site.domainVerified) {
     warnings.push('دامنهٔ شما هنوز تأیید نشده است؛ تا تأیید DNS، گواهی TLS صادر نمی‌شود.')
   }
@@ -150,12 +158,27 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
       ? 'در انتظار تأیید دامنه'
       : 'دامنه‌ای ثبت نشده'
 
+  // Site lifecycle — distinct from domain verification: «فعال» is serving, the
+  // others are not. Straight from `sites.status`, never inferred.
+  const lifecycleLabel =
+    site?.status === 'suspended' ? 'معلق' : site?.status === 'archived' ? 'بایگانی‌شده' : 'فعال'
+  // The site's own locales, by their platform label («فارسی», «English»), the
+  // default marked. Falls back to the code for a locale not in the platform list.
+  const localeNames = (site?.availableLocales ?? []).map((code) => {
+    const label = locales.find((locale) => locale.code === code)?.label ?? code
+    return code === site?.defaultLocale ? `${label} (پیش‌فرض)` : label
+  })
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
         <h2 style={{ margin: 0 }}>{site?.name ? `مدیریت ${site.name}` : 'مدیریت سایت'}</h2>
         <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
           {site?.domain ? `${site.domain} — ${statusLabel}` : statusLabel}
+        </p>
+        <p style={{ color: 'var(--theme-elevation-500)', fontSize: '.8rem', margin: 0 }}>
+          {`وضعیت: ${lifecycleLabel}`}
+          {localeNames.length > 0 ? ` · زبان‌ها: ${localeNames.join('، ')}` : ''}
         </p>
       </header>
 
