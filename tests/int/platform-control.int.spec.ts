@@ -248,6 +248,21 @@ describe('the fleet report', () => {
     expect(site.totals.products).toBeGreaterThan(0)
     expect(site.currency).toBe('IRT')
 
+    // The Customer-360 operator pane (`@/admin/SiteOverviewView`) is pure
+    // composition over this exact payload, so the fields it renders are part of the
+    // report's contract, not just the view's: a change that drops one of them breaks
+    // the pane silently. Assert their shape here where the report is already booted.
+    expect(['active', 'archived', 'suspended']).toContain(site.status)
+    expect(Array.isArray(site.availableLocales)).toBe(true)
+    expect(Array.isArray(site.aliases)).toBe(true)
+    site.aliases.forEach((alias) => expect(typeof alias.verified).toBe('boolean'))
+    expect(Array.isArray(site.gateways)).toBe(true)
+    site.gateways.forEach((gateway) => {
+      expect(typeof gateway.enabled).toBe('boolean')
+      expect(typeof gateway.gateway).toBe('string')
+      expect([null, 'failed', 'ok']).toContain(gateway.selfTest)
+    })
+
     const missing = await platformSiteEndpoint.handler!(
       await reqWithKey(platformKey, {
         routeParams: { id: '00000000-0000-4000-8000-000000000000' },

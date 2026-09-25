@@ -206,6 +206,26 @@ export const Sites: CollectionConfig = {
          * the view re-checks, and the endpoints behind it re-check again.
          */
         edit: {
+          /**
+           * The Customer-360 pane (task §4): everything about one customer on one
+           * screen, for operators only. Pure composition — it renders `siteReportFor`,
+           * the same report `GET /api/platform/sites/:id` returns; it adds no query.
+           * `condition` hides the tab from a customer's own staff; the view re-checks
+           * `isPlatformAdmin`, and the report it calls runs on an operator request.
+           */
+          overview: {
+            Component: '@/admin/SiteOverviewView',
+            meta: { title: 'نمای ۳۶۰ مشتری' },
+            path: '/overview',
+            tab: {
+              condition: ({ req }) => isPlatformAdmin(req?.user),
+              // See the deployment tab below: `href` is read directly by
+              // `DefaultDocumentTab` and is not derived from `path` — omitting it
+              // points the tab at the document root.
+              href: '/overview',
+              label: 'نمای ۳۶۰',
+            },
+          },
           deployment: {
             Component: '@/deploy/admin/DeploymentView',
             meta: { title: 'استقرار پوسته' },
