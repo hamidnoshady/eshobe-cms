@@ -3,7 +3,6 @@ import type { PayloadRequest } from 'payload'
 import { contractVersion } from '@eshobe/site-runtime'
 
 import { DEPLOY_SECRET_READ_CONTEXT_KEY, readThemeSettingSecrets } from '@/collections/hooks/deploySecrets'
-import { idOf } from '@/lib/ids'
 import { validateTenantEnv, type ThemeManifest } from '@/lib/deploy/manifest'
 
 /**
@@ -190,6 +189,3 @@ export const buildEnvironment = async (input: EnvironmentInput): Promise<Environ
 
   return { errors, variables }
 }
-
-/** `site.id` off a relationship that may be an id or a populated doc — the `idOf` rule, restated for readability. */
-export const siteIdOf = (value: unknown): null | string => idOf(value)

@@ -366,15 +366,13 @@ export class CoolifyClient {
     return { data: { raw, status: statusFromRaw(raw) }, ok: true }
   }
 
+  /**
+   * The only way this platform takes an application out of service. There is
+   * deliberately no delete and no start: a stopped application keeps its volumes and
+   * build history for a human to inspect, and bringing a theme back is a new
+   * deployment through the health check, never a container resurrected as it was.
+   */
   async stop(appUuid: string): Promise<CoolifyResult<unknown>> {
     return this.call('GET', `/applications/${appUuid}/stop`)
-  }
-
-  async start(appUuid: string): Promise<CoolifyResult<unknown>> {
-    return this.call('GET', `/applications/${appUuid}/start`)
-  }
-
-  async remove(appUuid: string): Promise<CoolifyResult<unknown>> {
-    return this.call('DELETE', `/applications/${appUuid}`)
   }
 }

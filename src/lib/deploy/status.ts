@@ -24,7 +24,11 @@ export const DEPLOYMENT_STATUSES = [
   'failed',
   /** Deliberately stopped — a suspended site, or superseded by a newer deployment. */
   'stopped',
-  /** The Coolify application is gone. Terminal; the row survives as history. */
+  /**
+   * The Coolify application is gone. Terminal; the row survives as history. The CMS
+   * never deletes an application itself (it only stops them), so this records one an
+   * operator removed in Coolify by hand.
+   */
   'removed',
 ] as const
 
@@ -73,9 +77,6 @@ export const canTransition = (from: unknown, to: DeploymentStatus): boolean => {
   return TRANSITIONS[from].includes(to)
 }
 
-/** The states in which a deployment is the one answering for its site. */
-export const isServing = (status: unknown): boolean => status === 'live'
-
 /** The states from which work is still expected — what a poller keeps watching. */
 export const isPending = (status: unknown): boolean =>
   status === 'queued' || status === 'creating' || status === 'building' || status === 'verifying'
@@ -83,19 +84,6 @@ export const isPending = (status: unknown): boolean =>
 /** The states holding a Coolify application that still exists and costs money. */
 export const holdsApplication = (status: unknown): boolean =>
   isDeploymentStatus(status) && status !== 'removed' && status !== 'queued'
-
-/**
- * How a site's traffic is served.
- *
- * `platform` — this Next app renders it, the behaviour every existing site has.
- * `deployment` — a theme application does, with Caddy in front (docs/theme-deployments.md §5).
- *
- * This lives on `sites` because `/api/domain-check` and the alias-redirect logic both
- * need it: a site whose traffic no longer arrives at Caddy must not sit waiting to
- * issue a certificate nobody will request.
- */
-export const RENDERED_BY = ['platform', 'deployment'] as const
-export type RenderedBy = (typeof RENDERED_BY)[number]
 
 /**
  * Where a deployment's traffic is addressed from — the decision §5 of the design doc
