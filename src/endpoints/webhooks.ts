@@ -5,12 +5,13 @@ import { randomUUID } from 'node:crypto'
 import type { PlatformEventPayload } from '@/lib/saas/events'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
-import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
 import { isUuid } from '@/lib/ids'
 import { generateWebhookSecret, encryptPlatformSecret, fingerprintPlatformSecret } from '@/lib/saas/crypto'
 import { readPlatformSecret } from '@/collections/hooks/platformSecrets'
 import { deliverOnce, recordDelivery } from '@/platform/webhooks'
 import { recordAudit } from '@/platform/audit'
+
+import { json, requireOperator } from './platformShared'
 
 /**
  * The webhook lifecycle routes.
@@ -22,14 +23,6 @@ import { recordAudit } from '@/platform/audit'
  * and `/storage-connections/self-test` both shipped that bug once; CLAUDE.md records
  * the rule and `Webhooks.endpoints` is where these are registered.
  */
-
-const noStore = { 'cache-control': 'no-store' }
-const json = (body: unknown, status = 200): Response => Response.json(body, { headers: noStore, status })
-
-const requireOperator = async (req: PayloadRequest): Promise<null | Response> => {
-  if (await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user))) return null
-  return json({ message: 'این بخش فقط برای مدیر پلتفرم است.', ok: false }, 403)
-}
 
 const readBody = async (req: PayloadRequest): Promise<Record<string, unknown>> => {
   try {

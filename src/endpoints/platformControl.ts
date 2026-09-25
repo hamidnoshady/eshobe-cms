@@ -1,8 +1,5 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
-import { isPlatformAdmin } from '@/access/platformAdmin'
-import { isPlatformAdminOrPlatformKey } from '@/access/siteApiKey'
-import { isUuid } from '@/lib/ids'
 import {
   clampLimit,
   clampPage,
@@ -12,6 +9,8 @@ import {
 import { platformEvents } from '@/platform/events'
 import { platformOverview, siteReportFor } from '@/platform/report'
 import { exportSiteSnapshot, importSiteSnapshot } from '@/platform/snapshot'
+
+import { json, param, requireOperator, search, siteById } from './platformShared'
 
 /**
  * `/api/platform/*` — the whole deployment, administered from outside it.
@@ -53,40 +52,6 @@ import { exportSiteSnapshot, importSiteSnapshot } from '@/platform/snapshot'
  * homepage.
  */
 
-const noStore = { 'cache-control': 'no-store' }
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { headers: noStore, status })
-
-const requireOperator = async (req: PayloadRequest): Promise<null | Response> => {
-  if (await isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user))) return null
-  return json({ message: 'این بخش فقط برای مدیر پلتفرم است.', ok: false }, 403)
-}
-
-const param = (req: PayloadRequest, name: string): string =>
-  String((req.routeParams as Record<string, unknown> | undefined)?.[name] ?? '')
-
-const search = (req: PayloadRequest): URLSearchParams => {
-  try {
-    return new URL(req.url ?? '', 'http://localhost').searchParams
-  } catch {
-    return new URLSearchParams()
-  }
-}
-
-/** The one site lookup every `/platform/sites/:id` route shares — shape-checked before the query (`src/lib/ids.ts`). */
-const siteById = async (req: PayloadRequest, id: string): Promise<null | Record<string, unknown>> => {
-  if (!isUuid(id)) return null
-  const doc = await req.payload.findByID({
-    id,
-    collection: 'sites',
-    depth: 0,
-    disableErrors: true,
-    overrideAccess: true,
-    req,
-  })
-  return (doc as unknown as null | Record<string, unknown>) ?? null
-}
 
 const readBody = async (req: PayloadRequest): Promise<{ body?: Record<string, unknown>; error?: Response }> => {
   try {
