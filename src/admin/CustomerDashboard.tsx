@@ -7,6 +7,14 @@ import type { Site } from '@/payload-types'
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { formatNumber } from '@/lib/format'
 
+import { createHref, entityHref } from './navigation'
+import {
+  CUSTOMER_QUICK_ACTIONS,
+  CUSTOMER_STAT_LINKS,
+  CUSTOMER_STAT_SLUGS,
+  type DashboardStat,
+} from './dashboardLinks'
+
 /**
  * What a customer's staff see when they open `/admin`.
  *
@@ -86,7 +94,6 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
   if (!payload || isPlatformAdmin(user)) return null
 
   const adminRoute = payload.config.routes?.admin ?? '/admin'
-  const base = adminRoute === '/' ? '' : adminRoute
   const req = { context: {}, payload, user } as unknown as PayloadRequest
 
   // Tenant-scoped: the multi-tenant plugin narrows each of these to the caller's
@@ -98,11 +105,13 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
     const sites = await payload.find({ collection: 'sites', depth: 0, limit: 1, req })
     site = sites.docs[0] ?? null
 
-    const countable = ['pages', 'posts', 'products', 'orders', 'form-submissions'] as const
     const results = await Promise.all(
-      countable.map(async (slug) => {
+      CUSTOMER_STAT_SLUGS.map(async (slug) => {
         try {
-          const { totalDocs } = await payload.count({ collection: slug, req })
+          const { totalDocs } = await payload.count({
+            collection: slug as Parameters<typeof payload.count>[0]['collection'],
+            req,
+          })
           return [slug, totalDocs] as const
         } catch {
           return [slug, 0] as const
@@ -132,25 +141,30 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
 
       <Section title="دسترسی سریع">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
-          <Action href={`${base}/collections/pages/create`} label="ساخت برگه" />
-          <Action href={`${base}/collections/posts/create`} label="ساخت نوشته" />
-          <Action href={`${base}/collections/media/create`} label="بارگذاری رسانه" />
-          <Action href={`${base}/collections/products/create`} label="افزودن محصول" />
-          <Action href={`${base}/globals/header`} label="ویرایش پیمایش" />
+          {CUSTOMER_QUICK_ACTIONS.map((action) => (
+            <Action
+              href={
+                action.create
+                  ? createHref(adminRoute, action.entity.slug)
+                  : entityHref(adminRoute, action.entity)
+              }
+              key={`${action.entity.slug}-${action.create ? 'create' : 'edit'}`}
+              label={action.label}
+            />
+          ))}
           {siteUrl ? <Action external href={siteUrl} label="مشاهدهٔ سایت" /> : null}
         </div>
       </Section>
 
       <Section title="یک نگاه به سایت">
-        <StatLink href={`${base}/collections/pages`} label="برگه‌ها" value={counts.pages ?? 0} />
-        <StatLink href={`${base}/collections/posts`} label="نوشته‌ها" value={counts.posts ?? 0} />
-        <StatLink href={`${base}/collections/products`} label="محصولات" value={counts.products ?? 0} />
-        <StatLink href={`${base}/collections/orders`} label="سفارش‌ها" value={counts.orders ?? 0} />
-        <StatLink
-          href={`${base}/collections/form-submissions`}
-          label="پاسخ‌های فرم"
-          value={counts['form-submissions'] ?? 0}
-        />
+        {CUSTOMER_STAT_LINKS.map((stat: DashboardStat) => (
+          <StatLink
+            href={entityHref(adminRoute, stat.entity)}
+            key={stat.entity.slug}
+            label={stat.label}
+            value={counts[stat.entity.slug] ?? 0}
+          />
+        ))}
       </Section>
     </div>
   )

@@ -41,8 +41,38 @@ export type NavGroupDef = {
   entities: NavEntityRef[]
 }
 
-const collection = (slug: string, label?: string): NavEntityRef => ({ type: 'collection', slug, label })
-const global = (slug: string, label?: string): NavEntityRef => ({ type: 'global', slug, label })
+export const collection = (slug: string, label?: string): NavEntityRef => ({
+  type: 'collection',
+  slug,
+  label,
+})
+export const global = (slug: string, label?: string): NavEntityRef => ({
+  type: 'global',
+  slug,
+  label,
+})
+
+/** Strip the trailing slash Payload uses for a root-mounted admin (`routes.admin === '/'`). */
+export const adminBase = (adminRoute: string): string => (adminRoute === '/' ? '' : adminRoute)
+
+/**
+ * The one place an admin URL for a Payload entity is spelled out. Every sidebar
+ * link and every dashboard shortcut goes through this, so a resource's *type*
+ * (collection vs global) — not a hand-typed path — decides its URL. This is what
+ * makes it impossible to reintroduce the `/globals/header` bug: `header` is a
+ * tenant-scoped collection registered `isGlobal` with the multi-tenant plugin, so
+ * it lives at `/collections/header`; only a genuine Payload global gets `/globals`.
+ */
+export const entityHref = (adminRoute: string, ref: NavEntityRef): string => {
+  const base = adminBase(adminRoute)
+  return ref.type === 'collection'
+    ? `${base}/collections/${ref.slug}`
+    : `${base}/globals/${ref.slug}`
+}
+
+/** The `New …` route for a collection (globals have no create route). */
+export const createHref = (adminRoute: string, slug: string): string =>
+  `${adminBase(adminRoute)}/collections/${slug}/create`
 
 /**
  * The customer / site-CMS sidebar. Every entity here is a site's own resource,
@@ -183,12 +213,7 @@ export const resolveNavGroups = ({
   const isVisible = (e: NavEntityRef) =>
     e.type === 'collection' ? visibleCollections.has(e.slug) : visibleGlobals.has(e.slug)
 
-  const hrefFor = (e: NavEntityRef): string => {
-    const base = adminRoute === '/' ? '' : adminRoute
-    return e.type === 'collection'
-      ? `${base}/collections/${e.slug}`
-      : `${base}/globals/${e.slug}`
-  }
+  const hrefFor = (e: NavEntityRef): string => entityHref(adminRoute, e)
   const idFor = (e: NavEntityRef) => (e.type === 'collection' ? `nav-${e.slug}` : `nav-global-${e.slug}`)
 
   const placed = new Set<string>()
