@@ -22,7 +22,8 @@ import {
 
 export const DEPLOY_SECRET_READ_CONTEXT_KEY = 'eshobeDeploySecretRead'
 
-const MASK = '••••••••'
+export const DEPLOY_SECRET_MASK = '••••••••'
+const MASK = DEPLOY_SECRET_MASK
 
 /** Blank a ciphertext on the way out, unless this is the deploy job's own internal read. */
 export const maskDeploySecret =
@@ -34,7 +35,7 @@ export const maskDeploySecret =
 
 const readStored = async (
   req: PayloadRequest,
-  collection: 'deploy-targets',
+  collection: 'deploy-targets' | 'site-theme-settings',
   id: string | undefined,
 ): Promise<Record<string, unknown>> => {
   if (!id) return {}
@@ -125,18 +126,32 @@ export const readDeployTargetToken = async (
 }
 
 /**
- * `site-theme-settings.values` — the tenant's answers to a manifest's declared
- * variables, encrypted as one blob.
+ * `site-theme-settings.secretValues` — the tenant's secret answers to a manifest's
+ * declared variables, encrypted as one blob.
  *
  * One encrypted JSON column rather than a column per variable, because the variable
  * set is defined by a third-party manifest and changes when the theme is synced. A
  * schema that a repository can alter is a migration that a repository can trigger.
+ *
+ * Blank, absent or the mask means **unchanged**: the update operation fills an
+ * omitted field from its own copy of the document, which has been through the
+ * masking hook, so the value arriving here on an unrelated save is the literal mask.
+ * Encrypting that would replace every secret the customer entered with eight dots.
+ * The stored value is re-read with the context flag instead. `null` is the explicit
+ * clear; `saveTenantSettings` is the writer that decides per key.
  */
-export const encryptThemeSettings: CollectionBeforeChangeHook = ({ data }) => {
+export const encryptThemeSettings: CollectionBeforeChangeHook = async ({ data, originalDoc, req }) => {
   const input = (data ?? {}) as { secretValues?: unknown }
   const raw = input.secretValues
 
-  if (raw === undefined || raw === null) return data
+  if (raw === null) return data
+
+  if (raw === undefined || raw === '' || raw === MASK) {
+    const stored = await readStored(req, 'site-theme-settings', originalDoc?.id as string | undefined)
+    data.secretValues = typeof stored.secretValues === 'string' ? stored.secretValues : null
+    return data
+  }
+
   if (typeof raw === 'string') {
     data.secretValues = isDeploySecretEncrypted(raw) ? raw : encryptDeploySecret(raw)
     return data

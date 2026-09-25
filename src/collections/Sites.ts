@@ -249,6 +249,22 @@ export const Sites: CollectionConfig = {
               label: 'استقرار پوسته',
             },
           },
+          /**
+           * The customer's half of a deployable theme: the values the theme's manifest
+           * asks the *site* for. Shown to the site's own staff and to operators; the
+           * view checks membership and `/api/site-theme-settings/current` enforces it.
+           * `href` for the same reason as the tab above.
+           */
+          themeSettings: {
+            Component: '@/deploy/admin/ThemeSettingsView',
+            meta: { title: 'تنظیمات پوسته' },
+            path: '/theme-settings',
+            tab: {
+              condition: ({ req }) => Boolean(req?.user),
+              href: '/theme-settings',
+              label: 'تنظیمات پوسته',
+            },
+          },
         },
       },
     },
