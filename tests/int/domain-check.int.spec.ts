@@ -127,4 +127,56 @@ describe('Caddy domain authorization', () => {
     expect(response.status).toBe(404)
     expect(find).not.toHaveBeenCalled()
   })
+
+  describe('with a deployed theme (Wave 11)', () => {
+    const themed = (domain: string, deployments: unknown[]) => {
+      const find = vi
+        .fn()
+        .mockResolvedValueOnce({
+          docs: [{ domain, domainVerified: true, id: '1', renderedBy: 'deployment' }],
+        })
+        .mockResolvedValueOnce({ docs: deployments })
+      return { find, req: { query: { domain }, payload: { find } } }
+    }
+
+    it('refuses a certificate for a hostname a live direct-mode deployment has taken off this edge', async () => {
+      const { find, req } = themed('client.example.com', [
+        { domain: 'client.example.com', domainMode: 'direct', status: 'live' },
+      ])
+      expect((await domainCheck.handler!(req as never)).status).toBe(404)
+      // Narrowed to this hostname and to live direct rows — never a fleet scan.
+      expect(find).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          collection: 'site-deployments',
+          where: {
+            and: [
+              { domain: { equals: 'client.example.com' } },
+              { domainMode: { equals: 'direct' } },
+              { status: { equals: 'live' } },
+            ],
+          },
+        }),
+      )
+    })
+
+    it('keeps issuing for an edge-mode site: Caddy is still the edge there', async () => {
+      const { req } = themed('client.example.com', [])
+      expect((await domainCheck.handler!(req as never)).status).toBe(200)
+    })
+
+    it('issues for the new primary domain after a direct deployment was built for the old one', async () => {
+      // The live row still names the previous hostname, so the query for the new one
+      // finds nothing: the new domain's DNS points here, and Caddy must serve it.
+      const { find, req } = themed('moved.example.com', [])
+      expect((await domainCheck.handler!(req as never)).status).toBe(200)
+      expect(find).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            and: expect.arrayContaining([{ domain: { equals: 'moved.example.com' } }]),
+          }),
+        }),
+      )
+    })
+  })
 })
+

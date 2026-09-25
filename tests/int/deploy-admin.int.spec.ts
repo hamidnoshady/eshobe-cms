@@ -54,6 +54,21 @@ describe('the deployment document view on sites', () => {
   })
 })
 
+describe('the theme settings document view on sites', () => {
+  it('is registered at /theme-settings with a bare-suffix href', () => {
+    expect(editViews?.themeSettings?.path).toBe('/theme-settings')
+    expect(editViews?.themeSettings?.Component).toBe('@/deploy/admin/ThemeSettingsView')
+    expect(editViews?.themeSettings?.tab?.href).toBe('/theme-settings')
+  })
+
+  it('is offered to the site’s own staff as well as to operators — the view and the route check membership', () => {
+    const condition = editViews?.themeSettings?.tab?.condition as ((args: unknown) => boolean) | undefined
+    expect(condition?.({ req: { user: { role: 'user' } } })).toBe(true)
+    expect(condition?.({ req: { user: { role: 'platformAdmin' } } })).toBe(true)
+    expect(condition?.({ req: {} })).toBe(false)
+  })
+})
+
 describe('the catalogue action panels', () => {
   const uiField = (collection: { fields: unknown[] }, name: string) =>
     (collection.fields as Record<string, unknown>[]).find((field) => field.name === name)

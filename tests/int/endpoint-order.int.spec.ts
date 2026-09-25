@@ -56,4 +56,27 @@ describe('platform site endpoint ordering', () => {
       ).toBe(true)
     }
   })
+
+  it('registers every deployment lifecycle literal, each ahead of the bare site route', async () => {
+    const eps = await siteEndpoints()
+    const bare = eps.filter((e) => e.path === '/platform/sites/:id')
+    const expected: [string, string][] = [
+      ['get', '/platform/sites/:id/deployment'],
+      ['post', '/platform/sites/:id/deployment'],
+      ['post', '/platform/sites/:id/deployment/redeploy'],
+      ['post', '/platform/sites/:id/deployment/rollback'],
+      ['post', '/platform/sites/:id/deployment/stop'],
+      ['post', '/platform/sites/:id/deployment/revert'],
+      ['post', '/platform/sites/:id/deployment/poll'],
+      ['post', '/platform/sites/:id/deployment/verify'],
+    ]
+
+    for (const [method, path] of expected) {
+      const found = eps.find((e) => e.method === method && e.path === path)
+      expect(found, `${method.toUpperCase()} ${path} must be registered`).toBeTruthy()
+      for (const b of bare) {
+        expect(found!.i, `${method.toUpperCase()} ${path} must precede the bare site route`).toBeLessThan(b.i)
+      }
+    }
+  })
 })
