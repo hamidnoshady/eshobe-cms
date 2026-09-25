@@ -104,7 +104,10 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
   {
     label: 'فروشگاه',
     entities: [
-      // Overview / products / orders / payments / settings order.
+      // Overview / products / orders / payments / settings order. «نمای کلی» is
+      // not its own route — the store control-centre summary is rendered on the
+      // dashboard by `storeOverview` (`CustomerDashboard.tsx`), so the products
+      // list is the first destination here.
       collection('products'),
       collection('orders'),
       collection('payment-gateways', 'پرداخت'),
@@ -112,14 +115,25 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     ],
   },
   {
-    label: 'طراحی',
-    entities: [collection('theme')],
+    // «طراحی و انتشار» — design *and* publishing. A customer's only tenant-scoped
+    // resource here is their theme (`theme`, one doc per site). Theme catalogue,
+    // domain and deployment are all platform-owned collections
+    // (`theme-templates`, `deploy-targets`, `site-deployments` — `hiddenFromCustomers`),
+    // so they are not customer nav destinations; domain is edited on the site
+    // settings screen. The group carries the product name so the section reads as
+    // the customer's design & publishing home even though it fronts one collection.
+    label: 'طراحی و انتشار',
+    entities: [collection('theme', 'طراحی سایت')],
   },
   {
     label: 'تیم',
-    entities: [collection('users')],
+    entities: [collection('users', 'اعضای تیم')],
   },
   {
+    // «تنظیمات» — general, languages, connections, advanced. These are tabs on the
+    // one tenant-scoped settings document (`sites`), not separate routes: a
+    // customer edits their locales, domain and advanced options in the site edit
+    // view. API-key management is platform-owned (`api-keys` is `hiddenFromCustomers`).
     label: 'تنظیمات',
     entities: [collection('sites', 'تنظیمات سایت')],
   },
@@ -127,11 +141,14 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
 
 /**
  * The platform / operator console. Every entity here runs the SaaS. Supporting
- * history/event and per-site catalogue tables live beside their parent rather
- * than as top-level items — see the label overrides. The group order mirrors the
- * product information architecture: who the customers are, then money, then the
- * product catalogue, then the infrastructure that runs it, then integrations,
- * then day-to-day operations, then the platform's own settings.
+ * history/event and per-site override tables (`usage-records`, `site-entitlements`,
+ * `site-theme-settings`, `*-events`, `*-operations`, `webhook-deliveries`) are
+ * deliberately NOT primary items: they are per-site/contextual detail, surfaced in
+ * a site's Customer-360 report, and remain reachable through the «سایر» catch-all
+ * (demoted, never deleted). The group order mirrors the product information
+ * architecture: who the customers are, then money, then the product catalogue,
+ * then the infrastructure that runs it, then integrations, then day-to-day
+ * operations, then the platform's own settings.
  */
 export const PLATFORM_NAV: NavGroupDef[] = [
   {
@@ -139,28 +156,31 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     entities: [collection('sites'), collection('users')],
   },
   {
+    // Money only. Usage and entitlements are per-customer/per-site detail, not
+    // equivalent primary products — they are surfaced in a site's Customer-360
+    // context (`siteReportFor`) and remain reachable through the «سایر» catch-all,
+    // never as top-level billing siblings.
     label: 'اشتراک و مالی',
-    entities: [
-      collection('plans'),
-      collection('subscriptions'),
-      collection('invoices'),
-      // Usage & entitlements are per-customer detail; until the Customer-360 view
-      // lands they stay here (kept reachable) rather than as top-level siblings.
-      collection('usage-records'),
-      collection('site-entitlements'),
-    ],
+    entities: [collection('plans'), collection('subscriptions'), collection('invoices')],
   },
   {
+    // The product catalogue: features, themes, plugins. `site-theme-settings` is a
+    // per-site override table, not a catalogue product — it belongs to a site's
+    // context, so it is not a primary item here (still reachable via «سایر»).
     label: 'محصول',
     entities: [
       collection('feature-flags', 'قابلیت‌ها'),
-      collection('theme-templates'),
-      collection('theme-packages'),
-      collection('site-theme-settings'),
-      collection('plugins'),
+      collection('theme-templates', 'پوسته‌ها'),
+      collection('theme-packages', 'بسته‌های پوسته'),
+      collection('plugins', 'افزونه‌ها'),
     ],
   },
   {
+    // The resources that run the fleet: domains, CDN, storage, deploy targets,
+    // payment policy. History/event tables that describe these resources
+    // (`reseller-domain-operations`, `reseller-domain-events`, `cdn-events`) are
+    // contextual detail, not primary infrastructure products, so they are demoted
+    // to «سایر» rather than sitting beside the resource they log.
     label: 'زیرساخت',
     entities: [
       // Several of these carry table-oriented labels that read as noise at the top
@@ -169,11 +189,8 @@ export const PLATFORM_NAV: NavGroupDef[] = [
       collection('reseller-domains', 'دامنه‌ها'),
       collection('domain-reseller-products', 'کاتالوگ TLD'),
       global('domain-reseller'),
-      collection('reseller-domain-operations'),
-      collection('reseller-domain-events'),
       collection('cdn-zones', 'CDN — زون‌ها'),
-      collection('cdn-events'),
-      collection('storage-connections'),
+      collection('storage-connections', 'ذخیره‌سازی'),
       collection('deploy-targets', 'سرورهای انتشار'),
       // Platform payment policy — which gateway adapters are globally allowed —
       // is infrastructure, distinct from a customer's per-site gateway config.
@@ -181,12 +198,19 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     ],
   },
   {
+    // Machine-to-machine surfaces. `webhook-deliveries` is a per-webhook attempt
+    // log — contextual detail under a webhook, not a primary product — so it is
+    // demoted to «سایر» rather than listed as a sibling of the webhook config.
     label: 'یکپارچه‌سازی',
-    entities: [collection('api-keys'), collection('webhooks'), collection('webhook-deliveries')],
+    entities: [collection('api-keys'), collection('webhooks')],
   },
   {
+    // Day-to-day running of the fleet: deployments and the audit trail. Activity
+    // and system-health are composed read-only views (`OperatorDashboard`,
+    // `GET /api/platform/overview` + the events feed), not collections, so they
+    // have no sidebar entity of their own.
     label: 'عملیات',
-    entities: [collection('site-deployments', 'انتشارها'), collection('audit-log')],
+    entities: [collection('site-deployments', 'انتشارها'), collection('audit-log', 'Audit')],
   },
   {
     label: 'تنظیمات سکو',

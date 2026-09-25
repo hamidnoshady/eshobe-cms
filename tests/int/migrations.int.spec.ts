@@ -130,15 +130,17 @@ describe('one-shot entrypoint fails closed', () => {
   })
 
   it('exits non-zero when the runtime role cannot be determined', () => {
-    // A plain object with the two role sources stripped, cast for spawnSync:
-    // this repo's ProcessEnv augmentation makes DATABASE_URL a required key.
+    // Both role sources are emptied rather than deleted. An empty value is still a
+    // *present* key, and dotenv never overrides a present key — so a developer's
+    // on-disk .env cannot refill DATABASE_URL in the child, exactly as the
+    // `MIGRATE_DATABASE_URL: ''` case above relies on. Deleting the keys instead
+    // left the local run at the mercy of .env and produced a connect error rather
+    // than the role-resolution failure this test is about. The assertions below are
+    // unchanged: with no determinable role, the entrypoint must fail closed.
     const env = {
-      ...Object.fromEntries(
-        Object.entries(process.env).filter(
-          (entry): entry is [string, string] =>
-            !['DATABASE_URL', 'APP_DATABASE_ROLE'].includes(entry[0]) && entry[1] !== undefined,
-        ),
-      ),
+      ...process.env,
+      APP_DATABASE_ROLE: '',
+      DATABASE_URL: '',
       NODE_ENV: 'production',
       MIGRATE_DATABASE_URL: migrateURL,
     } as unknown as NodeJS.ProcessEnv
