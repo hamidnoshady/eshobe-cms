@@ -5,6 +5,7 @@ import type { PayloadRequest, ServerProps } from 'payload'
 import type { Site } from '@/payload-types'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { customerSiteSummary } from '@/lib/customerSiteSummary'
 import { formatNumber } from '@/lib/format'
 import { storeOverview, type StoreOverview } from '@/lib/storeOverview'
 
@@ -97,41 +98,15 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
   const adminRoute = payload.config.routes?.admin ?? '/admin'
   const req = { context: {}, payload, user } as unknown as PayloadRequest
 
-  // Tenant-scoped: the multi-tenant plugin narrows each of these to the caller's
-  // own site(s). A failure here must not blank the front page.
+  // Tenant-scoped (see `customerSiteSummary`): the multi-tenant plugin narrows each
+  // read to the caller's own site(s). A failure here must not blank the front page.
   let site: Site | null = null
-  const counts: Record<string, number> = {}
+  let counts: Record<string, number> = {}
 
   try {
-    // `overrideAccess: false` scopes every read to the caller's own site(s). The
-    // Local API defaults to `overrideAccess: true`, which SKIPS the multi-tenant
-    // plugin's read constraint — so without this a customer's dashboard would show
-    // the platform-wide count across every tenant, and pick some other customer's
-    // site for the header. Same rule as `src/lib/site-query.ts`.
-    const sites = await payload.find({
-      collection: 'sites',
-      depth: 0,
-      limit: 1,
-      overrideAccess: false,
-      req,
-    })
-    site = sites.docs[0] ?? null
-
-    const results = await Promise.all(
-      CUSTOMER_STAT_SLUGS.map(async (slug) => {
-        try {
-          const { totalDocs } = await payload.count({
-            collection: slug as Parameters<typeof payload.count>[0]['collection'],
-            overrideAccess: false,
-            req,
-          })
-          return [slug, totalDocs] as const
-        } catch {
-          return [slug, 0] as const
-        }
-      }),
-    )
-    for (const [slug, total] of results) counts[slug] = total
+    const summary = await customerSiteSummary(req, CUSTOMER_STAT_SLUGS)
+    site = summary.site
+    counts = summary.counts
   } catch (error) {
     payload.logger.error({ err: error as Error, msg: 'customer dashboard load failed' })
   }
