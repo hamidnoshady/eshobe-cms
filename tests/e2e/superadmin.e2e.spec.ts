@@ -153,7 +153,12 @@ test.describe('the operator panel', () => {
     await page.waitForURL(/\/admin(\?|$)/, { timeout: 60_000 })
 
     const nav = page.locator('.nav')
-    for (const label of ['طرح‌ها', 'اشتراک‌ها', 'صورتحساب‌ها', 'وب‌هوک‌ها', 'ردّ تغییرات']) {
+    // The audit-log link renders under the product label the target IA gives it —
+    // «عملیات(…, Audit)» — which `src/admin/navigation.ts` sets as the nav override
+    // for `audit-log`. That is the accessible name in the sidebar, not the
+    // collection's own plural label «ردّ تغییرات», which still stands inside the
+    // collection view. The others carry no override and render as their labels.
+    for (const label of ['طرح‌ها', 'اشتراک‌ها', 'صورتحساب‌ها', 'وب‌هوک‌ها', 'Audit']) {
       await expect(nav.getByRole('link', { name: label }).first(), label).toBeVisible({ timeout: 30_000 })
     }
 
