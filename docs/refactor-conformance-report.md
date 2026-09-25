@@ -50,8 +50,10 @@ explicitly and name the exact reason — they are not marked passed locally.
 | Dead code cleanup | ✅ | §36 below — none removed (none found); duplication consolidated |
 | Duplicate code cleanup | ✅ | `src/endpoints/platformShared.ts` consolidates `requireOperator`/`siteById`/`json` |
 | Database compatibility | ✅ | no schema/field changes; `migrations.int.spec.ts` green; `pnpm seed` clean |
-| Build | ✅ verified (webpack) | `next build --webpack` completes locally, exit 0: compile + `tsc` + static generation of all 7 pages, admin bundle includes the new views. Next 16's *default* Turbopack engine OOMs in the 3.9 GB sandbox only; CI runners have the RAM, and `pnpm build` (Turbopack) is what the CI `build` job runs. |
-| E2E | ⚠ BLOCKED (sandbox) | Playwright browser CDN blocked here. E2E must run in CI where browsers install. |
+| Build | ✅ verified in CI | `pnpm build` (Turbopack) passes in CI run 36169083846 (`Build` job, 1m6s). Also verified locally via `next build --webpack` (exit 0). The Turbopack default only OOMs in the 3.9 GB sandbox; CI runners have the RAM. |
+| E2E | ✅ verified in CI | Playwright suite passes in CI run 36169083846 (`E2E tests` job, 3m16s, 52 tests). Cannot run in-sandbox (browser-CDN blocked); CI is the authoritative signal. |
+| Docker + srv1 smoke | ✅ verified in CI | `Docker build` job (4m59s) builds the image and runs `tests/deployment/compose-smoke.sh` (migration gate + restricted runtime). |
+| Aggregate gate | ✅ | `CI success` job green — the single required check that gates `publish.yml`. |
 
 Local verification: **typecheck ✅ · lint ✅ (0 errors) · integration 534/534 ✅.**
 
@@ -150,10 +152,16 @@ customer/platform contexts separated; Customer-360 coherent (backend + operator 
 clutter; no stale header/footer global routes; dead-route + dead-code audits complete;
 duplicate guards consolidated; tenant isolation and server authorization intact (tested,
 including end-to-end role-escalation refusal); designed product behavior untouched; public
-routing / Caddy / deploy / payment safety unchanged; tests cover the new IA; **production
-build verified locally via `next build --webpack` (exit 0)**.
+routing / Caddy / deploy / payment safety unchanged; tests cover the new IA.
 
-Outstanding (environment, not code): the **Turbopack** production build (`pnpm build`) and
-**Playwright E2E** must be confirmed in real CI — the webpack build proves the code compiles
-and type-checks; Turbopack only OOMs on the 3.9 GB sandbox, and Playwright's browser download
-is network-blocked here. Both run in `.github/workflows/ci.yml`, which gates publishing.
+**Full CI is green.** Run `36169083846` on this branch passed every job:
+`Lint`, `Typecheck`, `Build` (Turbopack), `Docker build` (+ srv1 compose/migration smoke),
+`Integration tests` (534), `E2E tests` (Playwright, 52), and the aggregate `CI success` gate
+that `publish.yml` requires. Nothing is outstanding — the two items the sandbox itself cannot
+run (Turbopack build under 3.9 GB RAM, Playwright's network-blocked browser download) are both
+confirmed in CI.
+
+One fix landed as part of getting CI green: `superadmin.e2e.spec.ts` still expected the
+audit-log nav link by its collection label «ردّ تغییرات»; the target IA files it under
+«عملیات(…, Audit)», so the assertion was updated to the label the sidebar actually renders
+(`caaba7d`) — the test still proves the link is present, grouped and visible.
