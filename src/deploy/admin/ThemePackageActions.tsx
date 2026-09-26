@@ -34,6 +34,10 @@ export const ThemePackageActions: React.FC<UIFieldServerProps> = ({ data, id }) 
   const syncError = doc.syncError ? String(doc.syncError) : null
 
   const base = `/api/platform/theme-packages/${String(id)}`
+  const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL?.replace(/\/$/, '') ?? ''
+  const webhookUrl = serverUrl
+    ? `${serverUrl}/api/platform/theme-packages/github-webhook`
+    : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -79,6 +83,16 @@ export const ThemePackageActions: React.FC<UIFieldServerProps> = ({ data, id }) 
           استقرارهای فعلی با این کار متوقف نمی‌شوند.
         </div>
       )}
+
+      {webhookUrl ? (
+        <div className="banner banner--type-default">
+          برای تشخیص خودکار نسخهٔ جدید (بدون استقرار خودکار production)، در مخزن گیت‌هاب یک webhook با
+          رویداد <code dir="ltr">push</code> به{' '}
+          <code dir="ltr">{webhookUrl}</code> اضافه کنید و{' '}
+          <code dir="ltr">GITHUB_THEME_WEBHOOK_SECRET</code> را روی سرور تنظیم کنید. فقط push به شاخهٔ
+          «شاخه یا تگ» همگام‌سازی می‌شود.
+        </div>
+      ) : null}
     </div>
   )
 }

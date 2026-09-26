@@ -12,6 +12,7 @@ import * as migration_20260912_100401_saas_control_plane from './20260912_100401
 import * as migration_20260922_170603_wave11_theme_deployments from './20260922_170603_wave11_theme_deployments';
 import * as migration_20260925_215628_wave11_deploy_gaps from './20260925_215628_wave11_deploy_gaps';
 import * as migration_20260926_120000_storage_health from './20260926_120000_storage_health';
+import * as migration_20260926_120000_theme_github_webhook from './20260926_120000_theme_github_webhook';
 
 export const migrations = [
   {
@@ -77,7 +78,12 @@ export const migrations = [
   {
     up: migration_20260925_215628_wave11_deploy_gaps.up,
     down: migration_20260925_215628_wave11_deploy_gaps.down,
-    name: '20260925_215628_wave11_deploy_gaps'
+    name: '20260925_215628_wave11_deploy_gaps',
+  },
+  {
+    up: migration_20260926_120000_theme_github_webhook.up,
+    down: migration_20260926_120000_theme_github_webhook.down,
+    name: '20260926_120000_theme_github_webhook',
   },
   {
     up: migration_20260926_120000_storage_health.up,

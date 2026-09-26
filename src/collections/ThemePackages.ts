@@ -333,6 +333,44 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
           access: readOnly,
           admin: { readOnly: true },
         },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'githubLastDeliveryId',
+              type: 'text',
+              label: 'آخرین رویداد گیت‌هاب',
+              access: readOnly,
+              admin: { readOnly: true, width: '50' },
+            },
+            {
+              name: 'githubWebhookReceivedAt',
+              type: 'date',
+              label: 'آخرین دریافت وب‌هوک',
+              access: readOnly,
+              admin: { readOnly: true, width: '50' },
+            },
+          ],
+        },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'githubLastAutoSyncAt',
+              type: 'date',
+              label: 'آخرین همگام‌سازی خودکار',
+              access: readOnly,
+              admin: { readOnly: true, width: '50' },
+            },
+            {
+              name: 'githubLastAutoSyncError',
+              type: 'textarea',
+              label: 'خطای همگام‌سازی خودکار',
+              access: readOnly,
+              admin: { readOnly: true, width: '50' },
+            },
+          ],
+        },
       ],
     },
     {

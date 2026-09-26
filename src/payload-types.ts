@@ -481,6 +481,10 @@ export interface ThemePackage {
     | boolean
     | null;
   syncError?: string | null;
+  githubLastDeliveryId?: string | null;
+  githubWebhookReceivedAt?: string | null;
+  githubLastAutoSyncAt?: string | null;
+  githubLastAutoSyncError?: string | null;
   /**
    * وقتی سایتی این پوسته را می‌گیرد، رنگ‌های این پوستهٔ آماده روی آن کپی می‌شود. کپی است، نه پیوند.
    */
@@ -4288,6 +4292,10 @@ export interface ThemePackagesSelect<T extends boolean = true> {
   manifest?: T;
   envSchema?: T;
   syncError?: T;
+  githubLastDeliveryId?: T;
+  githubWebhookReceivedAt?: T;
+  githubLastAutoSyncAt?: T;
+  githubLastAutoSyncError?: T;
   themeTemplate?: T;
   defaultTarget?: T;
   requiredFeature?: T;

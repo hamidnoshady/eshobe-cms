@@ -167,6 +167,13 @@ export const ProvisionSiteForm: React.FC = () => {
           </Button>
           <Button
             buttonStyle="secondary"
+            el="link"
+            to={`/admin/collections/sites/${result.site.id}/deployment`}
+          >
+            استقرار پوسته
+          </Button>
+          <Button
+            buttonStyle="secondary"
             onClick={() => {
               setResult(null)
               setName('')

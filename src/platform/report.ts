@@ -11,6 +11,8 @@ import {
 import { getActiveConnection } from '@/storage/connection'
 import { gatewayDescriptor, gatewayIds } from '@/payments/gateways/registry'
 import { paymentsModuleState } from '@/payments/gateways/resolve'
+import type { SiteDeploymentSummary } from '@/deploy/siteDeploymentSummary'
+import { siteDeploymentSummaryFor } from '@/deploy/siteDeploymentSummary'
 
 /**
  * The fleet report — "what is this whole CMS deployment doing?" — assembled for
@@ -368,6 +370,7 @@ const jobsState = async (req: PayloadRequest) => {
 
 export type SiteReport = {
   aliases: { hostname: string; verified: boolean }[]
+  deployment: SiteDeploymentSummary
   availableLocales: string[]
   createdAt: null | string
   currency: null | string
@@ -455,6 +458,8 @@ export const siteReportFor = async (
       }))
     : []
 
+  const deployment = await siteDeploymentSummaryFor(req, site)
+
   return {
     aliases,
     availableLocales: Array.isArray(site.availableLocales)
@@ -466,6 +471,7 @@ export const siteReportFor = async (
         ? String((storeDocs.docs[0] as { currency?: unknown }).currency)
         : null,
     defaultLocale: typeof site.defaultLocale === 'string' ? site.defaultLocale : null,
+    deployment,
     domain: String(site.domain ?? ''),
     domainVerified: site.domainVerified === true,
     gateways: (

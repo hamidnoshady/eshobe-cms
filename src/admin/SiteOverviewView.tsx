@@ -168,6 +168,57 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
         </div>
       ) : null}
 
+      {report.deployment.updateAvailable ? (
+        <div className="banner banner--type-info" role="status">
+          نسخهٔ جدید پوسته موجود است — در حال اجرا{' '}
+          <code dir="ltr">{report.deployment.activeCommit?.slice(0, 8) ?? '—'}</code> و آخرین همگام‌سازی{' '}
+          <code dir="ltr">{report.deployment.updateLatestCommit?.slice(0, 8) ?? '—'}</code> را نشان می‌دهد.
+          جزئیات و اقدام‌ها در تب «استقرار پوسته».
+        </div>
+      ) : null}
+      {report.deployment.needsRedeploy ? (
+        <div className="banner banner--type-warning" role="alert">
+          دامنهٔ سایت پس از استقرار فعلی تغییر کرده است. پوسته را از تب «استقرار پوسته» مجدداً مستقر کنید.
+        </div>
+      ) : null}
+
+      <Section title="پوسته و استقرار">
+        <Stat
+          accent={report.deployment.renderedBy === 'deployment' ? 'var(--theme-success-500)' : 'var(--theme-elevation-200)'}
+          label="رندرکننده"
+          note={
+            report.deployment.renderedBy === 'deployment'
+              ? report.deployment.activePackageName ?? 'پوستهٔ مستقر'
+              : 'رندرکنندهٔ داخلی'
+          }
+          value={report.deployment.renderedBy === 'deployment' ? 'پوستهٔ خارجی' : 'داخلی'}
+        />
+        <Stat
+          label="کامیت فعال"
+          note={report.deployment.repository ? `مخزن: ${report.deployment.repository}` : undefined}
+          value={report.deployment.activeCommit ? report.deployment.activeCommit.slice(0, 8) : '—'}
+        />
+        <Stat
+          label="پیش‌نمایش"
+          note={report.deployment.previewStatus ?? undefined}
+          value={report.deployment.previewOpenUrl ? 'در دسترس' : '—'}
+        />
+        <Stat
+          label="حالت دامنه"
+          value={report.deployment.domainMode ?? '—'}
+        />
+      </Section>
+
+      {report.deployment.previewOpenUrl ? (
+        <p style={{ margin: 0 }}>
+          <a href={report.deployment.previewOpenUrl} rel="noopener noreferrer" target="_blank">
+            باز کردن پیش‌نمایش
+          </a>
+          {' '}
+          (<code dir="ltr">{report.deployment.previewOpenUrl}</code>)
+        </p>
+      ) : null}
+
       <Section title="شناسه و وضعیت">
         <Stat accent={statusAccent} label="وضعیت" value={statusLabel} />
         <Stat label="نوع سایت" value={report.type} />
