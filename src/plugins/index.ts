@@ -6,6 +6,7 @@ import { seoPlugin } from '@payloadcms/plugin-seo'
 import { searchPlugin } from '@payloadcms/plugin-search'
 import { Plugin } from 'payload'
 import { revalidateRedirects } from '@/hooks/revalidateRedirects'
+import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
 import { GenerateTitle, GenerateURL } from '@payloadcms/plugin-seo/types'
 import { FixedToolbarFeature, HeadingFeature, lexicalEditor } from '@payloadcms/richtext-lexical'
 import { searchFields } from '@/search/fieldOverrides'
@@ -153,6 +154,7 @@ export const plugins: Plugin[] = [
         singular: 'فرم',
         plural: 'فرم‌ها',
       },
+      hooks: { afterChange: [revalidateSiteGlobal('form')] },
       fields: ({ defaultFields }) => {
         return defaultFields.map((field) => {
           if ('name' in field && field.name === 'confirmationMessage') {
@@ -272,6 +274,7 @@ export const plugins: Plugin[] = [
       // answer, and a required `site` column would make the row unsavable.
       'site-deployments': {},
       'site-theme-settings': { isGlobal: true },
+      'site-branding': { isGlobal: true },
       pages: {},
       posts: {},
       products: {},

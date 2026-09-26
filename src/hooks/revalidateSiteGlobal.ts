@@ -4,6 +4,7 @@ import { revalidateTag } from 'next/cache'
 
 import { tryRevalidate } from '@/hooks/revalidate'
 import { siteTag } from '@/lib/site-query'
+import { notifyRenderers } from '@/lib/renderer-webhook'
 
 /**
  * Bust one site's copy of a per-site singleton (header, footer, theme).
@@ -14,7 +15,8 @@ import { siteTag } from '@/lib/site-query'
  */
 export const revalidateSiteGlobal =
   (collection: string): CollectionAfterChangeHook =>
-  ({ doc, req: { context, payload } }) => {
+  ({ doc, req }) => {
+    const { context, payload } = req
     if (context.disableRevalidate) return doc
 
     // The tenant field is populated to a full document at depth > 0.
@@ -35,6 +37,7 @@ export const revalidateSiteGlobal =
     payload.logger.info(`Revalidating ${tag}`)
 
     tryRevalidate(payload, tag, () => revalidateTag(tag, 'max'))
+    notifyRenderers({ paths: ['/'], req, resources: [collection], siteId, tags: [tag] })
 
     return doc
   }

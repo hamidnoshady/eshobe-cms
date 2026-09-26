@@ -160,19 +160,17 @@ const translateLayout = (existing: Page['layout'], next: Page['layout']): Page['
 
     switch (row.blockType) {
       case 'content':
-        return translateRow(
-          replacement as Extract<LayoutRow, { blockType: 'content' }>,
-          ['columns'],
-        )
+        return translateRow(replacement as Extract<LayoutRow, { blockType: 'content' }>, [
+          'columns',
+        ])
       case 'cta':
         return translateRow(replacement as Extract<LayoutRow, { blockType: 'cta' }>, ['links'])
       case 'features':
         return translateRow(replacement as Extract<LayoutRow, { blockType: 'features' }>, ['items'])
       case 'testimonials':
-        return translateRow(
-          replacement as Extract<LayoutRow, { blockType: 'testimonials' }>,
-          ['items'],
-        )
+        return translateRow(replacement as Extract<LayoutRow, { blockType: 'testimonials' }>, [
+          'items',
+        ])
       case 'team':
         return translateRow(replacement as Extract<LayoutRow, { blockType: 'team' }>, ['members'])
       case 'pricing':
@@ -189,10 +187,7 @@ const translateLayout = (existing: Page['layout'], next: Page['layout']): Page['
 type LayoutRow = Page['layout'][number]
 
 /** Nav rows are an unlocalized array too — same rule, one shape. */
-const translateNav = (
-  existing: Header['navItems'],
-  next: Header['navItems'],
-): Header['navItems'] =>
+const translateNav = (existing: Header['navItems'], next: Header['navItems']): Header['navItems'] =>
   existing?.map((row, index) => {
     const replacement = next?.[index]
 
@@ -304,6 +299,14 @@ export const provisionSite = async ({
       collection: 'theme',
       context: noRevalidate,
       data: { ...starterTheme(type), site: site.id },
+      depth: 0,
+      req: txReq,
+    })
+
+    await payload.create({
+      collection: 'site-branding',
+      context: noRevalidate,
+      data: { displayName: name, shortName: name, site: site.id },
       depth: 0,
       req: txReq,
     })
@@ -570,7 +573,12 @@ export const provisionSite = async ({
           req: txReq,
         })
 
-        invited.push({ email: invitee.email, id: String(user.id), isNew: false, role: invitee.role })
+        invited.push({
+          email: invitee.email,
+          id: String(user.id),
+          isNew: false,
+          role: invitee.role,
+        })
       } else {
         // A random password the caller never sees: the invite *is* the
         // set-password email, sent after the transaction commits.

@@ -6,6 +6,7 @@ import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { themeSettingsGetEndpoint, themeSettingsSaveEndpoint } from '@/endpoints/themeSettings'
 
 import { encryptThemeSettings, maskDeploySecret } from './hooks/deploySecrets'
+import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
 
 /**
  * The tenant's answers to the variables a theme manifest declares
@@ -76,8 +77,21 @@ export const SiteThemeSettings: CollectionConfig<'site-theme-settings'> = {
       type: 'json',
       label: 'مقادیر',
       admin: {
-        description: 'مقادیر غیرمحرمانه، به شکل {"MAP_API_KEY": "..."}. کلیدهای تعریف‌نشده نادیده گرفته می‌شوند.',
+        description:
+          'مقادیر غیرمحرمانه، به شکل {"MAP_API_KEY": "..."}. کلیدهای تعریف‌نشده نادیده گرفته می‌شوند.',
       },
+    },
+    {
+      name: 'runtimeSettings',
+      type: 'json',
+      label: 'گزینه‌های نمایشی پوسته',
+      admin: { description: 'مقادیر اعلام‌شده در settings مانیفست؛ بدون نیاز به استقرار مجدد.' },
+    },
+    {
+      name: 'contentBindings',
+      type: 'json',
+      label: 'نگاشت محتوا',
+      admin: { description: 'مقصدهای محتوایی اعلام‌شده در contentSlots مانیفست.' },
     },
     {
       name: 'secretValues',
@@ -89,6 +103,7 @@ export const SiteThemeSettings: CollectionConfig<'site-theme-settings'> = {
     },
   ],
   hooks: {
+    afterChange: [revalidateSiteGlobal('theme-settings')],
     beforeChange: [encryptThemeSettings],
   },
   timestamps: true,

@@ -1330,9 +1330,9 @@ x-eshobe-signature: sha256=<hex HMAC-SHA256(PAYLOAD_SECRET, rawBody)>
 x-eshobe-timestamp: 2024-05-17T10:00:00Z
 content-type: application/json
 
-{ "paths": ["/acme.ir/en/pricing", "/acme.ir/pricing"], "siteId":"...", "timestamp":"2024-05-17T10:00:00Z" }
+{ "paths": ["/acme.ir/en/pricing", "/acme.ir/pricing"], "tags":["site:...:page"], "resources":["page"], "siteId":"...", "timestamp":"2024-05-17T10:00:00Z" }
 ```
-Verify the HMAC over the **raw body bytes only** with `PAYLOAD_SECRET` (a deployed theme: its `ESHOBE_REVALIDATE_SECRET`, §17b); then purge cache / revalidate path. `x-eshobe-timestamp` is informational and is **not** part of the v1 signature — do not prepend it when verifying. (The platform webhooks in `docs/platform-control-api.md` sign `<timestamp>.<body>`; this one does not, and a timestamped renderer signature would be a v2 contract.) Best-effort, 3s timeout, at-most-once — if you need at-least-once, consume jobs queue instead.
+Verify the HMAC over the **raw body bytes only** with `PAYLOAD_SECRET` (a deployed theme: its `ESHOBE_REVALIDATE_SECRET`, §17b); then purge cache / revalidate path. `resources` and `tags` are additive semantic hints for page/post/listing/category/navigation/branding/theme-setting invalidation; v1 receivers may continue reading only `paths`. `x-eshobe-timestamp` is informational and is **not** part of the v1 signature — do not prepend it when verifying. (The platform webhooks in `docs/platform-control-api.md` sign `<timestamp>.<body>`; this one does not, and a timestamped renderer signature would be a v2 contract.) Best-effort, 3s timeout, at-most-once — if you need at-least-once, consume jobs queue instead.
 
 #### Domain-check (Caddy)
 `GET /api/domain-check?domain=<host>` → `200 {authorised:true}` if site active+verified else `404`. Caddy's `on_demand_tls { ask http://web:3000/api/domain-check }` gates TLS issuance (prevents CA rate-limit burn). Not theme-related but required for custom domains.
@@ -1601,3 +1601,40 @@ GET /next/exit-preview                                    → exit
 
 *Questions while building? Open `src/lib/*`, `src/blocks/index.ts`, `WAVE-9.md` §3 for rationale. But for AI generation, this file + `packages/site-runtime` is sufficient to ship a store theme that formats correctly, themes per customer, and checks out money without leaking a tenant.*
 
+
+## 18. Branding, runtime options and content bindings
+
+`GET /api/site` remains the single renderer bootstrap. It returns safe `branding` media
+references and, for an active deployable theme, `themeRuntime.settings` and
+`themeRuntime.bindings`. Its ETag and Last-Modified include branding/runtime changes.
+Public host requests never receive site IDs, API keys, deployment env, secrets, repository
+or Coolify data.
+
+Brand identity (names, localized tagline, logos, favicon and social image) belongs in the
+tenant Branding record and survives theme changes. Generic colors/radius/line-height belong
+in Theme. Use `themeCss(descriptor.theme)` from `@eshobe/site-runtime`; it accepts only hex
+colors, the closed radius scale and finite line heights from 1.4 through 2.4.
+
+Normal presentation options belong in manifest `settings`, not `env`:
+
+```json
+{
+  "settings": {
+    "showSectionNumbers": { "type": "boolean", "default": true, "labelFa": "نمایش شماره بخش‌ها" },
+    "density": { "type": "select", "default": "roomy", "options": [{ "value": "roomy" }, { "value": "compact" }] }
+  },
+  "contentSlots": [
+    { "key": "home", "type": "page", "required": true },
+    { "key": "projects", "type": "category" }
+  ]
+}
+```
+
+Setting types are `boolean`, `text`, `number`, and `select`; arbitrary objects, HTML and CSS
+are rejected. Slot types are `page`, `post`, `category`, `form`, and `media`; targets are
+verified to belong to the same tenant. These optional additions remain Theme API v1 and old
+slug-based themes continue to work. `env` is only for process concerns and integration
+credentials; secrets stay encrypted/write-only and tenant input cannot override `ESHOBE_*`.
+
+Posts optionally expose structured `projectMetadata`. Contact blocks optionally expose
+validated coordinates and an HTTPS map link; themes must not automatically load map iframes.

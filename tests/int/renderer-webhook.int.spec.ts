@@ -54,12 +54,24 @@ describe('the renderer webhook signature (v1)', () => {
       },
     } as unknown as PayloadRequest
 
-    notifyRenderers({ paths: ['/acme.ir/fa/pricing'], req, siteId: 'site-1' })
+    notifyRenderers({
+      paths: ['/acme.ir/fa/pricing'],
+      req,
+      resources: ['page'],
+      siteId: 'site-1',
+      tags: ['site:site-1:page'],
+    })
     await vi.waitFor(() => expect(sent).toHaveLength(1))
 
     const [delivery] = sent
     const timestamp = delivery!.headers['x-eshobe-timestamp']!
-    expect(JSON.parse(delivery!.body)).toEqual({ paths: ['/acme.ir/fa/pricing'], siteId: 'site-1', timestamp })
+    expect(JSON.parse(delivery!.body)).toEqual({
+      paths: ['/acme.ir/fa/pricing'],
+      resources: ['page'],
+      siteId: 'site-1',
+      tags: ['site:site-1:page'],
+      timestamp,
+    })
 
     const expected = `sha256=${createHmac('sha256', SECRET).update(delivery!.body, 'utf8').digest('hex')}`
     const timestamped = `sha256=${createHmac('sha256', SECRET).update(`${timestamp}.${delivery!.body}`, 'utf8').digest('hex')}`

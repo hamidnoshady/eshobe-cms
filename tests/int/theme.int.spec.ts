@@ -57,5 +57,8 @@ describe('themeCss', () => {
   it('defaults line-height to the Persian 1.8, not the browser’s', () => {
     expect(themeCss(theme({}))).toContain('--line-height:1.8;')
     expect(themeCss(theme({ lineHeight: 2 }))).toContain('--line-height:2;')
+    expect(themeCss(theme({ lineHeight: Number.POSITIVE_INFINITY }))).toContain(
+      '--line-height:1.8;',
+    )
   })
 })
