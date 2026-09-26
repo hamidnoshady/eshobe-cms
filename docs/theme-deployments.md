@@ -60,6 +60,12 @@ back).
    Editing `defaultRef` by hand afterwards clears `syncedCommitSha` until the next sync.
 3. **«انتشار»** (`POST …/publish`, admin session only) refuses a package with no manifest,
    no contract version, or no active deploy target.
+4. **(اختیاری) وب‌هوک گیت‌هاب** — `POST /api/platform/theme-packages/github-webhook` on the
+   control-plane host only. Configure GitHub `push` events with the same secret as
+   `GITHUB_THEME_WEBHOOK_SECRET`. When a push lands on a package's `defaultRef`, the CMS
+   re-syncs that package (same rules as manual sync). **No site is redeployed**; operators
+   only see «نسخهٔ جدید موجود است» until they preview or redeploy explicitly. Duplicate
+   `X-GitHub-Delivery` ids are ignored.
 
 Only a published package can be deployed. `siteTypes` is checked twice: the manifest's list
 (the author's claim) and the row's (the operator's narrowing).

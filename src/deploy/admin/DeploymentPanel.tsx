@@ -50,10 +50,11 @@ type Deployment = {
   needsRedeploy: boolean
   packageName: null | string
   previewDomain: null | string
+  previewOpenUrl: null | string
   ref: null | string
+  themePackage: null | string
   status: string
   targetName: null | string
-  themePackage: null | string
 }
 
 type UpdateInfo = {
@@ -245,6 +246,16 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
   const live = current?.status === 'live' ? current : null
   const production = live && live.domainMode !== 'preview' ? live : null
+  const previewRow =
+    deployments.find((row) => row.domainMode === 'preview' && row.status === 'live') ??
+    deployments.find(
+      (row) => row.domainMode === 'preview' && PENDING.has(row.status),
+    ) ??
+    null
+  const productionPackageKey =
+    (production?.themePackage &&
+      packages.find((p) => p.id === production.themePackage)?.key) ||
+    packageKey
 
   /**
    * Only published packages, and only those that declare this site's type. The server
@@ -357,9 +368,31 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
         {update?.updateAvailable && (
           <div className="banner banner--type-info" role="status">
-            نسخهٔ جدید موجود است — کامیت <code dir="ltr">{shortSha(update.deployedCommit)}</code> در حال اجراست
-            و پوسته اکنون <code dir="ltr">{shortSha(update.latestCommit)}</code> (از{' '}
-            <code dir="ltr">{update.packageRef}</code>) را مستقر می‌کند.
+            <strong>نسخهٔ جدید پوسته موجود است</strong> — کامیت <code dir="ltr">{shortSha(update.deployedCommit)}</code>{' '}
+            در production در حال اجراست؛ همگام‌سازی گیت‌هاب اکنون{' '}
+            <code dir="ltr">{shortSha(update.latestCommit)}</code> (از <code dir="ltr">{update.packageRef}</code>) را
+            پیشنهاد می‌دهد.
+            {previewRow?.commitSha === update.latestCommit && previewRow.status === 'live' ? (
+              <> یک پیش‌نمایش با این کامیت آماده است.</>
+            ) : null}
+          </div>
+        )}
+
+        {previewRow?.previewOpenUrl && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+            <Button
+              buttonStyle="secondary"
+              el="anchor"
+              newTab
+              url={previewRow.previewOpenUrl}
+            >
+              باز کردن پیش‌نمایش
+            </Button>
+            <span style={{ color: 'var(--theme-elevation-600)', fontSize: '0.85rem' }}>
+              کامیت <code dir="ltr">{shortSha(previewRow.commitSha)}</code>
+              {' — '}
+              <code dir="ltr">{previewRow.previewOpenUrl}</code>
+            </span>
           </div>
         )}
 
@@ -369,23 +402,39 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
         {current && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-            {/*
-             * One redeploy button, whose wording follows the reason to press it. It
-             * creates a new row (history stays history) and, for a production mode,
-             * only replaces the running deployment after its health check passes.
-             */}
-            <ActionButton
-              confirm={
-                current.domainMode === 'preview'
-                  ? undefined
-                  : 'یک استقرار تازه ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی روی دامنهٔ مشتری خواهد شد. ادامه می‌دهید؟'
-              }
-              label={update?.updateAvailable ? 'استقرار مجدد با نسخهٔ جدید' : 'استقرار مجدد'}
-              onSuccess={load}
-              style={current.needsRedeploy || update?.updateAvailable ? 'primary' : 'secondary'}
-              successMessage="استقرار مجدد در صف قرار گرفت."
-              url={`${base}/redeploy`}
-            />
+            {update?.updateAvailable && production && productionPackageKey ? (
+              <>
+                <ActionButton
+                  body={{ domainMode: 'preview', package: productionPackageKey }}
+                  label="پیش‌نمایش نسخهٔ جدید"
+                  onSuccess={load}
+                  style="primary"
+                  successMessage="پیش‌نمایش نسخهٔ جدید در صف قرار گرفت."
+                  url={base}
+                />
+                <ActionButton
+                  confirm="پس از بررسی سلامت، نسخهٔ جدید جایگزین production روی دامنهٔ مشتری می‌شود. ادامه می‌دهید؟"
+                  label="استقرار نسخهٔ جدید در production"
+                  onSuccess={load}
+                  style="secondary"
+                  successMessage="استقرار production در صف قرار گرفت."
+                  url={`${base}/redeploy`}
+                />
+              </>
+            ) : (
+              <ActionButton
+                confirm={
+                  current.domainMode === 'preview'
+                    ? undefined
+                    : 'یک استقرار تازه ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی روی دامنهٔ مشتری خواهد شد. ادامه می‌دهید؟'
+                }
+                label={current.needsRedeploy ? 'استقرار مجدد (دامنهٔ جدید)' : 'استقرار مجدد'}
+                onSuccess={load}
+                style={current.needsRedeploy ? 'primary' : 'secondary'}
+                successMessage="استقرار مجدد در صف قرار گرفت."
+                url={`${base}/redeploy`}
+              />
+            )}
 
             {live && (
               <ActionButton
@@ -555,6 +604,12 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
                 )}
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  {row.previewOpenUrl && row.domainMode === 'preview' && row.status === 'live' && (
+                    <Button buttonStyle="secondary" el="anchor" newTab url={row.previewOpenUrl}>
+                      باز کردن پیش‌نمایش
+                    </Button>
+                  )}
+
                   {PENDING.has(row.status) && (
                     <ActionButton
                       body={{ deployment: row.id }}

@@ -47,6 +47,15 @@ test.describe('deployment routes over HTTP', () => {
     withSiteKey = await request.newContext({ baseURL: base, extraHTTPHeaders: { authorization: `Bearer ${key}` } })
   })
 
+  test('POST …/theme-packages/github-webhook is registered and refuses anonymous callers', async () => {
+    const res = await anonymous.post('/api/platform/theme-packages/github-webhook', {
+      data: { ref: 'refs/heads/main' },
+    })
+    expect(res.status()).toBe(403)
+    const body = await res.json()
+    expect(body.ok).toBe(false)
+  })
+
   test('GET …/deployment reaches the deployment endpoint, not the bare site route', async () => {
     const res = await admin.get(`/api/platform/sites/${acmeId}/deployment`)
     expect(res.status()).toBe(200)
