@@ -230,9 +230,7 @@ beforeAll(async () => {
       payload,
     ),
   )
-  if (saveRes.status !== 200) {
-    throw new Error(`settings save failed: ${await saveRes.text()}`)
-  }
+  expect(saveRes.status).toBe(200)
 
   const settings = await payload.find({
     collection: 'site-theme-settings',
