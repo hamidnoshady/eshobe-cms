@@ -126,7 +126,10 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     // settings screen. The group carries the product name so the section reads as
     // the customer's design & publishing home even though it fronts one collection.
     label: 'طراحی و انتشار',
-    entities: [collection('theme', 'طراحی سایت')],
+    entities: [
+      collection('site-branding', 'هویت بصری'),
+      collection('theme', 'طراحی سایت'),
+    ],
   },
   {
     label: 'تیم',

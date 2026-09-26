@@ -3,7 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
-import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 
 /** Theme-independent public identity. Logos remain media relationships and no field accepts CSS or HTML. */
 export const SiteBranding: CollectionConfig<'site-branding'> = {
@@ -47,6 +47,9 @@ export const SiteBranding: CollectionConfig<'site-branding'> = {
       ],
     },
   ],
-  hooks: { afterChange: [revalidateSiteGlobal('branding')] },
+  hooks: {
+    afterChange: [revalidateSiteGlobal('branding')],
+    afterDelete: [revalidateSiteGlobalDelete('branding')],
+  },
   timestamps: true,
 }
