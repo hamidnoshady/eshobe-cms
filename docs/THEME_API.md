@@ -1601,3 +1601,40 @@ GET /next/exit-preview                                    → exit
 
 *Questions while building? Open `src/lib/*`, `src/blocks/index.ts`, `WAVE-9.md` §3 for rationale. But for AI generation, this file + `packages/site-runtime` is sufficient to ship a store theme that formats correctly, themes per customer, and checks out money without leaking a tenant.*
 
+
+## 18. Branding, runtime options and content bindings
+
+`GET /api/site` remains the single renderer bootstrap. It returns safe `branding` media
+references and, for an active deployable theme, `themeRuntime.settings` and
+`themeRuntime.bindings`. Its ETag and Last-Modified include branding/runtime changes.
+Public host requests never receive site IDs, API keys, deployment env, secrets, repository
+or Coolify data.
+
+Brand identity (names, localized tagline, logos, favicon and social image) belongs in the
+tenant Branding record and survives theme changes. Generic colors/radius/line-height belong
+in Theme. Use `themeCss(descriptor.theme)` from `@eshobe/site-runtime`; it accepts only hex
+colors, the closed radius scale and finite line heights from 1.4 through 2.4.
+
+Normal presentation options belong in manifest `settings`, not `env`:
+
+```json
+{
+  "settings": {
+    "showSectionNumbers": { "type": "boolean", "default": true, "labelFa": "نمایش شماره بخش‌ها" },
+    "density": { "type": "select", "default": "roomy", "options": [{ "value": "roomy" }, { "value": "compact" }] }
+  },
+  "contentSlots": [
+    { "key": "home", "type": "page", "required": true },
+    { "key": "projects", "type": "category" }
+  ]
+}
+```
+
+Setting types are `boolean`, `text`, `number`, and `select`; arbitrary objects, HTML and CSS
+are rejected. Slot types are `page`, `post`, `category`, `form`, and `media`; targets are
+verified to belong to the same tenant. These optional additions remain Theme API v1 and old
+slug-based themes continue to work. `env` is only for process concerns and integration
+credentials; secrets stay encrypted/write-only and tenant input cannot override `ESHOBE_*`.
+
+Posts optionally expose structured `projectMetadata`. Contact blocks optionally expose
+validated coordinates and an HTTPS map link; themes must not automatically load map iframes.

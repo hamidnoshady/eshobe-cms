@@ -76,6 +76,7 @@ export interface Config {
     'api-keys': ApiKey;
     'storage-connections': StorageConnection;
     theme: Theme;
+    'site-branding': SiteBranding;
     header: Header;
     footer: Footer;
     products: Product;
@@ -135,6 +136,7 @@ export interface Config {
     'api-keys': ApiKeysSelect<false> | ApiKeysSelect<true>;
     'storage-connections': StorageConnectionsSelect<false> | StorageConnectionsSelect<true>;
     theme: ThemeSelect<false> | ThemeSelect<true>;
+    'site-branding': SiteBrandingSelect<false> | SiteBrandingSelect<true>;
     header: HeaderSelect<false> | HeaderSelect<true>;
     footer: FooterSelect<false> | FooterSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
@@ -798,6 +800,20 @@ export interface Post {
   };
   relatedPosts?: (string | Post)[] | null;
   categories?: (string | Category)[] | null;
+  projectMetadata?: {
+    location?: string | null;
+    date?: string | null;
+    area?: string | null;
+    status?: string | null;
+    client?: string | null;
+    additionalFacts?:
+      | {
+          label: string;
+          value: string;
+          id?: string | null;
+        }[]
+      | null;
+  };
   meta?: {
     title?: string | null;
     /**
@@ -1059,6 +1075,9 @@ export interface ContactBlock {
   heading?: string | null;
   intro?: string | null;
   address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  mapUrl?: string | null;
   /**
    * با رقم انگلیسی بنویسید؛ روی سایت فارسی خودکار فارسی می‌شود.
    */
@@ -1539,6 +1558,25 @@ export interface Theme {
    * فارسی به فضای عمودی بیشتری از لاتین نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.
    */
   lineHeight?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-branding".
+ */
+export interface SiteBranding {
+  id: string;
+  site?: (string | null) | Site;
+  displayName: string;
+  shortName?: string | null;
+  tagline?: string | null;
+  primaryLogo?: (string | null) | Media;
+  compactLogo?: (string | null) | Media;
+  lightLogo?: (string | null) | Media;
+  darkLogo?: (string | null) | Media;
+  favicon?: (string | null) | Media;
+  socialImage?: (string | null) | Media;
   updatedAt: string;
   createdAt: string;
 }
@@ -2735,6 +2773,30 @@ export interface SiteThemeSetting {
     | number
     | boolean
     | null;
+  /**
+   * مقادیر اعلام‌شده در settings مانیفست؛ بدون نیاز به استقرار مجدد.
+   */
+  runtimeSettings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * مقصدهای محتوایی اعلام‌شده در contentSlots مانیفست.
+   */
+  contentBindings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   secretValues?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -3196,6 +3258,10 @@ export interface PayloadLockedDocument {
         value: string | Theme;
       } | null)
     | ({
+        relationTo: 'site-branding';
+        value: string | SiteBranding;
+      } | null)
+    | ({
         relationTo: 'header';
         value: string | Header;
       } | null)
@@ -3572,6 +3638,9 @@ export interface ContactBlockSelect<T extends boolean = true> {
   heading?: T;
   intro?: T;
   address?: T;
+  latitude?: T;
+  longitude?: T;
+  mapUrl?: T;
   phones?: T;
   email?: T;
   hours?: T;
@@ -3703,6 +3772,22 @@ export interface PostsSelect<T extends boolean = true> {
   content?: T;
   relatedPosts?: T;
   categories?: T;
+  projectMetadata?:
+    | T
+    | {
+        location?: T;
+        date?: T;
+        area?: T;
+        status?: T;
+        client?: T;
+        additionalFacts?:
+          | T
+          | {
+              label?: T;
+              value?: T;
+              id?: T;
+            };
+      };
   meta?:
     | T
     | {
@@ -3961,6 +4046,24 @@ export interface ThemeSelect<T extends boolean = true> {
   foreground?: T;
   radius?: T;
   lineHeight?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-branding_select".
+ */
+export interface SiteBrandingSelect<T extends boolean = true> {
+  site?: T;
+  displayName?: T;
+  shortName?: T;
+  tagline?: T;
+  primaryLogo?: T;
+  compactLogo?: T;
+  lightLogo?: T;
+  darkLogo?: T;
+  favicon?: T;
+  socialImage?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -4710,6 +4813,8 @@ export interface SiteThemeSettingsSelect<T extends boolean = true> {
   site?: T;
   themePackage?: T;
   values?: T;
+  runtimeSettings?: T;
+  contentBindings?: T;
   secretValues?: T;
   updatedAt?: T;
   createdAt?: T;

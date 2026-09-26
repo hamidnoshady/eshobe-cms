@@ -327,3 +327,10 @@ Stated so nobody reads their absence as a bug:
 - ordering commits ("newer" vs "different") — `updateAvailable` means "different from what
   the package would deploy now";
 - a timestamp-signed revalidation webhook (a v2 contract).
+
+## Tenant runtime configuration boundary
+
+Code, repositories, targets, deployment environment, promotion and logs remain operator
+concerns. Site owners manage reusable branding, generic design tokens, manifest-declared
+runtime options and content mappings. These values are delivered through `/api/site` and
+updated without a Coolify rebuild; editor-facing presentation toggles must not use `env`.

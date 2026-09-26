@@ -272,6 +272,7 @@ export const plugins: Plugin[] = [
       // answer, and a required `site` column would make the row unsavable.
       'site-deployments': {},
       'site-theme-settings': { isGlobal: true },
+      'site-branding': { isGlobal: true },
       pages: {},
       posts: {},
       products: {},

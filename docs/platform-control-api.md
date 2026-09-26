@@ -340,3 +340,11 @@ value? , set? }], canEdit }` — secrets as `set: true|false`, never their value
 - **The routing table is the edge's only input.** `buildRoutingTable` is shared by this
   route and the in-process map regeneration; a rule added in one place and not the other
   is a customer domain served by the wrong renderer.
+
+## Manifest-owned runtime schemas
+
+Package manifests may declare strict `settings` and `contentSlots`. Those schemas are synced
+from the repository and are not manually editable platform fields. Per-site values live in
+tenant-scoped `site-theme-settings`, separate from encrypted deployment environment. Site
+keys never gain package/target/log/promotion access, and platform keys do not imply content
+editing rights.

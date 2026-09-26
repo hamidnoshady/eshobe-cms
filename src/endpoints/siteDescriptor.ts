@@ -9,6 +9,7 @@ import { siteFromRequest } from '@/lib/site-query'
 import { siteOrigin } from '@/lib/site-url'
 import { listEnabledGateways } from '@/payments/gateways'
 import { contractVersion } from '@eshobe/site-runtime'
+import { parseThemeManifest, validateRuntimeSettings } from '@/lib/deploy/manifest'
 
 /**
  * `GET /api/site` — what a renderer needs before it can render anything.
@@ -63,7 +64,10 @@ export const siteDescriptor: Endpoint = {
     }
 
     if (!site) {
-      return Response.json({ error: 'unknown-host' }, { headers: { 'cache-control': 'no-store' }, status: 404 })
+      return Response.json(
+        { error: 'unknown-host' },
+        { headers: { 'cache-control': 'no-store' }, status: 404 },
+      )
     }
 
     const siteId = idOf(site.id)
@@ -83,7 +87,7 @@ export const siteDescriptor: Endpoint = {
     // lookup — the same exception `getSiteByHost` documents. Nothing is selected that
     // a public page render could not see; `paymentInstructions` in particular is
     // excluded by the `select` below *and* by its own field access.
-    const [store, theme] = await Promise.all([
+    const [store, theme, branding, themeSettings] = await Promise.all([
       req.payload
         .find({
           collection: 'store',
@@ -116,7 +120,68 @@ export const siteDescriptor: Endpoint = {
           where: { site: { equals: siteId } },
         })
         .then(({ docs }) => docs[0] as (typeof docs)[0] & { updatedAt?: string }),
+      req.payload
+        .find({
+          collection: 'site-branding',
+          depth: 1,
+          limit: 1,
+          overrideAccess: true,
+          pagination: false,
+          req,
+          where: { site: { equals: siteId } },
+        })
+        .then(({ docs }) => docs[0] as unknown as Record<string, unknown> | undefined),
+      req.payload
+        .find({
+          collection: 'site-theme-settings',
+          depth: 1,
+          limit: 1,
+          overrideAccess: true,
+          pagination: false,
+          req,
+          select: {
+            contentBindings: true,
+            runtimeSettings: true,
+            themePackage: true,
+            updatedAt: true,
+          },
+          where: { site: { equals: siteId } },
+        })
+        .then(({ docs }) => docs[0] as unknown as Record<string, unknown> | undefined),
     ])
+
+    const publicMedia = (value: unknown) => {
+      if (!value || typeof value !== 'object') return null
+      const media = value as Record<string, unknown>
+      return {
+        alt: typeof media.alt === 'string' ? media.alt : null,
+        id: String(media.id ?? ''),
+        url: typeof media.url === 'string' ? media.url : null,
+      }
+    }
+    const packageDoc =
+      themeSettings?.themePackage && typeof themeSettings.themePackage === 'object'
+        ? (themeSettings.themePackage as Record<string, unknown>)
+        : null
+    const parsedManifest = packageDoc?.manifest
+      ? parseThemeManifest(packageDoc.manifest, contractVersion)
+      : null
+    const manifest = parsedManifest?.ok ? parsedManifest.manifest : null
+    const submittedRuntime =
+      themeSettings?.runtimeSettings &&
+      typeof themeSettings.runtimeSettings === 'object' &&
+      !Array.isArray(themeSettings.runtimeSettings)
+        ? (themeSettings.runtimeSettings as Record<string, unknown>)
+        : {}
+    const runtimeSettings = manifest
+      ? validateRuntimeSettings(manifest, submittedRuntime).values
+      : {}
+    const contentBindings =
+      themeSettings?.contentBindings &&
+      typeof themeSettings.contentBindings === 'object' &&
+      !Array.isArray(themeSettings.contentBindings)
+        ? themeSettings.contentBindings
+        : {}
 
     const storeSettings = store
       ? { currency: store.currency, paymentProvider: store.paymentProvider }
@@ -167,6 +232,29 @@ export const siteDescriptor: Endpoint = {
       // proxy (`/api/media/file/*`), not from the bucket URL, so the bucket stays
       // private.
       media: { basePath: '/api/media/file', origin: siteOrigin(site, req.origin) },
+      branding: branding
+        ? {
+            displayName: branding.displayName,
+            shortName: branding.shortName ?? null,
+            tagline: branding.tagline ?? null,
+            primaryLogo: publicMedia(branding.primaryLogo),
+            compactLogo: publicMedia(branding.compactLogo),
+            lightLogo: publicMedia(branding.lightLogo),
+            darkLogo: publicMedia(branding.darkLogo),
+            favicon: publicMedia(branding.favicon),
+            socialImage: publicMedia(branding.socialImage),
+          }
+        : {
+            displayName: site.name,
+            shortName: null,
+            tagline: null,
+            primaryLogo: null,
+            compactLogo: null,
+            lightLogo: null,
+            darkLogo: null,
+            favicon: null,
+            socialImage: null,
+          },
       name: site.name,
       slug: site.slug,
       status: site.status,
@@ -182,12 +270,25 @@ export const siteDescriptor: Endpoint = {
             radius: theme.radius,
           }
         : null,
+      themeRuntime: manifest
+        ? {
+            package: { key: packageDoc?.key ?? null },
+            settings: runtimeSettings,
+            bindings: contentBindings,
+          }
+        : null,
       type: site.type,
     }
 
     const json = JSON.stringify(body)
     const etag = `"${createHash('sha256').update(json).digest('hex').slice(0, 32)}"`
-    const timestamps = [site.updatedAt, store?.updatedAt, theme?.updatedAt].filter(Boolean) as string[]
+    const timestamps = [
+      site.updatedAt,
+      store?.updatedAt,
+      theme?.updatedAt,
+      branding?.updatedAt,
+      themeSettings?.updatedAt,
+    ].filter(Boolean) as string[]
     const latest = timestamps.length
       ? new Date(Math.max(...timestamps.map((t) => Date.parse(t)))).toUTCString()
       : new Date().toUTCString()

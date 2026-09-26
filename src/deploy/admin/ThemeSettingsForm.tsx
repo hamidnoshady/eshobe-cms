@@ -28,10 +28,18 @@ export type ThemeSettingsFormProps = {
 
 type Result = { ok: boolean; text: string }
 
-export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, siteId, siteName }) => {
+export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
+  initial,
+  siteId,
+  siteName,
+}) => {
   const [view, setView] = useState<ThemeSettingsView>(initial)
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(initial.fields.filter((field) => !field.secret).map((field) => [field.key, field.value ?? ''])),
+    Object.fromEntries(
+      initial.fields
+        .filter((field) => !field.secret)
+        .map((field) => [field.key, field.value ?? '']),
+    ),
   )
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [clear, setClear] = useState<Record<string, boolean>>({})
@@ -43,14 +51,18 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '40rem' }}>
         <h1>تنظیمات پوسته — {siteName}</h1>
         <div className="banner banner--type-default">
-          این سایت با رندرکنندهٔ داخلی سکو نمایش داده می‌شود و پوستهٔ نصب‌شدنی‌ای ندارد که تنظیماتی بخواهد.
-          انتخاب و استقرار پوسته با پشتیبانی سکو است.
+          این سایت با رندرکنندهٔ داخلی سکو نمایش داده می‌شود و پوستهٔ نصب‌شدنی‌ای ندارد که تنظیماتی
+          بخواهد. انتخاب و استقرار پوسته با پشتیبانی سکو است.
         </div>
       </div>
     )
   }
 
-  if (view.fields.length === 0) {
+  if (
+    view.fields.length === 0 &&
+    view.runtimeSchema.length === 0 &&
+    view.contentSlots.length === 0
+  ) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '40rem' }}>
         <h1>تنظیمات پوسته — {siteName}</h1>
@@ -94,7 +106,7 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
       }
 
       if (payload.fields && payload.package !== undefined) {
-        setView({ canEdit: Boolean(payload.canEdit), fields: payload.fields, package: payload.package })
+        setView(payload as ThemeSettingsView)
       }
       setSecrets({})
       setClear({})
@@ -114,8 +126,8 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
       <div>
         <h1>تنظیمات پوسته — {siteName}</h1>
         <p style={{ color: 'var(--theme-elevation-600)' }}>
-          پوستهٔ فعال: «{view.package.name}». این مقادیر را خود پوسته از شما خواسته است و در استقرار بعدی
-          روی آن اعمال می‌شوند.
+          پوستهٔ فعال: «{view.package.name}». این مقادیر را خود پوسته از شما خواسته است و در استقرار
+          بعدی روی آن اعمال می‌شوند.
         </p>
       </div>
 
@@ -154,7 +166,9 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
                 checked={clear[field.key] === true}
                 label="حذف مقدار ذخیره‌شده"
                 name={`clear-${field.key}`}
-                onToggle={(event) => setClear((prev) => ({ ...prev, [field.key]: event.target.checked }))}
+                onToggle={(event) =>
+                  setClear((prev) => ({ ...prev, [field.key]: event.target.checked }))
+                }
               />
             )}
           </div>
@@ -176,7 +190,9 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
       )}
 
       {result && (
-        <div className={`banner banner--type-${result.ok ? 'success' : 'error'}`}>{result.text}</div>
+        <div className={`banner banner--type-${result.ok ? 'success' : 'error'}`}>
+          {result.text}
+        </div>
       )}
 
       {view.canEdit && (
