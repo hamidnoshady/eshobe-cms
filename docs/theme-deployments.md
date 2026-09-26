@@ -201,16 +201,19 @@ Backed by `GET|POST /api/site-theme-settings/current?site=<id>` (collection endp
 - an admin **session** only; the caller must be a member of that site (or platform staff).
   Owners write, editors read. A site key, another site's staff and anonymous callers get
   403. The package is resolved server-side; a package or site in the body is ignored.
-- only keys the manifest declares `source: "tenant"` are accepted; a platform variable
+- deployment environment accepts only keys the manifest declares `source: "tenant"`; a platform variable
   (`ESHOBE_*`) or an undeclared key is a 400 and nothing is written; values are capped at
   2048 characters.
 - secrets are write-only: encrypted at rest, masked on every read (an `afterRead` hook the
   deploy job bypasses with a context flag), reported only as "set". A blank secret box
   means *unchanged*; «حذف مقدار ذخیره‌شده» is the explicit clear.
+- runtime settings are generated from the manifest's closed schema and take effect immediately without a deployment;
+- content selectors are generated from `contentSlots`, and every selected relationship is checked against the same tenant;
 - the raw `site-theme-settings` collection's create/update are platform-only.
 
-Values take effect on the next deployment. A value a newer manifest no longer declares is
-ignored, not a deploy failure.
+Environment values take effect on the next deployment. Runtime settings and bindings trigger
+signed renderer revalidation on save. A value a newer manifest no longer declares is ignored,
+not a deploy failure.
 
 ---
 
@@ -327,3 +330,10 @@ Stated so nobody reads their absence as a bug:
 - ordering commits ("newer" vs "different") — `updateAvailable` means "different from what
   the package would deploy now";
 - a timestamp-signed revalidation webhook (a v2 contract).
+
+## Tenant runtime configuration boundary
+
+Code, repositories, targets, deployment environment, promotion and logs remain operator
+concerns. Site owners manage reusable branding, generic design tokens, manifest-declared
+runtime options and content mappings. These values are delivered through `/api/site` and
+updated without a Coolify rebuild; editor-facing presentation toggles must not use `env`.

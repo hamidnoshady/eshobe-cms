@@ -4,7 +4,15 @@ import type { User } from '@/payload-types'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { idOf, isUuid } from '@/lib/ids'
-import { MAX_ENV_VALUE_LENGTH, PLATFORM_ENV_KEYS, type ManifestEnvVar } from '@/lib/deploy/manifest'
+import {
+  MAX_ENV_VALUE_LENGTH,
+  PLATFORM_ENV_KEYS,
+  validateRuntimeSettings,
+  type ManifestEnvVar,
+  type ManifestContentSlot,
+  type ManifestRuntimeSetting,
+  type ThemeManifest,
+} from '@/lib/deploy/manifest'
 import { isProductionMode } from '@/lib/deploy/status'
 
 import { storedTenantValues } from './environment'
@@ -55,7 +63,13 @@ export const canEditThemeSettings = (role: null | SiteStaffRole): boolean =>
 export const themePackageForSite = async (
   req: PayloadRequest,
   siteId: string,
-): Promise<null | { id: string; key: string; name: string; variables: ManifestEnvVar[] }> => {
+): Promise<null | {
+  id: string
+  key: string
+  manifest: ThemeManifest
+  name: string
+  variables: ManifestEnvVar[]
+}> => {
   if (!isUuid(siteId)) return null
 
   const { docs } = await req.payload.find({
@@ -93,6 +107,7 @@ export const themePackageForSite = async (
   return {
     id: String(pkg.id),
     key: String(pkg.key ?? ''),
+    manifest,
     name: String(pkg.name ?? manifest.nameFa ?? manifest.name),
     variables: manifest.env.filter((variable) => variable.source === 'tenant'),
   }
@@ -112,8 +127,12 @@ export type ThemeSettingsField = {
 
 export type ThemeSettingsView = {
   canEdit: boolean
+  contentSlots: ManifestContentSlot[]
+  bindings: Record<string, unknown>
   fields: ThemeSettingsField[]
   package: null | { id: string; key: string; name: string }
+  runtimeSchema: ManifestRuntimeSetting[]
+  runtimeSettings: Record<string, boolean | number | string>
 }
 
 /** What the settings form renders. Carries no ciphertext and no secret value. */
@@ -123,12 +142,40 @@ export const themeSettingsView = async (
   role: null | SiteStaffRole,
 ): Promise<ThemeSettingsView> => {
   const pkg = await themePackageForSite(req, siteId)
-  if (!pkg) return { canEdit: false, fields: [], package: null }
+  if (!pkg)
+    return {
+      bindings: {},
+      canEdit: false,
+      contentSlots: [],
+      fields: [],
+      package: null,
+      runtimeSchema: [],
+      runtimeSettings: {},
+    }
 
   const stored = await storedTenantValues(req, siteId, pkg.id)
+  const { docs } = await req.payload.find({
+    collection: 'site-theme-settings',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    where: { site: { equals: siteId } },
+  })
+  const row = (docs[0] ?? {}) as unknown as Record<string, unknown>
+  const rawRuntime =
+    row.runtimeSettings && typeof row.runtimeSettings === 'object'
+      ? (row.runtimeSettings as Record<string, unknown>)
+      : {}
 
   return {
+    bindings:
+      row.contentBindings && typeof row.contentBindings === 'object'
+        ? (row.contentBindings as Record<string, unknown>)
+        : {},
     canEdit: canEditThemeSettings(role),
+    contentSlots: pkg.manifest.contentSlots,
     fields: pkg.variables.map((variable) => ({
       help: variable.help ?? null,
       key: variable.key,
@@ -140,10 +187,17 @@ export const themeSettingsView = async (
         : { value: stored.plain[variable.key] ?? '' }),
     })),
     package: { id: pkg.id, key: pkg.key, name: pkg.name },
+    runtimeSchema: pkg.manifest.settings,
+    runtimeSettings: validateRuntimeSettings(pkg.manifest, rawRuntime).values,
   }
 }
 
-export type ThemeSettingsInput = { clear?: unknown; values?: unknown }
+export type ThemeSettingsInput = {
+  bindings?: unknown
+  clear?: unknown
+  runtimeSettings?: unknown
+  values?: unknown
+}
 
 /**
  * Validate and store a customer's answers.
@@ -168,6 +222,58 @@ export const saveThemeSettings = async (
       ? (input.values as Record<string, unknown>)
       : {}
   const clear = Array.isArray(input.clear) ? input.clear.map(String) : []
+  const hasRuntimeInput = input.runtimeSettings !== undefined
+  const runtimeInput =
+    input.runtimeSettings &&
+    typeof input.runtimeSettings === 'object' &&
+    !Array.isArray(input.runtimeSettings)
+      ? (input.runtimeSettings as Record<string, unknown>)
+      : {}
+  const runtime = validateRuntimeSettings(pkg.manifest, runtimeInput)
+  if (hasRuntimeInput) errors.push(...runtime.errors)
+
+  const hasBindingsInput = input.bindings !== undefined
+  const bindingsInput =
+    input.bindings && typeof input.bindings === 'object' && !Array.isArray(input.bindings)
+      ? (input.bindings as Record<string, unknown>)
+      : {}
+  const slots = new Map(pkg.manifest.contentSlots.map((slot) => [slot.key, slot]))
+  const bindings: Record<string, { id: string; type: string }> = {}
+  for (const [key, raw] of Object.entries(bindingsInput)) {
+    const slot = slots.get(key)
+    const id =
+      raw && typeof raw === 'object' ? idOf((raw as Record<string, unknown>).id) : idOf(raw)
+    if (!slot || !id || !isUuid(id)) {
+      errors.push(`نگاشت «${key}» نامعتبر است.`)
+      continue
+    }
+    const collection = (
+      {
+        category: 'categories',
+        form: 'forms',
+        media: 'media',
+        page: 'pages',
+        post: 'posts',
+      } as const
+    )[slot.type]
+    const target = (await req.payload.findByID({
+      collection: collection as 'pages',
+      id,
+      depth: 0,
+      disableErrors: true,
+      overrideAccess: true,
+      req,
+      select: { site: true },
+    })) as unknown as null | Record<string, unknown>
+    if (!target || idOf(target.site) !== siteId) {
+      errors.push(`مقصد «${key}» به این سایت تعلق ندارد.`)
+      continue
+    }
+    bindings[key] = { id, type: slot.type }
+  }
+  for (const slot of slots.values())
+    if (hasBindingsInput && slot.required && !bindings[slot.key])
+      errors.push(`نگاشت «${slot.labelFa ?? slot.key}» الزامی است.`)
 
   for (const key of [...Object.keys(submitted), ...clear]) {
     if ((PLATFORM_ENV_KEYS as readonly string[]).includes(key)) {
@@ -178,7 +284,13 @@ export const saveThemeSettings = async (
   }
 
   for (const [key, raw] of Object.entries(submitted)) {
-    if (raw !== null && raw !== undefined && typeof raw !== 'string' && typeof raw !== 'number' && typeof raw !== 'boolean') {
+    if (
+      raw !== null &&
+      raw !== undefined &&
+      typeof raw !== 'string' &&
+      typeof raw !== 'number' &&
+      typeof raw !== 'boolean'
+    ) {
       errors.push(`مقدار «${key}» باید متن باشد.`)
       continue
     }
@@ -220,6 +332,8 @@ export const saveThemeSettings = async (
   }
 
   const data = {
+    ...(hasBindingsInput ? { contentBindings: bindings } : {}),
+    ...(hasRuntimeInput ? { runtimeSettings: runtime.values } : {}),
     secretValues: Object.keys(secrets).length ? JSON.stringify(secrets) : null,
     themePackage: pkg.id,
     values: plain,

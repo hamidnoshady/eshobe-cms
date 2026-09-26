@@ -86,6 +86,31 @@ export type ManifestEnvVar = {
   source: EnvSource
 }
 
+export const RUNTIME_SETTING_TYPES = ['boolean', 'text', 'number', 'select'] as const
+export type RuntimeSettingType = (typeof RUNTIME_SETTING_TYPES)[number]
+export type ManifestRuntimeSetting = {
+  default?: boolean | number | string
+  help?: null | string
+  key: string
+  labelEn?: null | string
+  labelFa?: null | string
+  max?: number
+  min?: number
+  options?: { labelEn?: null | string; labelFa?: null | string; value: string }[]
+  type: RuntimeSettingType
+}
+
+export const CONTENT_SLOT_TYPES = ['page', 'post', 'category', 'form', 'media'] as const
+export type ContentSlotType = (typeof CONTENT_SLOT_TYPES)[number]
+export type ManifestContentSlot = {
+  help?: null | string
+  key: string
+  labelEn?: null | string
+  labelFa?: null | string
+  required: boolean
+  type: ContentSlotType
+}
+
 export type ManifestBuild = {
   baseDirectory: string
   buildCommand: null | string
@@ -104,6 +129,8 @@ export type ThemeManifest = {
   capabilities: Record<string, boolean>
   contractVersion: number
   env: ManifestEnvVar[]
+  settings: ManifestRuntimeSetting[]
+  contentSlots: ManifestContentSlot[]
   key: string
   locales: string[]
   name: string
@@ -114,9 +141,119 @@ export type ThemeManifest = {
   siteTypes: ThemeSiteType[]
 }
 
-export type ManifestParse =
-  | { manifest: ThemeManifest; ok: true }
-  | { errors: string[]; ok: false }
+const SCHEMA_KEY_PATTERN = /^[a-z][A-Za-z0-9]{0,63}$/
+
+const parseSettings = (raw: unknown, errors: string[]): ManifestRuntimeSetting[] => {
+  if (raw == null) return []
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push('«settings» باید یک شیء باشد.')
+    return []
+  }
+  const entries = Object.entries(raw as Record<string, unknown>)
+  if (entries.length > 50) errors.push('«settings» نباید بیش از ۵۰ گزینه داشته باشد.')
+  const out: ManifestRuntimeSetting[] = []
+  for (const [key, value] of entries.slice(0, 50)) {
+    if (
+      !SCHEMA_KEY_PATTERN.test(key) ||
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value)
+    ) {
+      errors.push(`گزینهٔ پوستهٔ «${key}» نامعتبر است.`)
+      continue
+    }
+    const row = value as Record<string, unknown>
+    const type = str(row.type)
+    if (!type || !(RUNTIME_SETTING_TYPES as readonly string[]).includes(type)) {
+      errors.push(`نوع settings.${key} باید یکی از ${RUNTIME_SETTING_TYPES.join('، ')} باشد.`)
+      continue
+    }
+    let options: ManifestRuntimeSetting['options']
+    if (type === 'select') {
+      if (!Array.isArray(row.options) || !row.options.length || row.options.length > 50) {
+        errors.push(`settings.${key}.options برای select الزامی است.`)
+        continue
+      }
+      options = row.options.flatMap((option) => {
+        if (!option || typeof option !== 'object' || Array.isArray(option)) return []
+        const item = option as Record<string, unknown>
+        const optionValue = str(item.value)
+        return optionValue && optionValue.length <= 100
+          ? [{ labelEn: str(item.labelEn), labelFa: str(item.labelFa), value: optionValue }]
+          : []
+      })
+      if (options.length !== row.options.length) errors.push(`settings.${key}.options نامعتبر است.`)
+    }
+    const defaultValue = row.default
+    const validDefault =
+      defaultValue === undefined ||
+      (type === 'boolean' && typeof defaultValue === 'boolean') ||
+      (type === 'number' && typeof defaultValue === 'number' && Number.isFinite(defaultValue)) ||
+      ((type === 'text' || type === 'select') && typeof defaultValue === 'string')
+    if (
+      !validDefault ||
+      (type === 'select' &&
+        defaultValue !== undefined &&
+        !options?.some((o) => o.value === defaultValue))
+    ) {
+      errors.push(`settings.${key}.default با نوع آن سازگار نیست.`)
+      continue
+    }
+    out.push({
+      default: defaultValue as boolean | number | string | undefined,
+      help: str(row.help),
+      key,
+      labelEn: str(row.labelEn),
+      labelFa: str(row.labelFa),
+      max: typeof row.max === 'number' ? row.max : undefined,
+      min: typeof row.min === 'number' ? row.min : undefined,
+      options,
+      type: type as RuntimeSettingType,
+    })
+  }
+  return out
+}
+
+const parseContentSlots = (raw: unknown, errors: string[]): ManifestContentSlot[] => {
+  if (raw == null) return []
+  if (!Array.isArray(raw) || raw.length > 50) {
+    errors.push('«contentSlots» باید آرایه‌ای حداکثر ۵۰ عضوی باشد.')
+    return []
+  }
+  const seen = new Set<string>()
+  return raw.flatMap((value, index) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      errors.push(`contentSlots[${index}] نامعتبر است.`)
+      return []
+    }
+    const row = value as Record<string, unknown>
+    const key = str(row.key)
+    const type = str(row.type)
+    if (
+      !key ||
+      !SCHEMA_KEY_PATTERN.test(key) ||
+      seen.has(key) ||
+      !type ||
+      !(CONTENT_SLOT_TYPES as readonly string[]).includes(type)
+    ) {
+      errors.push(`contentSlots[${index}] کلید تکراری یا نوع/کلید نامعتبر دارد.`)
+      return []
+    }
+    seen.add(key)
+    return [
+      {
+        help: str(row.help),
+        key,
+        labelEn: str(row.labelEn),
+        labelFa: str(row.labelFa),
+        required: bool(row.required, false),
+        type: type as ContentSlotType,
+      },
+    ]
+  })
+}
+
+export type ManifestParse = { manifest: ThemeManifest; ok: true } | { errors: string[]; ok: false }
 
 const str = (value: unknown): null | string => {
   if (typeof value !== 'string') return null
@@ -226,7 +363,9 @@ const parseBuild = (raw: unknown, errors: string[]): ManifestBuild => {
   return {
     baseDirectory,
     buildCommand: str(row.buildCommand),
-    buildPack: ((BUILD_PACKS as readonly string[]).includes(packRaw) ? packRaw : 'nixpacks') as BuildPack,
+    buildPack: ((BUILD_PACKS as readonly string[]).includes(packRaw)
+      ? packRaw
+      : 'nixpacks') as BuildPack,
     dockerfileLocation: str(row.dockerfileLocation),
     healthCheckPath,
     installCommand: str(row.installCommand),
@@ -310,6 +449,8 @@ export const parseThemeManifest = (
 
   const build = parseBuild(row.build, errors)
   const env = parseEnv(row.env, errors)
+  const settings = parseSettings(row.settings, errors)
+  const contentSlots = parseContentSlots(row.contentSlots, errors)
 
   const previewUrl = str(row.preview) ?? str(row.previewUrl)
   if (previewUrl && !/^https:\/\//i.test(previewUrl)) {
@@ -324,6 +465,8 @@ export const parseThemeManifest = (
       capabilities,
       contractVersion,
       env,
+      settings,
+      contentSlots,
       key,
       locales,
       name: name!,
@@ -342,13 +485,19 @@ export const parseThemeManifestText = (
   platformContractVersion: number,
 ): ManifestParse => {
   if (Buffer.byteLength(text, 'utf8') > MAX_MANIFEST_BYTES) {
-    return { errors: [`فایل eshobe.theme.json از ${MAX_MANIFEST_BYTES} بایت بزرگ‌تر است.`], ok: false }
+    return {
+      errors: [`فایل eshobe.theme.json از ${MAX_MANIFEST_BYTES} بایت بزرگ‌تر است.`],
+      ok: false,
+    }
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch (error) {
-    return { errors: [`eshobe.theme.json قابل خواندن نیست: ${(error as Error).message}`], ok: false }
+    return {
+      errors: [`eshobe.theme.json قابل خواندن نیست: ${(error as Error).message}`],
+      ok: false,
+    }
   }
   return parseThemeManifest(parsed, platformContractVersion)
 }
@@ -374,7 +523,8 @@ export const validateTenantEnv = (
       errors.push(`متغیر «${key}» در این پوسته تعریف نشده است.`)
       continue
     }
-    const value = typeof raw === 'string' ? raw : raw === null || raw === undefined ? '' : String(raw)
+    const value =
+      typeof raw === 'string' ? raw : raw === null || raw === undefined ? '' : String(raw)
     if (value.length > MAX_ENV_VALUE_LENGTH) {
       errors.push(`مقدار «${key}» از ${MAX_ENV_VALUE_LENGTH} نویسه بلندتر است.`)
       continue
@@ -389,6 +539,43 @@ export const validateTenantEnv = (
   }
 
   return { errors, values: out }
+}
+
+/** Apply manifest defaults and reject every undeclared or wrongly typed editor-facing option. */
+export const validateRuntimeSettings = (
+  manifest: ThemeManifest,
+  input: Record<string, unknown>,
+): { errors: string[]; values: Record<string, boolean | number | string> } => {
+  const errors: string[] = []
+  const declared = new Map(manifest.settings.map((setting) => [setting.key, setting]))
+  const values: Record<string, boolean | number | string> = {}
+  for (const setting of manifest.settings)
+    if (setting.default !== undefined) values[setting.key] = setting.default
+  for (const [key, value] of Object.entries(input ?? {})) {
+    const setting = declared.get(key)
+    if (!setting) {
+      errors.push(`گزینهٔ «${key}» در مانیفست پوسته تعریف نشده است.`)
+      continue
+    }
+    const valid =
+      setting.type === 'boolean'
+        ? typeof value === 'boolean'
+        : setting.type === 'number'
+          ? typeof value === 'number' &&
+            Number.isFinite(value) &&
+            (setting.min === undefined || value >= setting.min) &&
+            (setting.max === undefined || value <= setting.max)
+          : typeof value === 'string' &&
+            value.length <= 500 &&
+            (setting.type !== 'select' ||
+              Boolean(setting.options?.some((option) => option.value === value)))
+    if (!valid) {
+      errors.push(`مقدار گزینهٔ «${key}» نامعتبر است.`)
+      continue
+    }
+    values[key] = value as boolean | number | string
+  }
+  return { errors, values }
 }
 
 /** `owner/name`, validated. A repository reference is the input to a clone; it is never free text. */

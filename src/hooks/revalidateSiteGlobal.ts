@@ -1,9 +1,9 @@
-import type { CollectionAfterChangeHook } from 'payload'
+import type { CollectionAfterChangeHook, CollectionAfterDeleteHook } from 'payload'
 
 import { revalidateTag } from 'next/cache'
 
 import { tryRevalidate } from '@/hooks/revalidate'
-import { siteTag } from '@/lib/site-query'
+import { notifyRenderers } from '@/lib/renderer-webhook'
 
 /**
  * Bust one site's copy of a per-site singleton (header, footer, theme).
@@ -12,14 +12,37 @@ import { siteTag } from '@/lib/site-query'
  * customer's cache whenever one of them edits their nav, and — worse — makes it
  * impossible to tell whose copy is actually stale.
  */
+const revalidateGlobalForSite = ({
+  collection,
+  payload,
+  req,
+  siteId,
+}: {
+  collection: string
+  payload: Parameters<CollectionAfterChangeHook>[0]['req']['payload']
+  req: Parameters<CollectionAfterChangeHook>[0]['req']
+  siteId: string
+}) => {
+  const tag = ['site', siteId, collection].join(':')
+
+  payload.logger.info(`Revalidating ${tag}`)
+
+  tryRevalidate(payload, tag, () => revalidateTag(tag, 'max'))
+  notifyRenderers({ paths: ['/'], req, resources: [collection], siteId, tags: [tag] })
+}
+
+const siteIdFromDoc = (doc: { site?: string | { id?: string } } | null | undefined) => {
+  const site = doc?.site
+  return typeof site === 'object' ? site?.id : site
+}
+
 export const revalidateSiteGlobal =
   (collection: string): CollectionAfterChangeHook =>
-  ({ doc, req: { context, payload } }) => {
+  ({ doc, req }) => {
+    const { context, payload } = req
     if (context.disableRevalidate) return doc
 
-    // The tenant field is populated to a full document at depth > 0.
-    const site = (doc as { site?: string | { id?: string } }).site
-    const siteId = typeof site === 'object' ? site?.id : site
+    const siteId = siteIdFromDoc(doc as { site?: string | { id?: string } })
 
     if (!siteId) {
       // Means the collection is missing from the plugin's `collections` map, or a
@@ -30,11 +53,28 @@ export const revalidateSiteGlobal =
       return doc
     }
 
-    const tag = siteTag(siteId, collection)
+    revalidateGlobalForSite({ collection, payload, req, siteId: String(siteId) })
 
-    payload.logger.info(`Revalidating ${tag}`)
+    return doc
+  }
 
-    tryRevalidate(payload, tag, () => revalidateTag(tag, 'max'))
+export const revalidateSiteGlobalDelete =
+  (collection: string): CollectionAfterDeleteHook =>
+  ({ doc, req }) => {
+    if (req.context.disableRevalidate || !doc) return doc
+
+    const siteId = siteIdFromDoc(doc as { site?: string | { id?: string } })
+    if (!siteId) {
+      req.payload.logger.warn(`${collection}: deleted document has no site, skipping revalidation`)
+      return doc
+    }
+
+    revalidateGlobalForSite({
+      collection,
+      payload: req.payload,
+      req,
+      siteId: String(siteId),
+    })
 
     return doc
   }

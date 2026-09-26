@@ -21,7 +21,7 @@ import { applicationHostOf } from '@/lib/deploy/status'
  *   content-type: application/json
  *   x-eshobe-timestamp: <ISO-8601>              (sent, NOT signed — see `signRendererBody`)
  *   x-eshobe-signature: sha256=<hex HMAC-SHA256(secret, raw body)>
- *   { "paths": ["/acme.ir/en/pricing"], "siteId": "…", "timestamp": "ISO-8601" }
+ *   { "paths": ["/acme.ir/en/pricing"], "resources": ["page"], "tags": [], "siteId": "…", "timestamp": "ISO-8601" }
  * ```
  *
  * The signature covers the raw body bytes and nothing else — the v1 contract in
@@ -46,7 +46,13 @@ import { applicationHostOf } from '@/lib/deploy/status'
  */
 const TIMEOUT_MS = 3_000
 
-export type RendererNotice = { paths: string[]; siteId: string }
+export type RendererNotice = {
+  paths: string[]
+  /** Additive v1 metadata. Old renderers may continue to consume only `paths`. */
+  resources?: string[]
+  tags?: string[]
+  siteId: string
+}
 
 /** One place a notice is sent: a URL and the secret its signature is keyed by. */
 export type RendererEndpoint = { secret: string; url: string }
@@ -169,11 +175,19 @@ const post = (
     })
 }
 
-export const notifyRenderers = ({ paths, req, siteId }: RendererNotice & { req: PayloadRequest }): void => {
-  if (!paths.length) return
+export const notifyRenderers = ({
+  paths,
+  req,
+  resources = [],
+  siteId,
+  tags = [],
+}: RendererNotice & {
+  req: PayloadRequest
+}): void => {
+  if (!paths.length && !resources.length && !tags.length) return
 
   const timestamp = new Date().toISOString()
-  const body = JSON.stringify({ paths, siteId, timestamp })
+  const body = JSON.stringify({ paths, resources, siteId, tags, timestamp })
 
   // Resolving the targets is a query, so this is async — but the caller is an
   // `afterChange` hook and must not wait for it, for exactly the reason the module

@@ -12,7 +12,12 @@ import {
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { authenticated } from '../../access/authenticated'
 import { authenticatedOrPublished } from '../../access/authenticatedOrPublished'
-import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../../access/siteApiKey'
+import {
+  apiKeyAware,
+  apiKeyCreateAware,
+  apiKeyUpdateAware,
+  forceApiKeySite,
+} from '../../access/siteApiKey'
 import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
@@ -148,6 +153,27 @@ export const Posts: CollectionConfig<'posts'> = {
             },
           ],
           label: 'اطلاعات نوشته',
+        },
+        {
+          name: 'projectMetadata',
+          label: 'مشخصات پروژه (اختیاری)',
+          admin: { condition: (_data, _siblingData, { user }) => Boolean(user) },
+          fields: [
+            { name: 'location', type: 'text', label: 'مکان' },
+            { name: 'date', type: 'date', label: 'تاریخ/سال' },
+            { name: 'area', type: 'text', label: 'مساحت' },
+            { name: 'status', type: 'text', label: 'وضعیت' },
+            { name: 'client', type: 'text', label: 'کارفرما' },
+            {
+              name: 'additionalFacts',
+              type: 'array',
+              label: 'اطلاعات تکمیلی',
+              fields: [
+                { name: 'label', type: 'text', required: true, label: 'عنوان' },
+                { name: 'value', type: 'text', required: true, label: 'مقدار' },
+              ],
+            },
+          ],
         },
         {
           name: 'meta',

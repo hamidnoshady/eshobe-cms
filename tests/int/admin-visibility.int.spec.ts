@@ -64,7 +64,7 @@ describe('admin nav visibility (config-level)', () => {
     const cfg = await loadConfig()
     const visible = visibleFor(cfg, editor)
 
-    for (const slug of ['pages', 'posts', 'media', 'categories', 'products', 'orders', 'store', 'theme', 'header', 'footer', 'forms', 'form-submissions', 'redirects', 'search', 'payment-gateways']) {
+    for (const slug of ['pages', 'posts', 'media', 'categories', 'products', 'orders', 'store', 'site-branding', 'theme', 'header', 'footer', 'forms', 'form-submissions', 'redirects', 'search', 'payment-gateways']) {
       expect(visible.collections, slug).toContain(slug)
     }
     for (const slug of ['plans', 'subscriptions', 'invoices', 'usage-records', 'site-entitlements', 'feature-flags', 'plugins', 'theme-templates', 'theme-packages', 'deploy-targets', 'site-deployments', 'webhooks', 'webhook-deliveries', 'audit-log', 'api-keys', 'storage-connections', 'cdn-zones', 'cdn-events']) {
