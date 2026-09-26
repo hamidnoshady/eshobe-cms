@@ -223,6 +223,7 @@ export type ControlEventKind =
   | 'domain.unverified'
   | 'gateway.selftest'
   | 'key.issued'
+  | 'order.paid'
   | 'order.placed'
   | 'site.changed'
   | 'site.suspended'

@@ -121,6 +121,47 @@ export const platformEvents = async (
     })
   }
 
+  const paidOrders = await req.payload.find({
+    collection: 'orders',
+    depth: 1,
+    limit,
+    overrideAccess: true,
+    req,
+    select: {
+      createdAt: true,
+      currency: true,
+      reference: true,
+      site: true,
+      status: true,
+      total: true,
+      updatedAt: true,
+    },
+    sort: '-updatedAt',
+    where: {
+      and: [{ updatedAt: { greater_than: sinceIso } }, { status: { equals: 'paid' } }],
+    },
+  })
+
+  for (const doc of paidOrders.docs as unknown as Record<string, unknown>[]) {
+    const site = siteLabel(doc.site)
+    const at = String(doc.updatedAt ?? doc.createdAt ?? sinceIso)
+    events.push({
+      at,
+      data: {
+        currency: doc.currency ?? null,
+        orderId: String(doc.id),
+        reference: doc.reference ?? null,
+        total: doc.total ?? null,
+      },
+      id: `order:paid:${String(doc.id)}:${at}`,
+      kind: 'order.paid',
+      level: 'info',
+      message: `سفارش ${doc.reference ?? doc.id} پرداخت شد.`,
+      siteDomain: site.domain,
+      siteId: site.id,
+    })
+  }
+
   const gateways = await req.payload.find({
     collection: 'payment-gateways',
     depth: 1,

@@ -9,6 +9,7 @@ import { currencyCodes, validatePriceMinor } from '../lib/money'
 import { isGatewayProvider, paymentProviderOptions } from '../payments'
 import { restrictApiKeyOrderWrite } from './hooks/restrictApiKeyOrderWrite'
 import { snapshotOrder } from './hooks/snapshotOrder'
+import { emitOrderPaid } from './hooks/emitOrderPaid'
 import { settleStock } from './hooks/settleStock'
 
 /**
@@ -266,7 +267,7 @@ export const Orders: CollectionConfig<'orders'> = {
     },
   ],
   hooks: {
-    afterChange: [settleStock],
+    afterChange: [settleStock, emitOrderPaid],
     beforeChange: [restrictApiKeyOrderWrite],
     beforeValidate: [snapshotOrder],
   },
