@@ -51,6 +51,7 @@ import { runtimeDatabaseOptions } from './lib/database'
 import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
 import { defaultLocale, locales } from './lib/locales'
 import { advanceDeploymentsTask } from './deploy/task'
+import { storageHealthCheckTask } from './storage/task'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
@@ -482,7 +483,7 @@ export default buildConfig({
      * is still the reason `JOBS_AUTORUN=false` plus a `payload jobs:run` container
      * is the upgrade path.
      */
-    tasks: [advanceDeploymentsTask],
+    tasks: [advanceDeploymentsTask, storageHealthCheckTask],
   },
   /**
    * Last line of defence for the values that only bite in production. Deliberately

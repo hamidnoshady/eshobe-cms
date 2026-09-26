@@ -7,46 +7,29 @@ import {
 import type { Adapter, StaticHandler } from '@payloadcms/plugin-cloud-storage/types'
 import { getFileKey, getFilePrefix } from '@payloadcms/plugin-cloud-storage/utilities'
 import { createReadStream } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 
 import { getRangeRequestInfo } from 'payload/internal'
 
 import { getActiveConnection, storageClient } from './connection'
+import { shouldDropLocalMirrorAfterUpload, shouldUseObjectStorage } from './mode'
 
 /**
- * The ArvanCloud Object Storage adapter for `@payloadcms/plugin-cloud-storage`.
+ * Generic S3-compatible adapter for `@payloadcms/plugin-cloud-storage`.
  *
- * ArvanCloud speaks the S3 API (`https://s3.ir-thr-at1.arvanstorage.ir`), so this is the
- * same shape as the S3 adapter — with the three ArvanCloud specifics that are easy to get
- * wrong:
+ * Provider-specific defaults (ArvanCloud path-style, R2 endpoint shape, …) live in
+ * `storage-connections` rows and `src/storage/providers.ts`, not in this module.
  *
- * - **Path-style.** The bucket is a path segment, never a subdomain, so `forcePathStyle`
- *   stays on.
- * - **`region: 'default'`.** ArvanCloud has no real regions, but the AWS SDK refuses to
- *   sign without one; `default` is what ArvanCloud's own SDK examples use.
- * - **No ACL.** Like R2, the bucket is public or it is not. We serve everything through
- *   `/api/media/file/*` (the Caddy carve-out), so the bucket stays private and no
- *   `x-amz-acl` is ever sent.
- *
- * `disablePayloadAccessControl` stays off on purpose: `media.url` remains
- * `/api/media/file/<filename>?prefix=…`, the bucket stays private, and `next/image`'s
- * `localPatterns` keeps matching. The adapter's `generateURL` is therefore never called and
- * is deliberately omitted.
- *
- * **Local-disk fallback.** The plugin runs with `disableLocalStorage: false`, so Payload
- * always writes the file to `Media.staticDir` too. When no connection is enabled (a fresh
- * dev checkout, or before the superadmin has configured storage), `handleUpload` is a no-op
- * and `staticHandler` returns `undefined` — which makes Payload's file route fall through to
- * its own local filesystem serving. When a connection *is* enabled, files go to ArvanCloud
- * and are streamed from there.
+ * `disableLocalStorage: false` keeps the dev path working: with no enabled connection,
+ * uploads stay on disk. When object storage is authoritative (`object_storage`), the local
+ * temp copy is removed after a successful PutObject.
  */
-export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
-  name: 'arvancloud-object-storage',
+export const s3ObjectStorageAdapter: Adapter = ({ collection, prefix = '' }) => ({
+  name: 's3-object-storage',
 
   handleUpload: async ({ data, file, req }) => {
     const connection = await getActiveConnection(req)
-    // No enabled connection: the file already landed on local disk (disableLocalStorage is
-    // false), so there is nothing to do.
-    if (!connection) return
+    if (!shouldUseObjectStorage(connection)) return
 
     const { fileKey } = getFileKey({
       collectionPrefix: prefix,
@@ -54,24 +37,29 @@ export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
       filename: file.filename,
     })
 
-    await storageClient(connection).send(
+    await storageClient(connection!).send(
       new PutObjectCommand({
         Body: file.tempFilePath ? createReadStream(file.tempFilePath) : file.buffer,
-        Bucket: connection.bucket,
+        Bucket: connection!.bucket,
         ContentType: file.mimeType,
         Key: fileKey,
       }),
     )
 
-    // Nothing to persist back: the upload is a side effect, and `media.url` stays
-    // `/api/media/file/*` (no signed URL to store). Returning the doc would make the
-    // plugin re-update it with itself — harmless but a wasted write.
+    if (shouldDropLocalMirrorAfterUpload(connection!) && file.tempFilePath) {
+      try {
+        await unlink(file.tempFilePath)
+      } catch {
+        // Non-fatal: the authoritative copy is already in the bucket.
+      }
+    }
+
     return
   },
 
   handleDelete: async ({ doc, filename, req }) => {
     const connection = await getActiveConnection(req)
-    if (!connection) return
+    if (!shouldUseObjectStorage(connection)) return
 
     const { fileKey } = getFileKey({
       collectionPrefix: prefix,
@@ -79,20 +67,17 @@ export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
       filename,
     })
 
-    await storageClient(connection).send(
-      new DeleteObjectCommand({ Bucket: connection.bucket, Key: fileKey }),
+    await storageClient(connection!).send(
+      new DeleteObjectCommand({ Bucket: connection!.bucket, Key: fileKey }),
     )
   },
 
   staticHandler: (async (req, { headers, params }) => {
     const connection = await getActiveConnection(req)
-    // Fall through to Payload's local filesystem serving (see module comment). The
-    // runtime honours a non-Response return as "fall through"; the `StaticHandler` type
-    // just does not express it.
-    if (!connection) return undefined as unknown as Response
+    if (!shouldUseObjectStorage(connection)) return undefined as unknown as Response
 
     const { filename, prefix: prefixQueryParam, clientUploadContext } = params
-    const client = storageClient(connection)
+    const client = storageClient(connection!)
     const docPrefix = await getFilePrefix({
       clientUploadContext,
       collection,
@@ -113,7 +98,7 @@ export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
 
     try {
       const head = await client.send(
-        new HeadObjectCommand({ Bucket: connection.bucket, Key: fileKey }),
+        new HeadObjectCommand({ Bucket: connection!.bucket, Key: fileKey }),
       )
 
       const fileSize = head.ContentLength
@@ -137,8 +122,6 @@ export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
       responseHeaders.append('Content-Type', String(head.ContentType ?? 'application/octet-stream'))
       if (head.ETag) responseHeaders.append('ETag', head.ETag)
 
-      // Uploads are allow-listed to raster images, but keep the belt-and-braces guard the
-      // S3 adapter ships: an SVG must never execute if one ever reaches the bucket.
       if (head.ContentType === 'image/svg+xml') {
         responseHeaders.append('Content-Security-Policy', "script-src 'none'")
       }
@@ -149,7 +132,7 @@ export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
       }
 
       const object = await client.send(
-        new GetObjectCommand({ Bucket: connection.bucket, Key: fileKey, Range: range }),
+        new GetObjectCommand({ Bucket: connection!.bucket, Key: fileKey, Range: range }),
         { abortSignal: abortController.signal },
       )
 
@@ -173,3 +156,6 @@ export const arvanCloudAdapter: Adapter = ({ collection, prefix = '' }) => ({
     }
   }) as StaticHandler,
 })
+
+/** @deprecated Use `s3ObjectStorageAdapter`. Kept for imports that have not migrated yet. */
+export const arvanCloudAdapter = s3ObjectStorageAdapter

@@ -266,31 +266,60 @@ const windowedRevenue = async (
  * key no longer decrypts", which are three different tickets.
  */
 const storageState = async (req: PayloadRequest) => {
+  const rows = await countOf(req, 'storage-connections')
   try {
     const connection = await getActiveConnection(req)
     if (!connection) {
-      const rows = await countOf(req, 'storage-connections')
-      return { bucket: null, enabled: false, endpoint: null, rows, usable: false }
+      return {
+        bucket: null,
+        configured: rows > 0,
+        enabled: false,
+        endpoint: null,
+        healthStatus: 'disabled' as const,
+        latencyMs: null,
+        provider: null,
+        rows,
+        usable: false,
+      }
     }
+
+    const doc = await req.payload.findByID({
+      collection: 'storage-connections',
+      depth: 0,
+      id: connection.id,
+      overrideAccess: true,
+      req,
+      select: {
+        healthStatus: true,
+        lastCheckedAt: true,
+        latencyMs: true,
+        provider: true,
+      },
+    })
+
     return {
       bucket: connection.bucket,
+      configured: true,
       enabled: true,
       endpoint: connection.endpoint,
-      rows: await countOf(req, 'storage-connections'),
+      healthStatus: (doc as { healthStatus?: string } | null)?.healthStatus ?? 'unknown',
+      lastCheckedAt: (doc as { lastCheckedAt?: string } | null)?.lastCheckedAt ?? null,
+      latencyMs: (doc as { latencyMs?: number } | null)?.latencyMs ?? null,
+      provider: connection.provider,
+      rows,
       usable: true,
     }
   } catch (error) {
-    // `getActiveConnection` throws for exactly one state: a connection IS enabled but
-    // its secret is missing or no longer decrypts (a rotated OBJECT_STORAGE_KEY). That
-    // is the state worth naming, so it is reported as enabled-but-unusable rather than
-    // collapsed into "no storage" — the symptom otherwise reads as "somebody turned it
-    // off", and nobody did.
     req.payload.logger.error({ err: error as Error, msg: 'platform report: storage state failed' })
     return {
       bucket: null,
+      configured: rows > 0,
       enabled: true,
       endpoint: null,
-      rows: await countOf(req, 'storage-connections'),
+      healthStatus: 'failed' as const,
+      latencyMs: null,
+      provider: null,
+      rows,
       usable: false,
     }
   }
