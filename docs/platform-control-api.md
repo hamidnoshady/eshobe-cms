@@ -327,6 +327,26 @@ clear?: [KEY] }`. It answers `{ package, fields: [{ key, label, help, required, 
 value? , set? }], canEdit }` — secrets as `set: true|false`, never their value. See
 `docs/theme-deployments.md` §8.
 
+## 11b. Store `order.paid` → POS accounting (Phase G)
+
+When a store checkout marks an order `paid`, the CMS emits `order.paid` on the audit log /
+platform webhooks and lists it on `GET /api/platform/events` (`kind: "order.paid"`, `data.orderId`).
+
+The POS ingests through **`POST /api/cms/order-events`** on the business deployment
+(HMAC `x-eshobe-signature` over the raw body, same secret as revalidate). Body shape:
+
+```json
+{
+  "siteId": "<cms site uuid>",
+  "deliveryId": "<unique delivery id>",
+  "event": "order.paid",
+  "order": { /* full Orders document */ }
+}
+```
+
+If no webhook URL is configured, the POS polls this feed on a cursor and fetches the order
+by id with the site's API key before importing.
+
 ## 12. Rules that are easy to break
 
 - **Deployment literals before the bare site route.** Every
