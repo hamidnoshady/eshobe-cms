@@ -89,39 +89,6 @@ export const maskStorageSecret =
   ({ req, value }) =>
     req?.context?.[STORAGE_SECRET_READ_CONTEXT_KEY] ? value : undefined
 
-/** At most one enabled connection: the resolver reads "the enabled row", not "a list". */
-export const assertSingleEnabledConnection: CollectionBeforeChangeHook = async ({
-  data,
-  originalDoc,
-  req,
-}) => {
-  const enabled = Boolean((data as StorageConnectionData)?.enabled ?? originalDoc?.enabled)
-  if (!enabled) return data
-
-  const selfId = originalDoc?.id as string | undefined
-
-  const { totalDocs } = await req.payload.count({
-    collection: 'storage-connections',
-    overrideAccess: true,
-    req,
-    where: {
-      and: [
-        { enabled: { equals: true } },
-        ...(selfId ? [{ id: { not_equals: selfId } }] : []),
-      ],
-    },
-  })
-
-  if (totalDocs > 0) {
-    throw new APIError(
-      'فقط یک اتصال ذخیره‌سازی می‌تواند فعال باشد. اتصال فعلی را غیرفعال کنید و این را فعال کنید.',
-      400,
-    )
-  }
-
-  return data
-}
-
 /**
  * Refuse to enable a connection that cannot actually be used.
  *
