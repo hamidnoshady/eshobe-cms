@@ -20,7 +20,8 @@ describe('revalidateSiteGlobalDelete', () => {
     } as unknown as PayloadRequest
 
     await hook({
-      collection: { slug: 'site-branding' },
+      collection: { slug: 'site-branding' } as never,
+      context: {},
       doc: { id: 'b1', site: 'site-1' },
       id: 'b1',
       req,
@@ -44,7 +45,8 @@ describe('revalidateSiteGlobalDelete', () => {
     } as unknown as PayloadRequest
 
     await hook({
-      collection: { slug: 'media' },
+      collection: { slug: 'media' } as never,
+      context: {},
       doc: { id: 'm1', site: 'site-1' },
       id: 'm1',
       req,

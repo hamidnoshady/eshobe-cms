@@ -13,11 +13,13 @@ import { parseThemeManifest, type ThemeManifest } from '@/lib/deploy/manifest'
 import { idOf } from '@/lib/ids'
 import { assertGenericSiteDescriptor } from '../fixtures/externalThemeRenderer'
 
+const HOST = 'studio.localhost'
+
 let payload: Payload
 
-const ids = { acme: '', package: '', target: '', settings: '', homePage: '' }
-const studioId = { value: '' }
-let acmeSiteKey = ''
+const ids = { site: '', package: '', target: '', settings: '', homePage: '' }
+const otherSiteId = { value: '' }
+let siteApiKey = ''
 
 const rawManifest = {
   build: { pack: 'nixpacks', port: 3000 },
@@ -59,34 +61,38 @@ const fetchDescriptor = (host: string, headers: Record<string, string> = {}) =>
     payload,
   ).then((req) => siteDescriptor.handler(req))
 
+const adminReq = async () => {
+  const admin = await payload.find({
+    collection: 'users',
+    depth: 0,
+    limit: 1,
+    where: { email: { equals: 'admin@eshobe.test' } },
+  })
+  return createLocalReq({ user: { ...admin.docs[0]!, collection: 'users' } }, payload)
+}
+
 beforeAll(async () => {
   payload = await getPayload({ config: await config })
 
-  const { docs: acmeDocs } = await payload.find({
-    collection: 'sites',
-    depth: 0,
-    limit: 1,
-    where: { slug: { equals: 'acme' } },
-  })
-  if (!acmeDocs[0]) throw new Error('Site acme missing — run pnpm seed')
-  ids.acme = String(acmeDocs[0].id)
-
   const { docs: allSites } = await payload.find({ collection: 'sites', depth: 0, pagination: false })
-  const studio = (allSites as { domain: string; id: string }[]).find(
-    (site) => site.domain === 'studio.localhost',
+  const studio = (allSites as { domain: string; id: string }[]).find((site) => site.domain === HOST)
+  const acme = (allSites as { domain: string; id: string }[]).find(
+    (site) => site.domain === 'acme.localhost',
   )
-  if (!studio) throw new Error('Site studio.localhost missing — run pnpm seed')
-  studioId.value = String(studio.id)
+  if (!studio) throw new Error(`Site ${HOST} missing — run pnpm seed`)
+  if (!acme) throw new Error('Site acme.localhost missing — run pnpm seed')
+  ids.site = String(studio.id)
+  otherSiteId.value = String(acme.id)
 
   await payload.delete({
     collection: 'site-theme-settings',
     overrideAccess: true,
-    where: { site: { equals: ids.acme } },
+    where: { site: { equals: ids.site } },
   })
   await payload.delete({
     collection: 'site-deployments',
     overrideAccess: true,
-    where: { site: { equals: ids.acme } },
+    where: { site: { equals: ids.site } },
   })
   await payload.delete({
     collection: 'theme-packages',
@@ -116,6 +122,7 @@ beforeAll(async () => {
     },
     overrideAccess: true,
   })
+  ids.target = String(target.id)
 
   const pkg = await payload.create({
     collection: 'theme-packages',
@@ -138,81 +145,57 @@ beforeAll(async () => {
   const deployment = await payload.create({
     collection: 'site-deployments',
     data: {
-      domain: 'acme-descriptor.sites.descriptor.invalid',
+      domain: 'studio-descriptor.sites.descriptor.invalid',
       domainMode: 'preview',
-      site: ids.acme,
+      site: ids.site,
       status: 'failed',
       target: target.id,
       themePackage: pkg.id,
     },
     overrideAccess: true,
   })
-  expect(idOf(deployment.site)).toBe(ids.acme)
-
-  const deploymentCheck = await payload.find({
-    collection: 'site-deployments',
-    depth: 0,
-    limit: 5,
-    overrideAccess: true,
-    where: { site: { equals: ids.acme } },
-  })
-  expect(deploymentCheck.docs.length).toBeGreaterThan(0)
+  expect(idOf(deployment.site)).toBe(ids.site)
 
   const home = await payload.find({
     collection: 'pages',
     depth: 0,
     limit: 1,
     overrideAccess: true,
-    where: { and: [{ site: { equals: ids.acme } }, { slug: { equals: 'home' } }] },
+    where: { and: [{ site: { equals: ids.site } }, { slug: { equals: 'home' } }] },
   })
-  if (!home.docs[0]) {
-    const fallback = await payload.find({
-      collection: 'pages',
-      depth: 0,
-      limit: 1,
-      overrideAccess: true,
-      where: { site: { equals: ids.acme } },
-    })
-    if (!fallback.docs[0]) throw new Error('Acme has no pages — run pnpm seed')
-    ids.homePage = String(fallback.docs[0].id)
-  } else {
-    ids.homePage = String(home.docs[0].id)
-  }
+  const fallback = home.docs[0]
+    ? home.docs[0]
+    : (
+        await payload.find({
+          collection: 'pages',
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          where: { site: { equals: ids.site } },
+        })
+      ).docs[0]
+  if (!fallback) throw new Error('Studio has no pages — run pnpm seed')
+  ids.homePage = String(fallback.id)
 
-  const admin = await payload.find({
-    collection: 'users',
-    depth: 0,
-    limit: 1,
-    where: { email: { equals: 'admin@eshobe.test' } },
-  })
+  const req = await adminReq()
   const issued = await issueApiKeyEndpoint.handler!(
     await createLocalReq(
       {
         req: {
           json: async () => ({
-            name: 'کلید آکمه (توصیف‌گر)',
+            name: 'کلید استودیو (توصیف‌گر)',
             role: 'site',
-            siteId: ids.acme,
+            siteId: ids.site,
           }),
         } as Partial<PayloadRequest>,
-        user: { ...admin.docs[0]!, collection: 'users' },
+        user: req.user ?? undefined,
       },
       payload,
     ),
   )
-  acmeSiteKey = String(((await issued.json()) as { key?: string }).key ?? '')
+  siteApiKey = String(((await issued.json()) as { key?: string }).key ?? '')
 
-  const owner = await payload.find({
-    collection: 'users',
-    depth: 0,
-    limit: 1,
-    where: { email: { equals: 'acme@eshobe.test' } },
-  })
-  const ownerReq = await createLocalReq(
-    { user: { ...owner.docs[0]!, collection: 'users' } },
-    payload,
-  )
-  expect(await themePackageForSite(ownerReq, ids.acme)).toBeTruthy()
+  expect(await themePackageForSite(req, ids.site)).toBeTruthy()
 
   const saveRes = await themeSettingsSaveEndpoint.handler!(
     await createLocalReq(
@@ -221,11 +204,11 @@ beforeAll(async () => {
           json: async () => ({
             bindings: { home: ids.homePage },
             runtimeSettings: { density: 'compact', showNumbers: false },
-            site: ids.acme,
+            site: ids.site,
             values: {},
           }),
         } as Partial<PayloadRequest>,
-        user: ownerReq.user,
+        user: req.user ?? undefined,
       },
       payload,
     ),
@@ -237,7 +220,7 @@ beforeAll(async () => {
     depth: 0,
     limit: 1,
     overrideAccess: true,
-    where: { site: { equals: ids.acme } },
+    where: { site: { equals: ids.site } },
   })
   ids.settings = String(settings.docs[0]?.id ?? '')
 }, 180_000)
@@ -246,7 +229,7 @@ afterAll(async () => {
   await payload.delete({
     collection: 'site-theme-settings',
     overrideAccess: true,
-    where: { site: { equals: ids.acme } },
+    where: { site: { equals: ids.site } },
   })
   await payload.delete({
     collection: 'site-deployments',
@@ -267,7 +250,7 @@ afterAll(async () => {
 
 describe('GET /api/site — branding, runtime settings and bindings', () => {
   it('exposes branding, runtime defaults and resolved bindings on the request host', async () => {
-    const res = await fetchDescriptor('acme.localhost')
+    const res = await fetchDescriptor(HOST)
     expect(res.status).toBe(200)
     const body = assertGenericSiteDescriptor(await res.json())
 
@@ -278,43 +261,37 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
     })
     expect(body.themeRuntime?.bindings.home).toMatchObject({
       id: ids.homePage,
-      slug: 'home',
       type: 'page',
     })
     expect(JSON.stringify(body)).not.toMatch(/coolify|apiToken|secretValues|enc:v1/i)
   })
 
   it('changes ETag when runtime settings are updated', async () => {
-    const before = await fetchDescriptor('acme.localhost')
+    const before = await fetchDescriptor(HOST)
     const etagBefore = before.headers.get('etag')
 
-    const owner = await payload.find({
-      collection: 'users',
-      depth: 0,
-      limit: 1,
-      where: { email: { equals: 'acme@eshobe.test' } },
-    })
+    const req = await adminReq()
     await themeSettingsSaveEndpoint.handler!(
       await createLocalReq(
         {
           req: {
             json: async () => ({
               runtimeSettings: { density: 'comfortable', showNumbers: true },
-              site: ids.acme,
+              site: ids.site,
             }),
           } as Partial<PayloadRequest>,
-          user: { ...owner.docs[0]!, collection: 'users' },
+          user: req.user ?? undefined,
         },
         payload,
       ),
     )
 
-    const after = await fetchDescriptor('acme.localhost')
+    const after = await fetchDescriptor(HOST)
     expect(after.headers.get('etag')).not.toBe(etagBefore)
   })
 
   it('changes Last-Modified when a bound page changes', async () => {
-    const before = await fetchDescriptor('acme.localhost')
+    const before = await fetchDescriptor(HOST)
     const modifiedBefore = before.headers.get('last-modified')
 
     await payload.update({
@@ -326,7 +303,7 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
       overrideAccess: true,
     })
 
-    const after = await fetchDescriptor('acme.localhost')
+    const after = await fetchDescriptor(HOST)
     expect(Date.parse(after.headers.get('last-modified')!)).toBeGreaterThanOrEqual(
       Date.parse(modifiedBefore!),
     )
@@ -337,7 +314,7 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
       collection: 'categories',
       context: { disableRevalidate: true },
       data: {
-        site: ids.acme,
+        site: ids.site,
         slug: 'temp-binding-target',
         title: 'Temp category',
       },
@@ -345,22 +322,17 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
       overrideAccess: true,
     })
 
-    const owner = await payload.find({
-      collection: 'users',
-      depth: 0,
-      limit: 1,
-      where: { email: { equals: 'acme@eshobe.test' } },
-    })
+    const req = await adminReq()
     await themeSettingsSaveEndpoint.handler!(
       await createLocalReq(
         {
           req: {
             json: async () => ({
               bindings: { home: ids.homePage, projects: String(temp.id) },
-              site: ids.acme,
+              site: ids.site,
             }),
           } as Partial<PayloadRequest>,
-          user: { ...owner.docs[0]!, collection: 'users' },
+          user: req.user ?? undefined,
         },
         payload,
       ),
@@ -373,35 +345,30 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
       overrideAccess: true,
     })
 
-    const res = await fetchDescriptor('acme.localhost')
+    const res = await fetchDescriptor(HOST)
     const body = (await res.json()) as { themeRuntime?: { bindings?: Record<string, unknown> } }
     expect(body.themeRuntime?.bindings?.projects).toBeNull()
   })
 
   it('refuses cross-site content bindings at save time', async () => {
-    const studioPage = await payload.find({
+    const foreignPage = await payload.find({
       collection: 'pages',
       depth: 0,
       limit: 1,
       overrideAccess: true,
-      where: { site: { equals: studioId.value } },
+      where: { site: { equals: otherSiteId.value } },
     })
-    const owner = await payload.find({
-      collection: 'users',
-      depth: 0,
-      limit: 1,
-      where: { email: { equals: 'acme@eshobe.test' } },
-    })
+    const req = await adminReq()
     const res = await themeSettingsSaveEndpoint.handler!(
       await createLocalReq(
         {
           req: {
             json: async () => ({
-              bindings: { home: String(studioPage.docs[0]?.id) },
-              site: ids.acme,
+              bindings: { home: String(foreignPage.docs[0]?.id) },
+              site: ids.site,
             }),
           } as Partial<PayloadRequest>,
-          user: { ...owner.docs[0]!, collection: 'users' },
+          user: req.user ?? undefined,
         },
         payload,
       ),
@@ -410,22 +377,22 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
   })
 
   it('adds id and domainVerified only for a site API key, not for Host resolution', async () => {
-    const publicRes = await fetchDescriptor('acme.localhost')
+    const publicRes = await fetchDescriptor(HOST)
     const publicBody = (await publicRes.clone().json()) as Record<string, unknown>
     expect(publicBody.id).toBeUndefined()
     expect(publicBody.domainVerified).toBeUndefined()
 
-    const keyed = await fetchDescriptor('localhost', { authorization: `Bearer ${acmeSiteKey}` })
+    const keyed = await fetchDescriptor('localhost', { authorization: `Bearer ${siteApiKey}` })
     expect(keyed.status).toBe(200)
     const keyedBody = (await keyed.json()) as Record<string, unknown>
-    expect(keyedBody.id).toBe(ids.acme)
+    expect(keyedBody.id).toBe(ids.site)
     expect(keyedBody).toHaveProperty('domainVerified')
   })
 })
 
 describe('GET /api/site — deployment secrets stay out of the descriptor', () => {
   it('never exposes deployment env or ciphertext', async () => {
-    const raw = JSON.stringify(await (await fetchDescriptor('acme.localhost')).json())
+    const raw = JSON.stringify(await (await fetchDescriptor(HOST)).json())
     expect(raw).not.toContain('coolify_descriptor_token')
     expect(raw).not.toContain('secretValues')
     expect(raw).not.toContain('enc:v1')

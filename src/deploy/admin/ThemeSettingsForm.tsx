@@ -102,7 +102,12 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
       }),
     )
       .then((entries) => {
-        setContentOptions(Object.fromEntries(entries.map(([type, options]) => [type, options])))
+        setContentOptions(
+          Object.fromEntries(entries.map(([type, options]) => [type, options])) as Record<
+            string,
+            ContentOption[]
+          >,
+        )
         setContentLoadError(Object.fromEntries(entries.map(([type, , failed]) => [type, failed])))
       })
       .catch(() => undefined)

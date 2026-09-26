@@ -13,7 +13,7 @@ const manifest = () => {
       settings: {
         enabled: { default: true, type: 'boolean' },
         label: { type: 'text' },
-        size: { default: 'm', max: 10, min: 1, type: 'number' },
+        size: { default: 5, max: 10, min: 1, type: 'number' },
         variant: {
           options: [{ value: 'a' }, { value: 'b' }],
           type: 'select',
