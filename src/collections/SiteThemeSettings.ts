@@ -6,7 +6,7 @@ import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { themeSettingsGetEndpoint, themeSettingsSaveEndpoint } from '@/endpoints/themeSettings'
 
 import { encryptThemeSettings, maskDeploySecret } from './hooks/deploySecrets'
-import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 
 /**
  * The tenant's answers to the variables a theme manifest declares
@@ -104,6 +104,7 @@ export const SiteThemeSettings: CollectionConfig<'site-theme-settings'> = {
   ],
   hooks: {
     afterChange: [revalidateSiteGlobal('theme-settings')],
+    afterDelete: [revalidateSiteGlobalDelete('theme-settings')],
     beforeChange: [encryptThemeSettings],
   },
   timestamps: true,

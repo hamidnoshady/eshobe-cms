@@ -7,7 +7,7 @@ import { authenticated } from '../access/authenticated'
 import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
-import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 
 export const Categories: CollectionConfig = {
   slug: 'categories',
@@ -45,6 +45,7 @@ export const Categories: CollectionConfig = {
   ],
   hooks: {
     afterChange: [revalidateSiteGlobal('category')],
+    afterDelete: [revalidateSiteGlobalDelete('category')],
     beforeValidate: [uniqueSlugPerSite],
   },
 }

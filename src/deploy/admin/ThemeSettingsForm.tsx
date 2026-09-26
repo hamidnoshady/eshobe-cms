@@ -7,6 +7,13 @@ import { CheckboxInput } from '@payloadcms/ui/fields/Checkbox'
 import { TextInput } from '@payloadcms/ui/fields/Text'
 
 import type { ThemeSettingsView } from '@/deploy/tenantSettings'
+import {
+  contentSlotCollectionSlug,
+  contentSlotSearchWhere,
+  fetchAllContentSlotOptions,
+  type ContentOption,
+  type ContentSlotType,
+} from '@/deploy/admin/contentSlotOptions'
 
 /**
  * The form behind «تنظیمات پوسته»: one box per variable the site's theme asked the
@@ -27,7 +34,6 @@ export type ThemeSettingsFormProps = {
 }
 
 type Result = { ok: boolean; text: string }
-type ContentOption = { id: string; label: string }
 
 export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
   initial,
@@ -56,41 +62,53 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
     ),
   )
   const [contentOptions, setContentOptions] = useState<Record<string, ContentOption[]>>({})
+  const [contentSearch, setContentSearch] = useState<Record<string, string>>({})
+  const [contentLoadError, setContentLoadError] = useState<Record<string, boolean>>({})
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<null | Result>(null)
 
-  useEffect(() => {
-    const collections = [...new Set(initial.contentSlots.map((slot) => slot.type))]
-    const controller = new AbortController()
-    const collectionSlug = {
-      category: 'categories',
-      form: 'forms',
-      media: 'media',
-      page: 'pages',
-      post: 'posts',
-    } as const
+  const slotTypes = [...new Set(initial.contentSlots.map((slot) => slot.type))] as ContentSlotType[]
 
-    void Promise.all(
-      collections.map(async (type) => {
-        const response = await fetch(`/api/${collectionSlug[type]}?limit=100&depth=0`, {
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const fetchPage =
+      (type: ContentSlotType) =>
+      async ({ page, search }: { page: number; search?: string }) => {
+        const slug = contentSlotCollectionSlug[type]
+        const where = contentSlotSearchWhere(type, search ?? '')
+        const params = new URLSearchParams({ depth: '0', limit: '100', page: String(page) })
+        if (where) params.set('where', JSON.stringify(where))
+        const response = await fetch(`/api/${slug}?${params}`, {
           credentials: 'same-origin',
           signal: controller.signal,
         })
-        if (!response.ok) return [type, []] as const
-        const payload = (await response.json()) as { docs?: Record<string, unknown>[] }
-        const options = (payload.docs ?? []).flatMap((doc) => {
-          const id = typeof doc.id === 'string' ? doc.id : null
-          const label = doc.title ?? doc.name ?? doc.filename ?? doc.slug
-          return id && typeof label === 'string' ? [{ id, label }] : []
-        })
-        return [type, options] as const
+        if (!response.ok) throw new Error(String(response.status))
+        return (await response.json()) as {
+          docs?: Record<string, unknown>[]
+          hasNextPage?: boolean
+          nextPage?: null | number
+        }
+      }
+
+    void Promise.all(
+      slotTypes.map(async (type) => {
+        try {
+          const options = await fetchAllContentSlotOptions(fetchPage(type), type, contentSearch[type])
+          return [type, options, false] as const
+        } catch {
+          return [type, [], true] as const
+        }
       }),
     )
-      .then((entries) => setContentOptions(Object.fromEntries(entries)))
+      .then((entries) => {
+        setContentOptions(Object.fromEntries(entries.map(([type, options]) => [type, options])))
+        setContentLoadError(Object.fromEntries(entries.map(([type, , failed]) => [type, failed])))
+      })
       .catch(() => undefined)
 
     return () => controller.abort()
-  }, [initial.contentSlots])
+  }, [initial.contentSlots, contentSearch, slotTypes.join(',')])
 
   if (!view.package) {
     return (
@@ -343,10 +361,29 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
               style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}
             >
               <span>{slot.labelFa ?? slot.labelEn ?? slot.key}</span>
+              <input
+                disabled={!view.canEdit}
+                onChange={(event) =>
+                  setContentSearch((previous) => ({ ...previous, [slot.type]: event.target.value }))
+                }
+                placeholder="جستجو در فهرست…"
+                type="search"
+                value={contentSearch[slot.type] ?? ''}
+              />
+              {contentLoadError[slot.type] && (
+                <small style={{ color: 'var(--theme-error-500)' }}>
+                  بارگذاری فهرست ناموفق بود؛ دوباره تلاش کنید.
+                </small>
+              )}
               <select
                 disabled={!view.canEdit}
                 onChange={(event) =>
-                  setBindings((previous) => ({ ...previous, [slot.key]: event.target.value }))
+                  setBindings((previous) => {
+                    const next = { ...previous }
+                    if (event.target.value) next[slot.key] = event.target.value
+                    else delete next[slot.key]
+                    return next
+                  })
                 }
                 required={slot.required}
                 value={bindings[slot.key] ?? ''}

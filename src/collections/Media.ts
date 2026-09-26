@@ -18,7 +18,7 @@ import {
   accountMediaStorageDelete,
 } from '@/collections/hooks/accountMediaStorage'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
-import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -68,7 +68,7 @@ export const Media: CollectionConfig = {
     // uploads are local.
     beforeChange: [setMediaPrefix],
     afterChange: [accountMediaStorage, revalidateSiteGlobal('media')],
-    afterDelete: [accountMediaStorageDelete],
+    afterDelete: [accountMediaStorageDelete, revalidateSiteGlobalDelete('media')],
     // Counts files, not bytes — `mediaStorageMb` is metered separately and reported,
     // because refusing an upload mid-stream on a byte total the client cannot see is
     // a worse experience than a file-count limit it can.
