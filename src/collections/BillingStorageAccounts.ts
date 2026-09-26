@@ -6,7 +6,7 @@ import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 /**
  * One clock per site for time-weighted storage. `bytes` is the maintained
  * total; `accruedByteMs` is the unfinished hour. Completed hours leave as
- * `media.storage_byte_hour` events. This is not a price.
+ * `cms.storage_byte_hour` events. This is not a price.
  */
 export const BillingStorageAccounts: CollectionConfig = {
   slug: 'billing-storage-accounts',

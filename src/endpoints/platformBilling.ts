@@ -2,7 +2,7 @@ import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { issueBillingCredential, revokeBillingCredential } from '@/billing/auth/credentials'
-import { BILLING_SCOPES, isBillingScope } from '@/billing/auth/sign'
+import { isBillingScope, type BillingScope } from '@/billing/auth/sign'
 import { verifyBillingRequest } from '@/billing/auth/verify-request'
 import { parseUsageBatch, parseUsageEvent } from '@/billing/contract/v1'
 import { parseProjectionInput, writeProjection } from '@/billing/entitlement/store'
@@ -47,7 +47,17 @@ export const billingCredentialIssueEndpoint: Endpoint = {
     const denied = requireAdminSession(req)
     if (denied) return denied
     const body = (await req.json?.().catch(() => ({}))) as { label?: unknown; scopes?: unknown }
-    const scopes = Array.isArray(body.scopes) ? body.scopes.filter(isBillingScope) : [...BILLING_SCOPES]
+    const requested = (Array.isArray(body.scopes) ? body.scopes.filter(isBillingScope) : ['billing.entitlement.write']) as BillingScope[]
+    if (requested.includes('billing.usage.write')) {
+      return json(
+        {
+          message: 'کلید billing.usage.write روی سکوی مرکزی صادر می‌شود و در CMS فقط ذخیره می‌شود.',
+          ok: false,
+        },
+        400,
+      )
+    }
+    const scopes: BillingScope[] = requested.length ? requested : ['billing.entitlement.write']
     if (scopes.length === 0) return json({ message: 'دامنهٔ کلید نامعتبر است.', ok: false }, 400)
     const issued = await issueBillingCredential(req, {
       label: typeof body.label === 'string' && body.label.trim() ? body.label.trim() : 'billing',

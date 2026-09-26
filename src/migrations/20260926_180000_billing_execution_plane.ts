@@ -9,10 +9,10 @@ import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-postgres'
  */
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql`
-  CREATE TYPE "public"."enum_billing_usage_outbox_meter_key" AS ENUM('cms.api_request', 'cms.origin_transfer_bytes', 'cms.bandwidth_bytes', 'media.storage_byte_hour', 'cms.deployment', 'cms.build_second');
+  CREATE TYPE "public"."enum_billing_usage_outbox_meter_key" AS ENUM('cms.api_request', 'cms.origin_transfer_bytes', 'cms.bandwidth_bytes', 'cms.storage_byte_hour', 'cms.deployment', 'cms.build_second');
   CREATE TYPE "public"."enum_billing_usage_outbox_kind" AS ENUM('measurement', 'correction');
   CREATE TYPE "public"."enum_billing_usage_outbox_status" AS ENUM('pending', 'sending', 'sent', 'failed', 'dead_letter');
-  CREATE TYPE "public"."enum_billing_usage_samples_meter_key" AS ENUM('cms.api_request', 'cms.origin_transfer_bytes', 'cms.bandwidth_bytes', 'media.storage_byte_hour', 'cms.deployment', 'cms.build_second');
+  CREATE TYPE "public"."enum_billing_usage_samples_meter_key" AS ENUM('cms.api_request', 'cms.origin_transfer_bytes', 'cms.bandwidth_bytes', 'cms.storage_byte_hour', 'cms.deployment', 'cms.build_second');
   CREATE TYPE "public"."enum_central_entitlement_projections_source" AS ENUM('push', 'pull', 'migration');
   CREATE TYPE "public"."enum_billing_service_credentials_status" AS ENUM('active', 'revoked');
 

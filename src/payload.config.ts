@@ -70,6 +70,7 @@ import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { platformControlEndpoints } from './endpoints/platformControl'
+import { platformOwnerBridgeEndpoints } from './endpoints/platformOwnerBridge'
 import { platformDeploymentEndpoints } from './endpoints/platformDeployments'
 import { platformBillingEndpoints } from './endpoints/platformBilling'
 import { platformSaasEndpoints } from './endpoints/platformSaas'
@@ -151,6 +152,7 @@ export default buildConfig({
     // body. `/api/deploy-targets/self-test` is **not** here — it is a collection
     // endpoint on `DeployTargets`, because a path whose first segment is a
     // collection slug never reaches this array.
+    ...platformOwnerBridgeEndpoints,
     ...platformDeploymentEndpoints,
     ...platformControlEndpoints,
   ],
