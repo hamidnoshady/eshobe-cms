@@ -1,11 +1,11 @@
 import type { PayloadRequest } from 'payload'
 
 import { activeBillingCredentials } from '@/billing/auth/credentials'
+import { refuseReplayedBillingBody } from '@/billing/auth/replay-guard'
 import {
   BILLING_KEY_HEADER,
   BILLING_SIGNATURE_HEADER,
   BILLING_TIMESTAMP_HEADER,
-  bodyFingerprint,
   verifyBillingSignature,
   type BillingScope,
 } from '@/billing/auth/sign'
@@ -63,18 +63,10 @@ export const verifyBillingRequest = async (
     return { error: Response.json({ message, ok: false, reason }, { status: 401 }), ok: false }
   }
 
-  const fingerprint = `${keyId}:${bodyFingerprint(timestamp, body)}`
-  try {
-    await req.payload.create({
-      collection: 'billing-replay-nonces',
-      data: { bodyHash: fingerprint, keyId, seenAt: new Date().toISOString() },
-      depth: 0,
-      overrideAccess: true,
-      req,
-    })
-  } catch {
+  const replay = await refuseReplayedBillingBody(req, { body, keyId, timestamp })
+  if (!replay.ok) {
     return {
-      error: Response.json({ message: 'این درخواست قبلاً دیده شده است.', ok: false, reason: 'replay' }, { status: 401 }),
+      error: Response.json({ message: 'این درخواست قبلاً دیده شده است.', ok: false, reason: replay.reason }, { status: 401 }),
       ok: false,
     }
   }

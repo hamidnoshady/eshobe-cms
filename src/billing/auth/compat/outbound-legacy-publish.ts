@@ -1,31 +1,34 @@
 import type { PayloadRequest } from 'payload'
 
+import {
+  LEGACY_KEY_HEADER,
+  LEGACY_NONCE_HEADER,
+  LEGACY_SIGNATURE_HEADER,
+  LEGACY_TIMESTAMP_HEADER,
+  mintLegacyNonce,
+  signLegacyUsageBody,
+} from '@/billing/auth/compat/legacy-nonce-body-hash'
+import type { ActiveCredential } from '@/billing/auth/credentials'
 import { CONTRACT_VERSION, USAGE_SOURCE, type UsageEventV1 } from '@/billing/contract/v1'
-import { credentialForScope } from '@/billing/auth/credentials'
-import { postUsageBatchLegacy } from '@/billing/auth/compat/outbound-legacy-publish'
-import { signBillingBody, BILLING_KEY_HEADER, BILLING_SIGNATURE_HEADER, BILLING_TIMESTAMP_HEADER } from '@/billing/auth/sign'
-import { MAX_ACK_CHARS, parseBatchAck, type EventResult } from '@/billing/client/interpret'
 import { centralBillingUrl, usageIngestUrl } from '@/billing/client/url'
+import { MAX_ACK_CHARS, parseBatchAck, type EventResult } from '@/billing/client/interpret'
 
 const TIMEOUT_MS = 10_000
 
-const usageAuthMode = (): 'legacy-nonce' | 'v1' =>
-  process.env.BILLING_USAGE_AUTH?.trim() === 'legacy-nonce' ? 'legacy-nonce' : 'v1'
-
-export type PublishBatchResult =
+export type LegacyPublishBatchResult =
   | { error: string; ok: false; transient: true }
   | { ok: true; results: EventResult[] }
 
 /**
- * POST one batch. Network failures, timeouts and unreadable bodies are
- * transient. The caller decides sent vs retry from `results`, and never marks
- * an event sent just because the socket opened.
+ * Temporary outbound path for a central Billing receiver that still verifies
+ * the nonce/body-hash protocol. Enable with `BILLING_USAGE_AUTH=legacy-nonce`.
  */
-export const postUsageBatch = async (
+export const postUsageBatchLegacy = async (
   req: PayloadRequest,
   events: UsageEventV1[],
+  credential: ActiveCredential,
   fetchImpl: typeof fetch = fetch,
-): Promise<PublishBatchResult> => {
+): Promise<LegacyPublishBatchResult> => {
   let origin: URL | null
   try {
     origin = centralBillingUrl()
@@ -35,16 +38,10 @@ export const postUsageBatch = async (
   if (!origin) return { error: 'CENTRAL_BILLING_URL is not configured', ok: false, transient: true }
   if (events.length === 0) return { ok: true, results: [] }
 
-  const credential = await credentialForScope(req, 'billing.usage.write')
-  if (!credential) return { error: 'no active billing.usage.write credential', ok: false, transient: true }
-
-  if (usageAuthMode() === 'legacy-nonce') {
-    return postUsageBatchLegacy(req, events, credential, fetchImpl)
-  }
-
   const body = JSON.stringify({ contractVersion: CONTRACT_VERSION, events, source: USAGE_SOURCE })
-  const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = signBillingBody(credential.secret, timestamp, body)
+  const timestampMs = String(Date.now())
+  const nonce = mintLegacyNonce()
+  const signature = signLegacyUsageBody({ body, nonce, secret: credential.secret, timestampMs })
 
   let response: Response
   try {
@@ -52,9 +49,10 @@ export const postUsageBatch = async (
       body,
       headers: {
         'content-type': 'application/json',
-        [BILLING_KEY_HEADER]: credential.keyId,
-        [BILLING_SIGNATURE_HEADER]: signature,
-        [BILLING_TIMESTAMP_HEADER]: timestamp,
+        [LEGACY_KEY_HEADER]: credential.keyId,
+        [LEGACY_NONCE_HEADER]: nonce,
+        [LEGACY_SIGNATURE_HEADER]: signature,
+        [LEGACY_TIMESTAMP_HEADER]: timestampMs,
       },
       method: 'POST',
       signal: AbortSignal.timeout(TIMEOUT_MS),

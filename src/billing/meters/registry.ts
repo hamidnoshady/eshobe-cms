@@ -42,7 +42,7 @@ export const BILLING_METERS = [
     aggregation: 'sum',
     collection: 'measured',
     export: true,
-    key: 'media.storage_byte_hour',
+    key: 'cms.storage_byte_hour',
     resource: 'site',
     source: 'media-byte-integral',
     unit: 'byte_hour',

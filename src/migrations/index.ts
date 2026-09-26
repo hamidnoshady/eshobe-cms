@@ -14,6 +14,7 @@ import * as migration_20260925_215628_wave11_deploy_gaps from './20260925_215628
 import * as migration_20260926_120000_storage_health from './20260926_120000_storage_health';
 import * as migration_20260926_120000_theme_github_webhook from './20260926_120000_theme_github_webhook';
 import * as migration_20260926_180000_billing_execution_plane from './20260926_180000_billing_execution_plane';
+import * as migration_20260926_190000_billing_meter_storage_key from './20260926_190000_billing_meter_storage_key';
 
 export const migrations = [
   {
@@ -95,5 +96,10 @@ export const migrations = [
     up: migration_20260926_180000_billing_execution_plane.up,
     down: migration_20260926_180000_billing_execution_plane.down,
     name: '20260926_180000_billing_execution_plane',
+  },
+  {
+    up: migration_20260926_190000_billing_meter_storage_key.up,
+    down: migration_20260926_190000_billing_meter_storage_key.down,
+    name: '20260926_190000_billing_meter_storage_key',
   },
 ];

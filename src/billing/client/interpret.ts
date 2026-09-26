@@ -14,7 +14,11 @@ export type EventResult = {
 
 export const parseBatchAck = (body: unknown): { error: string } | { results: EventResult[] } => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'ack is not an object' }
-  const results = (body as { results?: unknown }).results
+  const raw = body as { contractVersion?: unknown; results?: unknown }
+  if (raw.contractVersion !== undefined && raw.contractVersion !== 1) {
+    return { error: 'ack contractVersion is not supported' }
+  }
+  const results = raw.results
   if (!Array.isArray(results)) return { error: 'ack has no results' }
   const parsed: EventResult[] = []
   for (const item of results) {
