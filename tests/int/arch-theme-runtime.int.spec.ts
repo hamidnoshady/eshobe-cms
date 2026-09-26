@@ -19,6 +19,34 @@ const ensureRepo = () => {
   }
 }
 
+/** GitHub Actions runners do not ship `rg`; walk the tree in-process instead. */
+const searchRepo = (root: string, pattern: RegExp): string[] => {
+  const hits: string[] = []
+  const skip = new Set(['node_modules', '.git'])
+
+  const walk = (dir: string) => {
+    for (const name of fs.readdirSync(dir)) {
+      if (skip.has(name)) continue
+      const full = path.join(dir, name)
+      const stat = fs.statSync(full)
+      if (stat.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!stat.isFile() || stat.size > 512_000) continue
+      try {
+        const text = fs.readFileSync(full, 'utf8')
+        if (pattern.test(text)) hits.push(full)
+      } catch {
+        // skip binary or unreadable files
+      }
+    }
+  }
+
+  walk(root)
+  return hits
+}
+
 describe('arch-theme-cms runtime assumptions', () => {
   it('documents contractVersion alignment with the CMS', () => {
     ensureRepo()
@@ -31,18 +59,13 @@ describe('arch-theme-cms runtime assumptions', () => {
 
   it('includes a site bootstrap module that references /api/site', () => {
     ensureRepo()
-    const hits = execSync(`rg -l "api/site" ${repoDir} --glob '!node_modules' || true`, {
-      encoding: 'utf8',
-    }).trim()
+    const hits = searchRepo(repoDir, /api\/site/)
     expect(hits.length).toBeGreaterThan(0)
   })
 
   it('includes revalidation handling for renderer webhooks', () => {
     ensureRepo()
-    const hits = execSync(
-      `rg -l "x-eshobe-signature|revalidate" ${repoDir} --glob '!node_modules' || true`,
-      { encoding: 'utf8' },
-    ).trim()
+    const hits = searchRepo(repoDir, /x-eshobe-signature|revalidate/i)
     expect(hits.length).toBeGreaterThan(0)
   })
 })

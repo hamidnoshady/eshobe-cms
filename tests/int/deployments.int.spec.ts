@@ -572,7 +572,7 @@ describe('the theme environment', () => {
 
     const result = await buildEnvironment({
       apiKey: 'eshobe_live_testkey',
-      manifest: rawManifest(),
+      manifest: manifest(),
       req,
       revalidateSecret: 'esrv_test',
       serviceDomain: 'preview.sites.test.invalid',
@@ -603,7 +603,7 @@ describe('the theme environment', () => {
 
     const { variables } = await buildEnvironment({
       apiKey: 'eshobe_live_testkey',
-      manifest: rawManifest(),
+      manifest: manifest(),
       req,
       revalidateSecret: 'esrv_test',
       serviceDomain: 'preview.sites.test.invalid',
@@ -629,7 +629,7 @@ describe('the theme environment', () => {
 
     const { variables } = await buildEnvironment({
       apiKey: null,
-      manifest: rawManifest(),
+      manifest: manifest(),
       req,
       revalidateSecret: 'esrv_test',
       serviceDomain: 'preview.sites.test.invalid',
