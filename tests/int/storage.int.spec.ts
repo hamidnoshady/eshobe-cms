@@ -167,9 +167,24 @@ describe('storage connections collection', () => {
       overrideAccess: true,
     })
 
-    await expect(
-      payload.delete({ collection: 'storage-connections', id: row.id, overrideAccess: true }),
-    ).rejects.toThrow(/فعال/)
+    try {
+      await expect(
+        payload.delete({ collection: 'storage-connections', id: row.id, overrideAccess: true }),
+      ).rejects.toThrow(/فعال/)
+    } finally {
+      await payload.update({
+        collection: 'storage-connections',
+        data: { enabled: false, healthStatus: 'disabled' },
+        id: row.id,
+        overrideAccess: true,
+      })
+      await payload.delete({
+        collection: 'storage-connections',
+        id: row.id,
+        overrideAccess: true,
+      })
+      clearStorageConnectionCache()
+    }
   })
 })
 
