@@ -17,9 +17,11 @@ import { slugKey } from '@/lib/saas/plans'
  * catalogue is one list for the whole deployment. The *per-site* half lives on
  * `site-entitlements`, which is tenant-scoped.
  *
- * `defaultEnabled` is the bottom layer of the three (`resolveFeatures`): a feature
- * nobody's plan mentions still has an answer, and that answer is this checkbox.
- * Leave it off for anything that costs money to run.
+ * `technicallyAvailable` is whether this deployment can run the feature at all.
+ * Commercial ownership comes from the central entitlement projection. Both have
+ * to be true, and a per-site technical hold can still force the feature off.
+ * `defaultEnabled` remains only for the legacy read used until a projection
+ * exists; it does not grant a paid feature once a projection is in place.
  */
 export const FeatureFlags: CollectionConfig<'feature-flags'> = {
   slug: 'feature-flags',
@@ -90,11 +92,21 @@ export const FeatureFlags: CollectionConfig<'feature-flags'> = {
         {
           name: 'defaultEnabled',
           type: 'checkbox',
-          label: 'به‌صورت پیش‌فرض روشن',
+          label: 'پیش‌فرض بایگانی',
           defaultValue: false,
           admin: {
-            width: '50',
-            description: 'پایین‌ترین لایه: وقتی نه طرح و نه سایت نظری ندارند، همین تعیین‌کننده است.',
+            width: '25',
+            description: 'فقط تا رسیدن تصویر مرکزی معنا دارد. بعد از آن حق تجاری را اعطا نمی‌کند.',
+          },
+        },
+        {
+          name: 'technicallyAvailable',
+          type: 'checkbox',
+          label: 'از نظر فنی در دسترس',
+          defaultValue: true,
+          admin: {
+            width: '25',
+            description: 'خاموش یعنی این نسخهٔ سکو قابلیت را اجرا نمی‌کند، حتی اگر مشتری آن را خریده باشد.',
           },
         },
       ],

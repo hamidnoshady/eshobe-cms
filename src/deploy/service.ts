@@ -1019,6 +1019,18 @@ export const promoteDeployment = async (
   })
   if (!promoted) return
 
+  try {
+    const { recordDeploymentUsage } = await import('@/billing/usage/deployment-record')
+    await recordDeploymentUsage(req, {
+      commitSha: typeof deployment.commitSha === 'string' ? deployment.commitSha : null,
+      deploymentId,
+      mode,
+      siteId,
+    })
+  } catch (error) {
+    req.payload.logger.error({ err: error as Error, msg: `deployment ${deploymentId}: usage measurement failed` })
+  }
+
   const { docs: previous } = await req.payload.find({
     collection: 'site-deployments',
     depth: 0,

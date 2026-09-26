@@ -1,13 +1,17 @@
 import type { CollectionConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
-import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
+import { PLATFORM_GROUPS } from '@/admin/visibility'
+import { freezeCommercialWrites } from '@/collections/hooks/freezeCommercialWrites'
 import { currencyCodes, currencies } from '@/lib/money'
 import { QUOTA_LABELS, QUOTA_METRICS } from '@/lib/saas/plans'
 import { slugify } from '@/lib/slug'
 
 /**
- * What a customer buys. The price list of the whole SaaS, in one collection.
+ * Legacy archive of plan rows from when this CMS kept a commercial catalogue.
+ * Writes are frozen. cafe-restaurant-pos owns plans, prices and allowances.
+ * The columns stay so historical rows can be read during migration; they are
+ * not configuration.
  *
  * Deliberately **not** in the multi-tenant plugin's `collections` map, for the same
  * reason `api-keys` and `storage-connections` are not: a plan is the platform's own
@@ -37,20 +41,18 @@ import { slugify } from '@/lib/slug'
 export const Plans: CollectionConfig<'plans'> = {
   slug: 'plans',
   access: {
-    create: platformAdmin,
-    delete: platformAdmin,
-    // Read is platform-only on purpose: a public pricing page renders from the
-    // marketing site, not from this table. Exposing it would also expose every
-    // internal quota the operator has set, including the ones set per deal.
+    create: () => false,
+    delete: () => false,
     read: platformAdmin,
-    update: platformAdmin,
+    update: () => false,
   },
+  hooks: { beforeValidate: [freezeCommercialWrites] },
   admin: {
     defaultColumns: ['name', 'code', 'price', 'interval', 'active', 'public'],
     description:
-      'فهرست طرح‌های اشتراک سکو: قیمت، دورهٔ صورتحساب، سقف‌ها و امکاناتی که هر طرح باز می‌کند. سقف خالی یا صفر یعنی بی‌نهایت.',
+      'بایگانی فقط‌خواندنیِ طرح‌های قدیمی. قیمت و طرح تجاری در پلتفرم اشوب است، نه اینجا.',
     group: PLATFORM_GROUPS.billing,
-    hidden: hiddenFromCustomers,
+    hidden: true,
     useAsTitle: 'name',
   },
   labels: { plural: 'طرح‌های اشتراک', singular: 'طرح اشتراک' },

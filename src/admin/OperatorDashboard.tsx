@@ -78,9 +78,6 @@ const Section: React.FC<{ children: React.ReactNode; title: string }> = ({ child
 )
 
 /** Money in minor units, one line per currency — never summed across them. */
-const moneyLine = (rows: { code: string; minorTotal: number }[]): string =>
-  rows.length ? rows.map((row) => `${fa(row.minorTotal)} ${row.code}`).join(' · ') : '۰'
-
 const OperatorDashboard: React.FC<Props> = async ({ payload, user }) => {
   // Not an access boundary — every underlying collection is `platformAdmin` on
   // `read`, and the reports run with `overrideAccess` on the operator's own request.
@@ -106,8 +103,8 @@ const OperatorDashboard: React.FC<Props> = async ({ payload, user }) => {
   }
 
   const unverified = fleet.sites.unverified
-  const overdue = saas.billing.invoices.overdue
   const failingWebhooks = saas.operations.webhooks.failing
+  const outboxBacklog = saas.billing.outboxPending + saas.billing.outboxFailed + saas.billing.outboxSending
   const storageUsable = fleet.infrastructure.storage.usable
 
   return (
@@ -139,30 +136,27 @@ const OperatorDashboard: React.FC<Props> = async ({ payload, user }) => {
         <Stat label="معلق" value={fleet.sites.byStatus.suspended ?? 0} />
       </Section>
 
-      <Section title="اشتراک و درآمد">
-        <Stat label="اشتراک فعال" value={saas.subscriptions.active} />
-        <Stat label="دورهٔ آزمایشی" value={saas.subscriptions.trialing} />
+      <Section title="صورت‌حساب مرکزی">
+        <Stat label="مرجع تجاری" value="پلتفرم اشوب" note="قیمت و صورتحساب اینجا محاسبه نمی‌شود." />
         <Stat
-          accent={saas.subscriptions.pastDue ? 'var(--theme-warning-500)' : undefined}
-          label="پرداخت عقب‌افتاده"
-          note="سایت همچنان سرویس می‌گیرد؛ تعلیق یک تصمیم صریح است."
-          value={saas.subscriptions.pastDue}
+          accent={outboxBacklog ? 'var(--theme-warning-500)' : 'var(--theme-success-500)'}
+          label="صف ارسال مصرف"
+          note={saas.billing.oldestPendingAt ? `قدیمی‌ترین: ${saas.billing.oldestPendingAt}` : 'صف خالی است.'}
+          value={outboxBacklog}
         />
         <Stat
-          label="پایان دوره تا ۷ روز"
-          note="برای تمدید یا یادآوری پرداخت."
-          value={saas.subscriptions.expiringWithin7Days}
+          accent={saas.billing.deadLetters ? 'var(--theme-error-500)' : undefined}
+          label="رویداد بن‌بست"
+          value={saas.billing.deadLetters}
         />
         <Stat
-          label={`وصول‌شده (${fa(saas.billing.windowDays)} روز)`}
-          note="واحد خرد، به تفکیک ارز."
-          value={moneyLine(saas.billing.collected)}
+          label="آخرین ارسال موفق"
+          value={saas.billing.lastSuccessfulPublishAt ? 'ثبت شده' : 'هنوز نه'}
+          note={saas.billing.lastSuccessfulPublishAt ?? undefined}
         />
         <Stat
-          accent={overdue ? 'var(--theme-error-500)' : undefined}
-          label="صورتحساب سررسید گذشته"
-          note={moneyLine(saas.billing.outstanding)}
-          value={overdue}
+          label="سایت بدون تصویر حق‌دسترسی"
+          value={saas.billing.sitesWithoutProjection ?? '—'}
         />
       </Section>
 

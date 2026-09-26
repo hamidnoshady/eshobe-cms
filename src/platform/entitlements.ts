@@ -1,6 +1,10 @@
 import type { PayloadRequest, Where } from 'payload'
 
-import { idOf } from '@/lib/ids'
+import { billingCutoverPhase } from '@/billing/cutover'
+import { applyTechnicalGate } from '@/billing/entitlement/features'
+import { limitsToQuota, type LimitMap } from '@/billing/entitlement/limits'
+import { readProjection } from '@/billing/entitlement/store'
+import { storageBytesForSite } from '@/billing/meters/storage-account'
 import {
   buildQuotaReport,
   currentMonthWindow,
@@ -34,12 +38,15 @@ import {
  */
 
 export type SiteEntitlement = {
+  /** `projection` once central Billing has delivered a version. `legacy` is the read-only fallback. */
+  authority: 'legacy' | 'projection'
   features: ResolvedFeature[]
   featureMap: Record<string, boolean>
   limits: QuotaLimits
   plan: null | { code: string; id: string; interval: string; name: string }
+  projectionVersion: null | number
   quotaEnforcement: 'enforce' | 'off' | 'warn'
-  /** `false` when there is no live subscription — the site still renders, nothing new is granted. */
+  /** Commercial serving. A technical site suspension is `sites.status`, not this flag. */
   serving: boolean
   site: { domain: string; id: string; name: string }
   subscription: null | {
@@ -118,8 +125,12 @@ export const mergeLimits = (
   return result
 }
 
-/** The whole answer for one site. */
-export const resolveEntitlement = async (
+/**
+ * The pre-cutover merge: local plan, local subscription, local overrides.
+ * Still the answer for a site that has no projection yet, and for `BILLING_CUTOVER=legacy|dual`.
+ * It does not write commercial state.
+ */
+export const resolveLegacyEntitlement = async (
   req: PayloadRequest,
   site: Record<string, unknown>,
 ): Promise<SiteEntitlement> => {
@@ -192,6 +203,7 @@ export const resolveEntitlement = async (
   ) as SiteEntitlement['quotaEnforcement']
 
   return {
+    authority: 'legacy',
     featureMap: featureMap(features),
     features,
     limits,
@@ -203,6 +215,7 @@ export const resolveEntitlement = async (
           name: String(planDoc.name ?? ''),
         }
       : null,
+    projectionVersion: null,
     quotaEnforcement: ['enforce', 'off', 'warn'].includes(quotaEnforcement) ? quotaEnforcement : 'warn',
     serving,
     site: { domain: String(site.domain ?? ''), id: siteId, name: String(site.name ?? '') },
@@ -215,6 +228,117 @@ export const resolveEntitlement = async (
         }
       : null,
   }
+}
+
+const holdKeys = (doc: null | Record<string, unknown>): string[] => {
+  const raw = doc?.technicalHolds
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((row) => {
+      if (typeof row === 'string') return row
+      if (row && typeof row === 'object' && 'key' in row) return String((row as { key?: unknown }).key ?? '')
+      return ''
+    })
+    .filter(Boolean)
+}
+
+const enforcementOf = (
+  entitlementDoc: null | Record<string, unknown>,
+  settings: unknown,
+): SiteEntitlement['quotaEnforcement'] => {
+  const siteEnforcement = String(entitlementDoc?.quotaEnforcement ?? 'inherit')
+  const platformEnforcement = String((settings as { quotaEnforcement?: unknown } | null)?.quotaEnforcement ?? 'warn')
+  const quotaEnforcement = siteEnforcement === 'inherit' ? platformEnforcement : siteEnforcement
+  return ['enforce', 'off', 'warn'].includes(quotaEnforcement) ? (quotaEnforcement as SiteEntitlement['quotaEnforcement']) : 'warn'
+}
+
+const resolveFromProjection = async (
+  req: PayloadRequest,
+  site: Record<string, unknown>,
+  projection: Record<string, unknown>,
+): Promise<SiteEntitlement> => {
+  const siteId = String(site.id)
+  const [entitlementDoc, catalogue, settings] = await Promise.all([
+    entitlementDocFor(req, siteId),
+    req.payload
+      .find({
+        collection: 'feature-flags',
+        depth: 0,
+        limit: 500,
+        overrideAccess: true,
+        pagination: false,
+        req,
+      })
+      .then(({ docs }) =>
+        docs.map((doc) => ({
+          key: String((doc as { key?: unknown }).key ?? ''),
+          label: (doc as { label?: null | string }).label ?? null,
+          technicallyAvailable: (doc as { technicallyAvailable?: unknown }).technicallyAvailable !== false,
+        })),
+      )
+      .catch(() => [] as { key: string; label: null | string; technicallyAvailable: boolean }[]),
+    req.payload.findGlobal({ slug: 'platform-settings', depth: 0, overrideAccess: true, req }).catch(() => null),
+  ])
+
+  const commercial =
+    projection.features && typeof projection.features === 'object' && !Array.isArray(projection.features)
+      ? (projection.features as Record<string, boolean>)
+      : {}
+  const gated = applyTechnicalGate({
+    catalogue,
+    commercial,
+    holds: holdKeys(entitlementDoc),
+  })
+  const features: ResolvedFeature[] = gated.map((feature) => ({
+    enabled: feature.enabled,
+    key: feature.key,
+    label: feature.label,
+    source: feature.layer === 'projection' ? 'plan' : 'site',
+  }))
+  const limits = limitsToQuota(
+    projection.limits && typeof projection.limits === 'object' ? (projection.limits as LimitMap) : {},
+  )
+  const planCode = typeof projection.planCode === 'string' ? projection.planCode : ''
+
+  return {
+    authority: 'projection',
+    featureMap: featureMap(features),
+    features,
+    limits,
+    plan: planCode ? { code: planCode, id: '', interval: '', name: planCode } : null,
+    projectionVersion: Number(projection.version ?? 0) || null,
+    quotaEnforcement: enforcementOf(entitlementDoc, settings),
+    serving: projection.serving === true,
+    site: { domain: String(site.domain ?? ''), id: siteId, name: String(site.name ?? '') },
+    subscription: {
+      currentPeriodEnd: typeof projection.billingCycleEnd === 'string' ? projection.billingCycleEnd : null,
+      id: '',
+      status: typeof projection.subscriptionStatus === 'string' ? projection.subscriptionStatus : '',
+    },
+  }
+}
+
+/** The answer every hot path reads. No HTTP call to central Billing. */
+export const resolveEntitlement = async (
+  req: PayloadRequest,
+  site: Record<string, unknown>,
+): Promise<SiteEntitlement> => {
+  const phase = billingCutoverPhase()
+  const siteId = String(site.id)
+  const projection = phase === 'legacy' ? null : await readProjection(req, siteId).catch(() => null)
+
+  if (phase === 'dual' && projection) {
+    const legacy = await resolveLegacyEntitlement(req, site)
+    const { compareEntitlement } = await import('@/billing/migration/report')
+    const mismatches = compareEntitlement(siteId, legacy, projection)
+    if (mismatches.length > 0) {
+      req.payload.logger.warn({ mismatches, msg: 'billing dual-read mismatch', siteId })
+    }
+    return legacy
+  }
+
+  if (projection && phase === 'central') return resolveFromProjection(req, site, projection)
+  return resolveLegacyEntitlement(req, site)
 }
 
 const countFor = async (req: PayloadRequest, collection: string, where: Where): Promise<number> => {
@@ -308,10 +432,17 @@ export const usageForSite = async (req: PayloadRequest, siteId: string): Promise
   }
 }
 
-/** How many pages of media a storage sum will read before it stops. 20 × 500 = 10k files. */
+/**
+ * Quota display for storage. Prefers the maintained byte total. The capped scan
+ * is only the fallback before that total exists, and it is approximate — it is
+ * not the billable `media.storage_byte_hour` meter.
+ */
 const MEDIA_SCAN_PAGES = 20
 
 const mediaStorageMb = async (req: PayloadRequest, siteId: string): Promise<number> => {
+  const exact = await storageBytesForSite(req, siteId).catch(() => null)
+  if (exact != null) return Math.round(exact / (1024 * 1024))
+
   let bytes = 0
   let page = 1
 

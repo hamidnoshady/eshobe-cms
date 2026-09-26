@@ -1,8 +1,9 @@
 import type { CollectionConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
-import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
+import { PLATFORM_GROUPS } from '@/admin/visibility'
 import { isEntitled, periodEnd, SUBSCRIPTION_STATUSES } from '@/lib/saas/plans'
+import { freezeCommercialWrites } from './hooks/freezeCommercialWrites'
 import { syncSubscriptionPeriod, oneSubscriptionPerSite } from './hooks/subscriptionLifecycle'
 
 const STATUS_LABELS: Record<(typeof SUBSCRIPTION_STATUSES)[number], string> = {
@@ -15,8 +16,10 @@ const STATUS_LABELS: Record<(typeof SUBSCRIPTION_STATUSES)[number], string> = {
 }
 
 /**
- * One site's commercial relationship with the platform: which plan, since when,
- * until when, and paid or not.
+ * Legacy archive of subscription rows. Commercial lifecycle, renewal, trial and
+ * past-due policy belong to cafe-restaurant-pos. This collection is not written
+ * by the application. `serving` for a live site comes from the central
+ * entitlement projection, not from these rows.
  *
  * ## Why a collection and not fields on `sites`
  *
@@ -43,17 +46,17 @@ const STATUS_LABELS: Record<(typeof SUBSCRIPTION_STATUSES)[number], string> = {
 export const Subscriptions: CollectionConfig<'subscriptions'> = {
   slug: 'subscriptions',
   access: {
-    create: platformAdmin,
-    delete: platformAdmin,
+    create: () => false,
+    delete: () => false,
     read: platformAdmin,
-    update: platformAdmin,
+    update: () => false,
   },
   admin: {
     defaultColumns: ['site', 'plan', 'status', 'currentPeriodEnd', 'autoRenew'],
     description:
-      'رابطهٔ مالی هر سایت با سکو: طرح، وضعیت، دورهٔ جاری و تمدید خودکار. تغییر طرح یک خرید است، نه ویرایش محتوا — فقط اپراتور.',
+      'بایگانی فقط‌خواندنیِ اشتراک‌های قدیمی. تمدید، تعویق و صورتحساب در پلتفرم اشوب است.',
     group: PLATFORM_GROUPS.billing,
-    hidden: hiddenFromCustomers,
+    hidden: true,
     useAsTitle: 'reference',
   },
   labels: { plural: 'اشتراک‌ها', singular: 'اشتراک' },
@@ -196,7 +199,7 @@ export const Subscriptions: CollectionConfig<'subscriptions'> = {
   ],
   hooks: {
     beforeChange: [syncSubscriptionPeriod],
-    beforeValidate: [oneSubscriptionPerSite],
+    beforeValidate: [freezeCommercialWrites, oneSubscriptionPerSite],
   },
   timestamps: true,
 }

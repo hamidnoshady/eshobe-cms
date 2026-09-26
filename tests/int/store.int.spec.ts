@@ -400,6 +400,11 @@ describe('store', () => {
          */
         'plans',
         'feature-flags',
+        // Billing service credentials and replay nonces are platform infrastructure,
+        // the same shape as `api-keys`. The outbox, samples, projection and storage
+        // clock are per-site and stay registered with the plugin.
+        'billing-service-credentials',
+        'billing-replay-nonces',
         'plugins',
         'theme-templates',
         /**

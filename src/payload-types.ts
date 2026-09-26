@@ -93,6 +93,12 @@ export interface Config {
     invoices: Invoice;
     'site-entitlements': SiteEntitlement;
     'usage-records': UsageRecord;
+    'central-entitlement-projections': CentralEntitlementProjection;
+    'billing-usage-outbox': BillingUsageOutbox;
+    'billing-usage-samples': BillingUsageSample;
+    'billing-storage-accounts': BillingStorageAccount;
+    'billing-service-credentials': BillingServiceCredential;
+    'billing-replay-nonces': BillingReplayNonce;
     'feature-flags': FeatureFlag;
     plugins: Plugin;
     'theme-templates': ThemeTemplate;
@@ -146,6 +152,12 @@ export interface Config {
     invoices: InvoicesSelect<false> | InvoicesSelect<true>;
     'site-entitlements': SiteEntitlementsSelect<false> | SiteEntitlementsSelect<true>;
     'usage-records': UsageRecordsSelect<false> | UsageRecordsSelect<true>;
+    'central-entitlement-projections': CentralEntitlementProjectionsSelect<false> | CentralEntitlementProjectionsSelect<true>;
+    'billing-usage-outbox': BillingUsageOutboxSelect<false> | BillingUsageOutboxSelect<true>;
+    'billing-usage-samples': BillingUsageSamplesSelect<false> | BillingUsageSamplesSelect<true>;
+    'billing-storage-accounts': BillingStorageAccountsSelect<false> | BillingStorageAccountsSelect<true>;
+    'billing-service-credentials': BillingServiceCredentialsSelect<false> | BillingServiceCredentialsSelect<true>;
+    'billing-replay-nonces': BillingReplayNoncesSelect<false> | BillingReplayNoncesSelect<true>;
     'feature-flags': FeatureFlagsSelect<false> | FeatureFlagsSelect<true>;
     plugins: PluginsSelect<false> | PluginsSelect<true>;
     'theme-templates': ThemeTemplatesSelect<false> | ThemeTemplatesSelect<true>;
@@ -192,6 +204,7 @@ export interface Config {
     tasks: {
       advanceDeployments: TaskAdvanceDeployments;
       storageHealthCheck: TaskStorageHealthCheck;
+      billingIntegration: TaskBillingIntegration;
       schedulePublish: TaskSchedulePublish;
       inline: {
         input: unknown;
@@ -2142,7 +2155,7 @@ export interface ResellerDomainEvent {
   createdAt: string;
 }
 /**
- * فهرست طرح‌های اشتراک سکو: قیمت، دورهٔ صورتحساب، سقف‌ها و امکاناتی که هر طرح باز می‌کند. سقف خالی یا صفر یعنی بی‌نهایت.
+ * بایگانی فقط‌خواندنیِ طرح‌های قدیمی. قیمت و طرح تجاری در پلتفرم اشوب است، نه اینجا.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "plans".
@@ -2225,9 +2238,13 @@ export interface FeatureFlag {
   label: string;
   category?: ('general' | 'content' | 'commerce' | 'infrastructure' | 'integration') | null;
   /**
-   * پایین‌ترین لایه: وقتی نه طرح و نه سایت نظری ندارند، همین تعیین‌کننده است.
+   * فقط تا رسیدن تصویر مرکزی معنا دارد. بعد از آن حق تجاری را اعطا نمی‌کند.
    */
   defaultEnabled?: boolean | null;
+  /**
+   * خاموش یعنی این نسخهٔ سکو قابلیت را اجرا نمی‌کند، حتی اگر مشتری آن را خریده باشد.
+   */
+  technicallyAvailable?: boolean | null;
   /**
    * این امکان دقیقاً چه چیزی را باز می‌کند — برای اپراتوری که شش ماه بعد آن را می‌خواند.
    */
@@ -2236,7 +2253,7 @@ export interface FeatureFlag {
   createdAt: string;
 }
 /**
- * رابطهٔ مالی هر سایت با سکو: طرح، وضعیت، دورهٔ جاری و تمدید خودکار. تغییر طرح یک خرید است، نه ویرایش محتوا — فقط اپراتور.
+ * بایگانی فقط‌خواندنیِ اشتراک‌های قدیمی. تمدید، تعویق و صورتحساب در پلتفرم اشوب است.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "subscriptions".
@@ -2295,7 +2312,7 @@ export interface Subscription {
   createdAt: string;
 }
 /**
- * صورتحساب‌های سکو برای مشتری‌ها. جمع‌ها از روی ردیف‌ها محاسبه می‌شوند و دستی قابل تغییر نیستند؛ مبالغ در واحد خردِ ارز همان صورتحساب‌اند.
+ * بایگانی فقط‌خواندنیِ صورتحساب‌های قدیمی. مبلغ مشتری اینجا محاسبه نمی‌شود.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "invoices".
@@ -2357,7 +2374,7 @@ export interface Invoice {
   createdAt: string;
 }
 /**
- * استثناهای هر سایت: امکاناتی که دستی روشن/خاموش شده‌اند و سقف‌هایی که جدا از طرح تغییر کرده‌اند. آخرین لایه در ترتیب حل‌شدن.
+ * نگه‌داشت فنی و سیاست اعمال سقف. روشن‌کردن امکان پولی و سقف تجاری از تصویر مرکزی می‌آید و اینجا نوشته نمی‌شود.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "site-entitlements".
@@ -2365,6 +2382,18 @@ export interface Invoice {
 export interface SiteEntitlement {
   id: string;
   site?: (string | null) | Site;
+  /**
+   * فهرستی از کلید امکاناتی که به‌خاطر یک مشکل فنی موقتاً خاموش‌اند. این فهرست هیچ امکانی را روشن نمی‌کند.
+   */
+  technicalHolds?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   /**
    * هر ردیف، نظر نهایی دربارهٔ یک امکان برای همین سایت است — چه طرح آن را داده باشد و چه نداده باشد.
    */
@@ -2401,7 +2430,7 @@ export interface SiteEntitlement {
   createdAt: string;
 }
 /**
- * شمارندهٔ مصرف برای سنجه‌هایی که از روی جدول‌ها قابل شمارش نیستند (مثل تعداد درخواست API). هر ردیف، یک سنجه در یک دورهٔ ماهانه است.
+ * شمارندهٔ تقریبی سهمیهٔ عملیاتی (مثلاً درخواست API در ماه). این جدول صورتحساب نیست و افزایش‌های هم‌زمان ممکن است گم شوند.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "usage-records".
@@ -2430,6 +2459,189 @@ export interface UsageRecord {
    * برای تشخیص شمارندهٔ متوقف‌شده از شمارندهٔ صفر.
    */
   lastEventAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * تصویر فقط‌خواندنیِ تصمیم پلتفرم اشوب برای این سایت. طرح و قیمت اینجا ویرایش نمی‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "central-entitlement-projections".
+ */
+export interface CentralEntitlementProjection {
+  id: string;
+  site?: (string | null) | Site;
+  version: number;
+  serving: boolean;
+  planCode?: string | null;
+  subscriptionStatus?: string | null;
+  features?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  limits?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  billingCycleStart?: string | null;
+  billingCycleEnd?: string | null;
+  effectiveAt?: string | null;
+  receivedAt?: string | null;
+  source: 'push' | 'pull' | 'migration';
+  checksum?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * رویدادهای مصرفی که برای صورت‌حساب مرکزی صف شده‌اند. این جدول قیمت محاسبه نمی‌کند؛ فقط مقدار سنجه را تا گرفتن رسید نگه می‌دارد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-usage-outbox".
+ */
+export interface BillingUsageOutbox {
+  id: string;
+  site?: (string | null) | Site;
+  eventId: string;
+  meterKey:
+    | 'cms.api_request'
+    | 'cms.origin_transfer_bytes'
+    | 'cms.bandwidth_bytes'
+    | 'media.storage_byte_hour'
+    | 'cms.deployment'
+    | 'cms.build_second';
+  quantity: number;
+  unit: string;
+  kind: 'measurement' | 'correction';
+  resourceType?: string | null;
+  resourceId?: string | null;
+  periodStart: string;
+  periodEnd: string;
+  occurredAt: string;
+  dimensions?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'dead_letter';
+  attemptCount?: number | null;
+  nextAttemptAt?: string | null;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  sentAt?: string | null;
+  correctsEventId?: string | null;
+  correctionReason?: string | null;
+  actor?: string | null;
+  leaseToken?: string | null;
+  /**
+   * مقداری که مرکزی پذیرفته است. اختلاف بعدی یک اصلاحیه است، نه ویرایش این ردیف.
+   */
+  exportedQuantity?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * نمونه‌های خام مصرف، پیش از جمع‌شدن در یک رویداد ساعتی. این جدول صورتحساب نیست.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-usage-samples".
+ */
+export interface BillingUsageSample {
+  id: string;
+  site?: (string | null) | Site;
+  meterKey:
+    | 'cms.api_request'
+    | 'cms.origin_transfer_bytes'
+    | 'cms.bandwidth_bytes'
+    | 'media.storage_byte_hour'
+    | 'cms.deployment'
+    | 'cms.build_second';
+  quantity: number;
+  unit: string;
+  periodStart: string;
+  periodEnd: string;
+  occurredAt: string;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  dimensions?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  source?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * جمع بایت‌های ذخیره‌شده و انتگرال ساعت‌بایت. برای سهمیهٔ تقریبی اسکن فایل‌ها استفاده نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-storage-accounts".
+ */
+export interface BillingStorageAccount {
+  id: string;
+  site?: (string | null) | Site;
+  bytes: number;
+  accruedByteMs: string;
+  openHourStart: string;
+  accountedAt: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * اعتبارنامهٔ سرویس صورت‌حساب. راز فقط یک‌بار هنگام صدور نشان داده می‌شود و بعد از آن خالی برمی‌گردد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-service-credentials".
+ */
+export interface BillingServiceCredential {
+  id: string;
+  label: string;
+  keyId: string;
+  /**
+   * ذخیرهٔ رمزشده. در خواندن خالی است.
+   */
+  secret: string;
+  status: 'active' | 'revoked';
+  scopes?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  lastUsedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-replay-nonces".
+ */
+export interface BillingReplayNonce {
+  id: string;
+  keyId: string;
+  bodyHash: string;
+  seenAt: string;
   updatedAt: string;
   createdAt: string;
 }
@@ -2891,7 +3103,7 @@ export interface PayloadJob {
     | {
         executedAt: string;
         completedAt: string;
-        taskSlug: 'inline' | 'advanceDeployments' | 'storageHealthCheck' | 'schedulePublish';
+        taskSlug: 'inline' | 'advanceDeployments' | 'storageHealthCheck' | 'billingIntegration' | 'schedulePublish';
         taskID: string;
         input?:
           | {
@@ -2924,7 +3136,7 @@ export interface PayloadJob {
         id?: string | null;
       }[]
     | null;
-  taskSlug?: ('inline' | 'advanceDeployments' | 'storageHealthCheck' | 'schedulePublish') | null;
+  taskSlug?: ('inline' | 'advanceDeployments' | 'storageHealthCheck' | 'billingIntegration' | 'schedulePublish') | null;
   queue?: string | null;
   waitUntil?: string | null;
   processing?: boolean | null;
@@ -3050,6 +3262,30 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'usage-records';
         value: string | UsageRecord;
+      } | null)
+    | ({
+        relationTo: 'central-entitlement-projections';
+        value: string | CentralEntitlementProjection;
+      } | null)
+    | ({
+        relationTo: 'billing-usage-outbox';
+        value: string | BillingUsageOutbox;
+      } | null)
+    | ({
+        relationTo: 'billing-usage-samples';
+        value: string | BillingUsageSample;
+      } | null)
+    | ({
+        relationTo: 'billing-storage-accounts';
+        value: string | BillingStorageAccount;
+      } | null)
+    | ({
+        relationTo: 'billing-service-credentials';
+        value: string | BillingServiceCredential;
+      } | null)
+    | ({
+        relationTo: 'billing-replay-nonces';
+        value: string | BillingReplayNonce;
       } | null)
     | ({
         relationTo: 'feature-flags';
@@ -4168,6 +4404,7 @@ export interface InvoicesSelect<T extends boolean = true> {
  */
 export interface SiteEntitlementsSelect<T extends boolean = true> {
   site?: T;
+  technicalHolds?: T;
   features?:
     | T
     | {
@@ -4211,6 +4448,115 @@ export interface UsageRecordsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "central-entitlement-projections_select".
+ */
+export interface CentralEntitlementProjectionsSelect<T extends boolean = true> {
+  site?: T;
+  version?: T;
+  serving?: T;
+  planCode?: T;
+  subscriptionStatus?: T;
+  features?: T;
+  limits?: T;
+  billingCycleStart?: T;
+  billingCycleEnd?: T;
+  effectiveAt?: T;
+  receivedAt?: T;
+  source?: T;
+  checksum?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-usage-outbox_select".
+ */
+export interface BillingUsageOutboxSelect<T extends boolean = true> {
+  site?: T;
+  eventId?: T;
+  meterKey?: T;
+  quantity?: T;
+  unit?: T;
+  kind?: T;
+  resourceType?: T;
+  resourceId?: T;
+  periodStart?: T;
+  periodEnd?: T;
+  occurredAt?: T;
+  dimensions?: T;
+  status?: T;
+  attemptCount?: T;
+  nextAttemptAt?: T;
+  lastAttemptAt?: T;
+  lastError?: T;
+  sentAt?: T;
+  correctsEventId?: T;
+  correctionReason?: T;
+  actor?: T;
+  leaseToken?: T;
+  exportedQuantity?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-usage-samples_select".
+ */
+export interface BillingUsageSamplesSelect<T extends boolean = true> {
+  site?: T;
+  meterKey?: T;
+  quantity?: T;
+  unit?: T;
+  periodStart?: T;
+  periodEnd?: T;
+  occurredAt?: T;
+  resourceType?: T;
+  resourceId?: T;
+  dimensions?: T;
+  source?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-storage-accounts_select".
+ */
+export interface BillingStorageAccountsSelect<T extends boolean = true> {
+  site?: T;
+  bytes?: T;
+  accruedByteMs?: T;
+  openHourStart?: T;
+  accountedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-service-credentials_select".
+ */
+export interface BillingServiceCredentialsSelect<T extends boolean = true> {
+  label?: T;
+  keyId?: T;
+  secret?: T;
+  status?: T;
+  scopes?: T;
+  lastUsedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-replay-nonces_select".
+ */
+export interface BillingReplayNoncesSelect<T extends boolean = true> {
+  keyId?: T;
+  bodyHash?: T;
+  seenAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "feature-flags_select".
  */
 export interface FeatureFlagsSelect<T extends boolean = true> {
@@ -4218,6 +4564,7 @@ export interface FeatureFlagsSelect<T extends boolean = true> {
   label?: T;
   category?: T;
   defaultEnabled?: T;
+  technicallyAvailable?: T;
   description?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -4763,7 +5110,7 @@ export interface Payment {
   createdAt?: string | null;
 }
 /**
- * رفتار کلی سکو: هویت، سیاست اعمال سقف‌ها، صورتحساب، نگهداشت گزارش‌ها و حالت تعمیر. هر چیزی که برای هر مشتری فرق می‌کند، جای دیگری تعریف می‌شود.
+ * رفتار کلی سکو: هویت، سیاست اعمال سقف‌ها، نگهداشت گزارش‌ها و حالت تعمیر. قیمت، اشتراک و صورتحساب مشتری در سکوی اشوبه است، نه اینجا.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "platform-settings".
@@ -4771,7 +5118,7 @@ export interface Payment {
 export interface PlatformSetting {
   id: string;
   /**
-   * در ایمیل‌ها، صورتحساب‌ها و پاسخ API معرفی می‌شود.
+   * در ایمیل‌ها و پاسخ API معرفی می‌شود.
    */
   platformName?: string | null;
   supportEmail?: string | null;
@@ -4806,17 +5153,11 @@ export interface PlatformSetting {
    */
   suspendOnQuotaExceeded?: boolean | null;
   invoiceDueDays?: number | null;
-  /**
-   * روی صورتحساب‌های تازه اعمال می‌شود؛ صورتحساب‌های گذشته تغییر نمی‌کنند.
-   */
   taxPercent?: number | null;
   /**
-   * در پایان هر دوره، برای اشتراک‌های «تمدید خودکار» یک صورتحساب پیش‌نویس ساخته می‌شود. پرداخت خودکار انجام نمی‌شود.
+   * دیگر اجرا نمی‌شود. تمدید و صورتحساب در سکوی اشوبه است.
    */
   autoRenewInvoices?: boolean | null;
-  /**
-   * شمارهٔ اقتصادی، شرایط پرداخت، هر چیزی که باید پای هر صورتحساب بیاید.
-   */
   invoiceFooter?: string | null;
   /**
    * یک اعلام وضعیت است که در API گزارش می‌شود تا برنامه‌های متصل بدانند تغییرات را متوقف کنند. سایت‌های مشتری‌ها را خاموش نمی‌کند.
@@ -4956,6 +5297,16 @@ export interface TaskStorageHealthCheck {
   input?: unknown;
   output: {
     checked?: boolean | null;
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskBillingIntegration".
+ */
+export interface TaskBillingIntegration {
+  input?: unknown;
+  output: {
+    published?: number | null;
   };
 }
 /**

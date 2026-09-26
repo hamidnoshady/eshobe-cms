@@ -92,7 +92,7 @@ action.
 
 ---
 
-# The SaaS control plane
+# The execution plane
 
 > Everything above administers the **fleet** — which sites exist, what is in them.
 > Everything below administers the **business**: who is on which plan, what they owe,
@@ -109,7 +109,9 @@ Code: `src/endpoints/platformSaas.ts` and `src/endpoints/webhooks.ts` (HTTP),
 ## 5. The admin panel is split by role
 
 A platform admin opening `/admin` does **not** see pages, posts, media, products or
-orders; a customer's staff do not see plans, invoices, webhooks or the audit log.
+orders; a customer's staff do not see webhooks, the audit log, or the billing
+outbox. Plans, subscriptions and invoices are a hidden archive, not a nav group.
+Commercial authority is [cafe-restaurant-pos](./billing-integration.md).
 `src/admin/visibility.ts` is the whole mechanism (`hiddenFromOperators` /
 `hiddenFromCustomers`), and `beforeDashboard` replaces Payload's collection-count
 grid with the operator's report for platform admins only.
@@ -132,18 +134,16 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
 
 | Route | What it answers |
 |---|---|
-| `GET /api/platform/saas/overview?days=30` | The commercial report: subscriptions by status and by plan, billed/collected/outstanding **per currency**, overdue invoices, plugin and theme counts, webhook health, audit volume, and the live quota/maintenance/signup policy. |
-| `GET /api/platform/plans` | The catalogue: code, name, price, interval, limits, features, active. |
-| `GET /api/platform/subscriptions?status=&site=&limit=&page=` | Who is on what, with the period end and any limit overrides. |
-| `POST /api/platform/subscriptions` | **Upsert** one site's subscription. `{ siteId, plan, status?, currentPeriodEnd?, limitOverrides? }`; `plan` is a uuid **or** a plan `code`. 201 on create, 200 on change. |
-| `PATCH /api/platform/subscriptions/:id` | Status, period, overrides. |
-| `GET /api/platform/invoices?status=&site=&limit=&page=` | Invoices with their lines and totals. |
-| `POST /api/platform/invoices` | `{ siteId, lines[{description,quantity,unitAmount}], currency?, taxPercent?, discount?, dueAt?, subscriptionId? }`. Totals are derived, never accepted. |
-| `POST /api/platform/invoices/:id/pay` | `{ reference?, paidAt? }`. Marks paid, clears a `pastDue` subscription, **409 if already paid**. |
-| `GET /api/platform/sites/:id/entitlement` | The resolved answer for one site: plan, limits, features, `serving`, enforcement policy. |
-| `GET /api/platform/sites/:id/quota` | Usage against limits, per metric, with `over`/`warning` lists. |
-| `POST /api/platform/sites/:id/usage` | Report metered usage from outside (`{ metric, amount, period? }`). |
-| `POST /api/platform/sites/:id/features` | Force a flag on or off for one site (`{ key, enabled, reason? }`). |
+| `GET /api/platform/saas/overview?days=30` | Execution-plane report: billing-outbox health, entitlement sync, plugins, themes, webhooks, audit volume, quota policy. No revenue. |
+| `GET|POST /api/platform/plans`, `/subscriptions`, `/invoices` and `POST /invoices/:id/pay` | **410.** Commercial management lives in cafe-restaurant-pos. |
+| `GET /api/platform/billing/health` | Outbox counts, oldest unsent usage, last successful publish, sites missing a projection. |
+| `POST /api/platform/billing/entitlements/v1` | Signed `billing.entitlement.write`. Monotonic projection upsert. |
+| `POST /api/platform/billing/usage/v1` | Signed `billing.usage.write`. Ingest-only meters into the outbox. |
+| `GET /api/platform/sites/:id/billing` | Read-only central status for one site: plan code, version, serving, unsent usage. |
+| `GET /api/platform/sites/:id/entitlement` | The resolved answer for one site: projection or legacy fallback, limits, features, `serving`. |
+| `GET /api/platform/sites/:id/quota` | Local usage against projected limits. No call to central Billing. |
+| `POST /api/platform/sites/:id/usage` | Approximate quota counter only. A billing meter key is refused. |
+| `POST /api/platform/sites/:id/features` | Technical hold (`enabled: false`) only. `enabled: true` is **409**. |
 | `POST /api/platform/sites/:id/theme` | Apply a catalogue template (`{ theme }` — key or uuid). A copy, not a link. |
 | `GET /api/platform/plugins?site=` | Installed plugins. **Never their credentials.** |
 | `PATCH /api/platform/plugins/:id` | Enable, disable, reconfigure. |
@@ -183,33 +183,19 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
   `config.endpoints`, so a top-level `/webhooks/test` would 404 forever while the int
   suite stayed green. They live on `Webhooks.endpoints`. Same trap as
   `/api/api-keys/issue`.
-- **Blank and zero mean unlimited.** A plan row saved with an empty `posts` box must
-  mean "we did not limit posts", never "zero posts allowed" — a new plan's boxes are
-  empty by default. `normalizeLimit` is the single implementation.
 - **Quota enforcement is off unless asked for.** The platform default is `warn`: the
   overage is reported, nobody is blocked. `enforce` is opt-in, per site
-  (`site-entitlements.quotaEnforcement`) or platform-wide. A quota system that
-  defaults to blocking turns a half-configured plan into an outage with no
-  explanation. A platform admin is **never** blocked — support work happens over a
-  customer's limit by definition.
-- **`pastDue` keeps a site serving.** A missed payment is a conversation; suspension
-  is a separate, deliberate operator action. Paying the invoice clears the flag
-  automatically, because leaving that to a human is how a paying customer keeps
-  getting dunning emails.
-- **One live subscription per site.** `POST /platform/subscriptions` upserts.
-  "Which plan is this customer on?" must have exactly one answer, and two rows is how
-  somebody gets billed twice.
-- **Invoice totals are derived server-side.** `subtotal`, `tax`, `total` and each
-  line's `amount` have `access.update: false`, so a posted total never existed. An
-  invoice whose printed figure disagrees with its lines cannot be constructed through
-  any API here. Paying twice is a **409**, not an overwrite: the second call would
-  replace the reference of the payment that really happened.
-- **Money stays per currency, in minor units** — same rule as the fleet report, same
-  `accumulateOrderTotals`.
-- **Entitlement resolves in one place, in one order:** plan → subscription
-  `limitOverrides` → `site-entitlements` `limitOverrides`, and only non-null values
-  override. Plan *features* grant nothing unless the subscription is `serving`,
-  otherwise a cancelled customer keeps every paid feature until somebody notices.
+  (`site-entitlements.quotaEnforcement`) or platform-wide. A platform admin is
+  **never** blocked.
+- **Commercial serving comes from the entitlement projection.** A `past_due`
+  subscription status does not suspend the CMS site. Technical suspension is
+  `sites.status`.
+- **CMS does not price, invoice or wallet a customer.** Those routes are 410.
+  Meter quantities and the projection cache are documented in
+  [`billing-integration.md`](./billing-integration.md).
+- **Entitlement resolves in one place.** A central projection, then a technical
+  hold that can only disable. The legacy plan/subscription merge is a read-only
+  fallback when no projection has arrived.
 - **A theme template is copied, never linked.** Editing the catalogue must not
   repaint twenty live customers, and after a copy nobody could tell which sites had
   been customised since. `applyThemeTemplate` writes an explicit token allowlist, so

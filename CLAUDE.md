@@ -126,14 +126,18 @@ contract is [`docs/platform-control-api.md`](./docs/platform-control-api.md).
   `storage-connections/self-test`) and the platform-wide CDN trio accept a platform key.
   **`payments/cancel` does not** — a refund moves a buyer's money.
 
-## The SaaS control plane (superadmin)
+## The execution plane (superadmin)
 
-The commercial half of the same surface — plans, subscriptions, invoices,
-entitlements, quotas, plugins, themes, feature flags, webhooks, the audit trail and
-platform settings. Code in `src/endpoints/platformSaas.ts` +
-`src/endpoints/webhooks.ts` + `src/platform/{entitlements,saas-report,webhooks,audit,usage}.ts`
-+ `src/lib/saas/*`; the contract is in the same
-[`docs/platform-control-api.md`](./docs/platform-control-api.md), §5–8.
+cafe-restaurant-pos is the commercial authority: plans, prices, subscriptions,
+invoices, wallets and credits. This CMS enforces a cached entitlement projection
+and reports meter quantities. It does not price a customer. The contract is
+[`docs/billing-integration.md`](./docs/billing-integration.md). Operator routes
+that used to manage plans, subscriptions and invoices answer **410**. The
+collections remain as a hidden read-only archive; `freezeCommercialWrites`
+refuses every writer, including `overrideAccess`.
+
+Code: `src/billing/*`, `src/endpoints/platformBilling.ts`,
+`src/endpoints/platformSaas.ts`, `src/platform/entitlements.ts`.
 
 - **The admin panel is split by role, and that is navigation, not authority.**
   `src/admin/visibility.ts` hides the content collections from a platform admin and
@@ -144,28 +148,28 @@ platform settings. Code in `src/endpoints/platformSaas.ts` +
   `access.read` that actually enforces it. `PLATFORM_ADMIN_SHOW_SITE_COLLECTIONS=true`
   is the escape hatch, and `playwright.config.ts` sets it because the e2e fixture user
   is a platform admin editing content.
-- **Endpoint order in `payload.config.ts` is load-bearing.** `platformSaasEndpoints`
-  is spread **before** `platformControlEndpoints`, whose bare `/platform/sites/:id`
-  would otherwise match the literal segment `quota` and answer 200 with a site
-  document. A wrong-body 200 is worse than a 404 — every caller parses it. Pin any new
-  `:id` sibling with an HTTP test (`tests/e2e/superadmin.e2e.spec.ts`).
+- **Endpoint order in `payload.config.ts` is load-bearing.** `platformBillingEndpoints`
+  and `platformSaasEndpoints` are spread **before** `platformControlEndpoints`, whose
+  bare `/platform/sites/:id` would otherwise match the literal segment `quota` or
+  `billing` and answer 200 with a site document. A wrong-body 200 is worse than a
+  404 — every caller parses it. Pin any new `:id` sibling with an HTTP test
+  (`tests/e2e/superadmin.e2e.spec.ts`).
 - **Webhook lifecycle routes are collection endpoints**, on `Webhooks.endpoints`.
   Same rule as `/api/api-keys/issue`: a top-level path whose first segment is a
   collection slug never routes.
-- **Blank and zero mean unlimited** (`normalizeLimit`). A plan saved with an empty
-  `posts` box must not mean "zero posts allowed".
+- **Blank and zero mean unlimited inside local quota arithmetic** (`normalizeLimit`).
+  The cross-service entitlement contract does not use that ambiguity: a limit clause
+  is `{ state: 'limit', value }` or `{ state: 'unlimited' }`, and an absent key is
+  unspecified.
 - **Quota enforcement defaults to `warn`.** Report the overage, block nobody;
   `enforce` is opt-in per site or platform-wide. A platform admin is never blocked —
-  support happens over a customer's limit by definition. `pastDue` keeps a site
-  serving; suspension is a separate deliberate action, and paying the invoice clears
-  the flag automatically.
-- **Derived money is unwritable.** Invoice `subtotal`/`tax`/`total` and line `amount`
-  have `access.update: false` and are recomputed in `beforeChange`, so a posted total
-  never existed. Paying an already-paid invoice is a 409, not an overwrite. One live
-  subscription per site; `POST /platform/subscriptions` upserts.
+  support happens over a customer's limit by definition. Commercial `past_due` does
+  not suspend the site; only the projection's `serving` flag and the separate
+  technical `sites.status` do.
 - **Entitlement resolves in exactly one place** (`src/platform/entitlements.ts`):
-  plan → subscription overrides → site overrides, non-null only. Plan features grant
-  nothing unless the subscription is `serving`.
+  the central projection, then a technical hold that can only disable. The legacy
+  plan → subscription → site-override merge is a read-only fallback for a site that
+  has no projection yet. A CMS write cannot grant a paid feature.
 - **Theme templates are copied, not linked** — editing the catalogue must not repaint
   live customers — and `applyThemeTemplate` copies an explicit token allowlist, so a
   token added later is left alone rather than blanked.

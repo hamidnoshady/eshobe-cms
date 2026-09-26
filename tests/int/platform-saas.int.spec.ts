@@ -33,26 +33,10 @@ import { normalizeLimit, QUOTA_METRICS } from '@/lib/saas/plans'
 import { resolveEntitlement } from '@/platform/entitlements'
 
 /**
- * `/api/platform/*`, the commercial half — plans, subscriptions, invoices,
- * entitlements, plugins, themes, feature flags, settings and the audit trail. The
- * sibling POS's «سایت‌ساز» console runs the business through exactly these handlers,
- * so what they refuse matters as much as what they return.
- *
- * What this spec pins, beyond "the handlers answer":
- *
- *  - a **site** key reaches none of the operator surface, and anonymous reaches
- *    nothing at all — but a site key *can* read its own entitlement, which is the
- *    one route on this surface a customer's own app is meant to call;
- *  - `PATCH /platform/settings` is refused even to a platform *key* — rewriting the
- *    platform's own policy is a human decision with a session behind it;
- *  - entitlement resolution is plan → subscription override → site override, and a
- *    site with no subscription is entitled to nothing;
- *  - a quota is only *enforced* when the resolved policy says `enforce`; the default
- *    is `warn`, and warn must not block a create;
- *  - money is never summed across currencies, and a paid invoice revives a `pastDue`
- *    subscription;
- *  - secrets (a webhook's signing secret, a plugin's credentials) never come back
- *    out of a list endpoint.
+ * `/api/platform/*` on the execution plane. Commercial plan, subscription and
+ * invoice writes are retired (410). Entitlement for a site with no central
+ * projection falls back to the read-only legacy merge, which entitles nothing
+ * when no archived subscription exists. Quota enforcement stays local.
  *
  * Run `pnpm seed` first.
  */
@@ -61,7 +45,6 @@ let payload: Payload
 const siteId = { acme: '', shop: '' }
 let platformKey = ''
 let siteKey = ''
-let planId = ''
 
 const userByEmail = async (email: string): Promise<TypedUser> => {
   const { docs } = await payload.find({
@@ -152,35 +135,6 @@ beforeAll(async () => {
 
   platformKey = await issueKey({ name: 'کنسول سکو (تست SaaS)', role: 'platform' })
   siteKey = await issueKey({ name: 'سایت آکمه (تست SaaS)', role: 'site', siteId: siteId.acme })
-
-  // The fixture plan. `pages: 2` is deliberately tiny so the quota assertions can
-  // actually reach the limit without seeding hundreds of documents.
-  const existing = await payload.find({
-    collection: 'plans',
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-    where: { code: { equals: 'test-starter' } },
-  })
-
-  planId = String(
-    existing.docs[0]?.id ??
-      (
-        await payload.create({
-          collection: 'plans',
-          data: {
-            active: true,
-            code: 'test-starter',
-            currency: 'IRT',
-            interval: 'monthly',
-            limits: { pages: 2, posts: 0, products: 50 },
-            name: 'استارتر تست',
-            price: 250_000,
-          },
-          overrideAccess: true,
-        })
-      ).id,
-  )
 })
 
 // ---------------------------------------------------------------------------
@@ -253,9 +207,6 @@ describe('admin visibility', () => {
   }
 
   const CONTROL_PLANE = [
-    'plans',
-    'subscriptions',
-    'invoices',
     'site-entitlements',
     'usage-records',
     'feature-flags',
@@ -278,6 +229,10 @@ describe('admin visibility', () => {
 
     for (const slug of CONTROL_PLANE) expect(resolve(slug, 'platformAdmin'), slug).toBe(false)
     for (const slug of SITE_CONTENT) expect(resolve(slug, 'platformAdmin'), slug).toBe(true)
+    // The commercial archive is not an operator screen.
+    for (const slug of ['plans', 'subscriptions', 'invoices']) {
+      expect(resolve(slug, 'platformAdmin'), slug).toBe(true)
+    }
   })
 
   it('shows a customer’s staff their website and not the control plane', () => {
@@ -308,24 +263,27 @@ describe('admin visibility', () => {
 describe('access', () => {
   const operatorRoutes = [
     ['saas/overview', saasOverviewEndpoint],
-    ['plans', plansListEndpoint],
-    ['subscriptions', subscriptionsListEndpoint],
-    ['invoices', invoicesListEndpoint],
     ['plugins', pluginsListEndpoint],
     ['features', featuresListEndpoint],
     ['audit', auditListEndpoint],
     ['settings', settingsGetEndpoint],
   ] as const
 
+  const retiredRoutes = [
+    ['plans', plansListEndpoint],
+    ['subscriptions', subscriptionsListEndpoint],
+    ['invoices', invoicesListEndpoint],
+  ] as const
+
   it('refuses an anonymous caller everywhere', async () => {
-    for (const [name, endpoint] of operatorRoutes) {
+    for (const [name, endpoint] of [...operatorRoutes, ...retiredRoutes]) {
       const res = await endpoint.handler!(await createLocalReq({}, payload))
       expect(res.status, name).toBe(403)
     }
   })
 
   it('refuses a site key everywhere on the operator surface', async () => {
-    for (const [name, endpoint] of operatorRoutes) {
+    for (const [name, endpoint] of [...operatorRoutes, ...retiredRoutes]) {
       const res = await endpoint.handler!(await reqWithKey(siteKey, withUrl('http://t/api/platform/x')))
       expect(res.status, name).toBe(403)
     }
@@ -335,7 +293,7 @@ describe('access', () => {
     // A site owner is an admin *of their website*. The platform's plans and every
     // other customer's invoices are not theirs to read, and the panel hiding the nav
     // link is not what stops them — this is.
-    for (const [name, endpoint] of operatorRoutes) {
+    for (const [name, endpoint] of [...operatorRoutes, ...retiredRoutes]) {
       const res = await endpoint.handler!(await reqAsEditor(withUrl('http://t/api/platform/x')))
       expect(res.status, name).toBe(403)
     }
@@ -347,6 +305,12 @@ describe('access', () => {
       expect(viaKey.status, `${name} (key)`).toBe(200)
       const viaSession = await endpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/x')))
       expect(viaSession.status, `${name} (session)`).toBe(200)
+    }
+    for (const [name, endpoint] of retiredRoutes) {
+      const viaKey = await endpoint.handler!(await reqWithKey(platformKey, withUrl('http://t/api/platform/x')))
+      expect(viaKey.status, `${name} (key)`).toBe(410)
+      const viaSession = await endpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/x')))
+      expect(viaSession.status, `${name} (session)`).toBe(410)
     }
   })
 
@@ -371,95 +335,46 @@ describe('access', () => {
     )
     expect(settings.maintenanceMode).not.toBe(true)
   })
+
+  it('refuses to write archived invoice settings', async () => {
+    const res = await settingsPatchEndpoint.handler!(
+      await reqAsAdmin(
+        withBody({
+          autoRenewInvoices: false,
+          invoiceDueDays: 1,
+          invoiceFooter: 'باید نادیده بماند',
+          taxPercent: 9,
+        }),
+      ),
+    )
+    expect(res.status).toBe(400)
+  })
 })
 
 // ---------------------------------------------------------------------------
-// Subscriptions and entitlement
+// Entitlement and retired commercial routes
 // ---------------------------------------------------------------------------
 
-describe('subscriptions and entitlement', () => {
-  it('entitles a site to nothing until it has a live subscription', async () => {
+describe('entitlement', () => {
+  it('entitles a site to nothing until a projection or archived subscription exists', async () => {
     const entitlement = await entitlementFor(siteId.shop)
     expect(entitlement.serving).toBe(false)
     expect(entitlement.plan).toBeNull()
-    // Not "unlimited": a site nobody is paying for has no plan's limits to inherit,
-    // and reporting unlimited here would make the overage report useless.
     expect(entitlement.featureMap).toEqual({})
   })
 
-  it('upserts rather than stacking a second subscription on one site', async () => {
-    // 201 the first time on a fresh database, 200 when a previous run already left a
-    // subscription here. Asserting either exactly would make the spec depend on
-    // whether `pnpm seed` had just run, which is not what it is testing.
-    const first = await subscriptionUpsertEndpoint.handler!(
+  it('refuses commercial subscription writes', async () => {
+    const res = await subscriptionUpsertEndpoint.handler!(
       await reqAsAdmin(withBody({ plan: 'test-starter', siteId: siteId.acme, status: 'active' })),
     )
-    expect([200, 201]).toContain(first.status)
-
-    // The second call must be an *update*, hence 200 and never 201 — that is the
-    // upsert, and a 201 here would mean a second row.
-    const second = await subscriptionUpsertEndpoint.handler!(
-      await reqAsAdmin(withBody({ plan: 'test-starter', siteId: siteId.acme, status: 'active' })),
-    )
-    expect(second.status).toBe(200)
-
-    const { totalDocs } = await payload.count({
-      collection: 'subscriptions',
-      overrideAccess: true,
-      where: { site: { equals: siteId.acme } },
-    })
-    // One site, one live subscription — "which plan is this customer on?" must have
-    // exactly one answer, and billing two rows at once is how a customer gets
-    // charged twice.
-    expect(totalDocs).toBe(1)
-  })
-
-  it('accepts a plan by code or by id', async () => {
-    const byId = await subscriptionUpsertEndpoint.handler!(
-      await reqAsAdmin(withBody({ plan: planId, siteId: siteId.acme, status: 'active' })),
-    )
-    expect(byId.status).toBe(200)
-
-    const missing = await subscriptionUpsertEndpoint.handler!(
-      await reqAsAdmin(withBody({ plan: 'no-such-plan', siteId: siteId.acme })),
-    )
-    expect(missing.status).toBe(404)
-  })
-
-  it('resolves plan limits, then subscription overrides, then site overrides', async () => {
-    const base = await entitlementFor(siteId.acme)
-    expect(base.serving).toBe(true)
-    expect(base.limits.pages).toBe(2)
-    // `posts: 0` on the plan is unlimited, so the merged map has no entry at all —
-    // "absent" and "unlimited" are deliberately the same state, which is what stops a
-    // half-filled plan row from reading as a limit of zero.
-    expect(base.limits.posts ?? null).toBeNull()
-
-    const { docs } = await payload.find({
-      collection: 'subscriptions',
-      depth: 0,
-      limit: 1,
-      overrideAccess: true,
-      where: { site: { equals: siteId.acme } },
-    })
-    await payload.update({
-      collection: 'subscriptions',
-      data: { limitOverrides: { pages: 9 } },
-      id: String(docs[0]!.id),
-      overrideAccess: true,
-    })
-
-    const overridden = await entitlementFor(siteId.acme)
-    expect(overridden.limits.pages).toBe(9)
-    // Only the stated key moves; an override object is a patch, not a replacement.
-    expect(overridden.limits.products).toBe(50)
-
-    await payload.update({
-      collection: 'subscriptions',
-      data: { limitOverrides: {} },
-      id: String(docs[0]!.id),
-      overrideAccess: true,
-    })
+    expect(res.status).toBe(410)
+    await expect(
+      payload.create({
+        collection: 'subscriptions',
+        data: { site: siteId.acme, status: 'active' } as never,
+        overrideAccess: true,
+      }),
+    ).rejects.toThrow(/بایگانی|پلتفرم/)
   })
 
   it('lets a site key read its own entitlement and nobody else’s', async () => {
@@ -467,63 +382,29 @@ describe('subscriptions and entitlement', () => {
     expect(mine.status).toBe(200)
     const body = await bodyOf(mine)
     expect(body.site.id).toBe(siteId.acme)
-    expect(body.serving).toBe(true)
-    // Deliberately not the exact counts: this is the one route a *customer's* app
-    // calls, and it gets what it can act on — am I served, which features, what am I
-    // out of — not a report on the operator's business.
+    expect(body.price).toBeUndefined()
+    expect(body.wallet).toBeUndefined()
     expect(body.quota.exceeded).toBeDefined()
+    expect(JSON.stringify(body)).not.toContain('businessId')
 
-    // A platform key has no single site, so this route has nothing to answer for it —
-    // it is the *customer's* view of its own plan, and the operator's view is
-    // `GET /platform/sites/:id/entitlement`.
     const operator = await selfEntitlementEndpoint.handler!(await reqWithKey(platformKey))
     expect(operator.status).toBe(403)
   })
 
-  it('reports usage against the limit without blocking anything by default', async () => {
+  it('reports quota state without a commercial total', async () => {
     const res = await siteQuotaEndpoint.handler!(
       await reqAsAdmin({ routeParams: { id: siteId.acme } } as Partial<PayloadRequest>),
     )
     expect(res.status).toBe(200)
     const body = await bodyOf(res)
-
-    // The platform default is `warn`: the report shows the overage, the customer is
-    // not stopped. Anything else makes a half-filled plan row an outage.
     expect(body.enforcement).toBe('warn')
     const pages = body.lines.find((line: { metric?: string }) => line.metric === 'pages')
-    expect(pages.limit).toBe(2)
     expect(typeof pages.used).toBe('number')
-  })
-
-  it('keeps a pastDue site serving', async () => {
-    const { docs } = await payload.find({
-      collection: 'subscriptions',
-      depth: 0,
-      limit: 1,
-      overrideAccess: true,
-      where: { site: { equals: siteId.acme } },
-    })
-    const id = String(docs[0]!.id)
-
-    await payload.update({ collection: 'subscriptions', data: { status: 'pastDue' }, id, overrideAccess: true })
-
-    const entitlement = await entitlementFor(siteId.acme)
-    // A missed payment is a conversation, not a kill switch: the site stays up and
-    // keeps its plan's limits. Suspension is a separate, deliberate operator action.
-    expect(entitlement.serving).toBe(true)
-    expect(entitlement.limits.pages).toBe(2)
-
-    await payload.update({ collection: 'subscriptions', data: { status: 'active' }, id, overrideAccess: true })
+    expect(body.revenue).toBeUndefined()
   })
 })
 
-// ---------------------------------------------------------------------------
-// Quota enforcement
-// ---------------------------------------------------------------------------
-
 describe('quota enforcement', () => {
-  // `layout` is required on `pages`; a bare title would fail validation before the
-  // quota hook is even reached, which would make these assertions pass vacuously.
   const pageData = (title: string) => ({
     layout: [{ blockType: 'content', columns: [] }],
     site: siteId.acme,
@@ -543,15 +424,32 @@ describe('quota enforcement', () => {
     await payload.delete({ collection: 'pages', id: String(created.id), overrideAccess: true })
   })
 
-  it('blocks a create with 402 once the site’s own policy says enforce', async () => {
-    // Enforcement set on the *site entitlement*, not the platform default — a single
-    // customer over their plan is the normal case, and the operator should be able
-    // to hold the line on one account without arming it for everyone.
+  it('blocks a create once projected limits and local enforce say so', async () => {
+    const { writeProjection } = await import('@/billing/entitlement/store')
+    const req = await reqAsAdmin()
+    const written = await writeProjection(req, {
+      features: {},
+      limits: { pages: { state: 'limit', value: 1 } },
+      planCode: 'central-starter',
+      serving: true,
+      siteId: siteId.acme,
+      source: 'push',
+      version: 1,
+    })
+    expect(written.ok).toBe(true)
+
     const entitlementDoc = await payload.create({
       collection: 'site-entitlements',
-      data: { limitOverrides: { pages: 1 }, quotaEnforcement: 'enforce', site: siteId.acme },
+      data: { limitOverrides: { pages: 999 }, quotaEnforcement: 'enforce', site: siteId.acme },
       overrideAccess: true,
     })
+    const stored = await payload.findByID({
+      collection: 'site-entitlements',
+      depth: 0,
+      id: String(entitlementDoc.id),
+      overrideAccess: true,
+    })
+    expect(stored.limitOverrides?.pages ?? null).toBeNull()
 
     try {
       const editor = await userByEmail('acme@eshobe.test')
@@ -564,8 +462,6 @@ describe('quota enforcement', () => {
         }),
       ).rejects.toThrow(/سقف|طرح/)
 
-      // …and a platform admin is never stopped: support work happens over the
-      // customer's limit by definition.
       const rescue = await payload.create({
         collection: 'pages',
         data: pageData('rescue') as never,
@@ -575,105 +471,44 @@ describe('quota enforcement', () => {
       expect(rescue.id).toBeTruthy()
       await payload.delete({ collection: 'pages', id: String(rescue.id), overrideAccess: true })
     } finally {
-      await payload.delete({
-        collection: 'site-entitlements',
-        id: String(entitlementDoc.id),
+      await payload.delete({ collection: 'site-entitlements', id: String(entitlementDoc.id), overrideAccess: true })
+      const { docs } = await payload.find({
+        collection: 'central-entitlement-projections',
+        depth: 0,
+        limit: 5,
         overrideAccess: true,
+        where: { site: { equals: siteId.acme } },
       })
+      for (const doc of docs) {
+        await payload.delete({ collection: 'central-entitlement-projections', id: String(doc.id), overrideAccess: true })
+      }
     }
   })
 })
 
-// ---------------------------------------------------------------------------
-// Invoices
-// ---------------------------------------------------------------------------
-
-describe('invoices', () => {
-  it('derives the total server-side and never trusts a posted one', async () => {
-    const res = await invoiceCreateEndpoint.handler!(
-      await reqAsAdmin(
-        withBody({
-          currency: 'IRT',
-          lines: [
-            { description: 'اشتراک ماهانه', quantity: 2, unitAmount: 250_000 },
-            { description: 'دامنه', quantity: 1, unitAmount: 100_000 },
-          ],
-          siteId: siteId.acme,
-          total: 1, // a client claiming the invoice is worth one rial
-        }),
-      ),
+describe('retired invoices', () => {
+  it('refuses invoice creation and payment', async () => {
+    const created = await invoiceCreateEndpoint.handler!(
+      await reqAsAdmin(withBody({ lines: [{ description: 'x', quantity: 1, unitAmount: 1 }], siteId: siteId.acme, total: 1 })),
     )
-    expect(res.status).toBe(201)
-    const { invoice } = await bodyOf(res)
-    expect(invoice.total).toBe(600_000)
-    expect(invoice.number).toMatch(/^INV-\d{4}-\d{6}$/)
-  })
-
-  it('marks an invoice paid once, and revives a pastDue subscription when it is', async () => {
-    const { docs: subs } = await payload.find({
-      collection: 'subscriptions',
-      depth: 0,
-      limit: 1,
-      overrideAccess: true,
-      where: { site: { equals: siteId.acme } },
-    })
-    const subscriptionId = String(subs[0]!.id)
-    await payload.update({
-      collection: 'subscriptions',
-      data: { status: 'pastDue' },
-      id: subscriptionId,
-      overrideAccess: true,
-    })
-
-    const created = await bodyOf(
-      await invoiceCreateEndpoint.handler!(
-        await reqAsAdmin(
-          withBody({
-            lines: [{ description: 'تمدید', quantity: 1, unitAmount: 250_000 }],
-            siteId: siteId.acme,
-            subscriptionId,
-          }),
-        ),
-      ),
-    )
-
+    expect(created.status).toBe(410)
     const paid = await invoicePayEndpoint.handler!(
-      await reqAsAdmin({
-        ...withBody({ reference: 'TEST-REF-1' }),
-        routeParams: { id: String(created.invoice.id) },
-      } as Partial<PayloadRequest>),
+      await reqAsAdmin({ ...withBody({ reference: 'TEST-REF-1' }), routeParams: { id: '00000000-0000-0000-0000-000000000000' } } as Partial<PayloadRequest>),
     )
-    expect(paid.status).toBe(200)
-    expect((await bodyOf(paid)).invoice.status).toBe('paid')
-
-    const after = await payload.findByID({
-      collection: 'subscriptions',
-      depth: 0,
-      id: subscriptionId,
-      overrideAccess: true,
-    })
-    // The whole point of recording the payment: the thing the customer was past due
-    // on is settled, so they are not past due any more. Leaving that to a human is
-    // how a paying customer keeps getting dunning emails.
-    expect(after.status).toBe('active')
-
-    const twice = await invoicePayEndpoint.handler!(
-      await reqAsAdmin({
-        ...withBody({ reference: 'TEST-REF-2' }),
-        routeParams: { id: String(created.invoice.id) },
-      } as Partial<PayloadRequest>),
-    )
-    expect(twice.status).toBe(409)
+    expect(paid.status).toBe(410)
+    await expect(
+      payload.create({ collection: 'invoices', data: { site: siteId.acme } as never, overrideAccess: true }),
+    ).rejects.toThrow(/بایگانی|پلتفرم/)
   })
 
-  it('reports money per currency, never as one number', async () => {
+  it('reports billing integration health instead of local revenue', async () => {
     const res = await saasOverviewEndpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/saas/overview')))
     const { overview } = await bodyOf(res)
-    expect(Array.isArray(overview.billing.collected)).toBe(true)
-    for (const row of overview.billing.collected) {
-      expect(typeof row.code).toBe('string')
-      expect(Number.isInteger(row.minorTotal)).toBe(true)
-    }
+    expect(overview.commercialAuthority).toBe('cafe-restaurant-pos')
+    expect(overview.billing.commercialAuthority).toBe('cafe-restaurant-pos')
+    expect(typeof overview.billing.outboxPending).toBe('number')
+    expect(overview.billing.collected).toBeUndefined()
+    expect(overview.subscriptions).toBeUndefined()
   })
 })
 
@@ -832,24 +667,32 @@ describe('extensions', () => {
     }
   })
 
-  it('overrides a feature flag for one site without touching the default', async () => {
+  it('refuses a commercial feature grant and records only a technical hold', async () => {
     const flag = await payload.create({
       collection: 'feature-flags',
-      data: { defaultEnabled: false, key: 'test-beta-editor', label: 'ویرایشگر آزمایشی' },
+      data: { defaultEnabled: false, key: 'test-beta-editor', label: 'ویرایشگر آزمایشی', technicallyAvailable: true },
       overrideAccess: true,
     })
 
     try {
-      const res = await siteFeatureEndpoint.handler!(
+      const granted = await siteFeatureEndpoint.handler!(
         await reqAsAdmin({
           ...withBody({ enabled: true, key: 'test-beta-editor', reason: 'مشتری آزمایشی' }),
           routeParams: { id: siteId.acme },
         } as Partial<PayloadRequest>),
       )
-      expect(res.status).toBe(200)
+      expect(granted.status).toBe(409)
+
+      const held = await siteFeatureEndpoint.handler!(
+        await reqAsAdmin({
+          ...withBody({ enabled: false, key: 'test-beta-editor', reason: 'خرابی موقت' }),
+          routeParams: { id: siteId.acme },
+        } as Partial<PayloadRequest>),
+      )
+      expect(held.status).toBe(200)
 
       const mine = await entitlementFor(siteId.acme)
-      expect(mine.featureMap['test-beta-editor']).toBe(true)
+      expect(mine.featureMap['test-beta-editor']).not.toBe(true)
 
       const other = await entitlementFor(siteId.shop)
       expect(other.featureMap['test-beta-editor']).not.toBe(true)
@@ -887,15 +730,6 @@ describe('audit trail', () => {
     expect(res.status).toBe(200)
     const { entries } = await bodyOf(res)
     expect(Array.isArray(entries)).toBe(true)
-
-    // The subscription upserts above went through `emitPlatformEvent`, so the trail
-    // has them — an operator surface with no record of who changed a customer's plan
-    // is not auditable.
-    const subscriptionEntry = entries.find((entry: { action?: string }) =>
-      String(entry.action ?? '').startsWith('subscription.'),
-    )
-    expect(subscriptionEntry).toBeTruthy()
-    expect(subscriptionEntry.actor).toBeTruthy()
 
     const text = JSON.stringify(entries)
     expect(text).not.toContain('super-secret-token')

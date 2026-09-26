@@ -5,7 +5,11 @@ import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { QUOTA_LABELS, QUOTA_METRICS } from '@/lib/saas/plans'
 
 /**
- * Metered usage that cannot be counted from the content tables.
+ * Approximate operational quota counter. Not a financial ledger.
+ *
+ * Concurrent increments can lose a count. That is acceptable for the quota
+ * UX of `apiRequestsPerMonth` and is never an input to an invoice. Billable
+ * quantities go through `billing-usage-outbox`.
  *
  * Most quotas are a `count` away — how many pages, how many products, how many
  * media files. Two are not: **API requests** and anything else that is an *event*
@@ -40,7 +44,7 @@ export const UsageRecords: CollectionConfig<'usage-records'> = {
   admin: {
     defaultColumns: ['site', 'metric', 'period', 'value', 'updatedAt'],
     description:
-      'شمارندهٔ مصرف برای سنجه‌هایی که از روی جدول‌ها قابل شمارش نیستند (مثل تعداد درخواست API). هر ردیف، یک سنجه در یک دورهٔ ماهانه است.',
+      'شمارندهٔ تقریبی سهمیهٔ عملیاتی (مثلاً درخواست API در ماه). این جدول صورتحساب نیست و افزایش‌های هم‌زمان ممکن است گم شوند.',
     group: PLATFORM_GROUPS.billing,
     hidden: hiddenFromCustomers,
     useAsTitle: 'metric',
