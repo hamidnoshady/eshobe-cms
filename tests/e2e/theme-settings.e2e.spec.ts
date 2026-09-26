@@ -4,7 +4,7 @@ import { login } from '../helpers/login'
 
 test.describe('Tenant theme settings UI', () => {
   test('renders the theme settings document view for a site owner', async ({ page }) => {
-    await login({ page, user: { email: 'acme@eshobe.test', password: 'password' } })
+    await login({ page, user: { email: 'acme@eshobe.test', password: 'test1234' } })
 
     const sitesRes = await page.request.get('http://localhost:3000/api/sites?limit=50&depth=0')
     const sites = (await sitesRes.json()) as { docs: { domain: string; id: string }[] }
