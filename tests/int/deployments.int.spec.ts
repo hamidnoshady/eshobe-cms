@@ -54,21 +54,18 @@ let siteKey = ''
 let targetId = ''
 let packageId = ''
 
+const rawManifest = (overrides: Record<string, unknown> = {}) => ({
+  build: { buildCommand: 'pnpm build', pack: 'nixpacks', port: 3000, startCommand: 'pnpm start' },
+  contractVersion: 1,
+  env: [{ key: 'MAP_API_KEY', labelFa: 'کلید نقشه', required: false, secret: true, source: 'tenant' }],
+  key: 'test-theme',
+  name: 'Test Theme',
+  siteTypes: ['business', 'portfolio', 'store'],
+  ...overrides,
+})
+
 const manifest = (overrides: Record<string, unknown> = {}): ThemeManifest => {
-  const parsed = parseThemeManifest(
-    {
-      build: { buildCommand: 'pnpm build', pack: 'nixpacks', port: 3000, startCommand: 'pnpm start' },
-      contractVersion: 1,
-      env: [
-        { key: 'MAP_API_KEY', labelFa: 'کلید نقشه', required: false, secret: true, source: 'tenant' },
-      ],
-      key: 'test-theme',
-      name: 'Test Theme',
-      siteTypes: ['business', 'portfolio', 'store'],
-      ...overrides,
-    },
-    1,
-  )
+  const parsed = parseThemeManifest(rawManifest(overrides), 1)
   if (!parsed.ok) throw new Error(parsed.errors.join(' '))
   return parsed.manifest
 }
@@ -200,7 +197,7 @@ beforeAll(async () => {
       defaultTarget: targetId,
       envSchema: manifest().env,
       key: 'test-theme',
-      manifest: manifest() as unknown as Record<string, unknown>,
+      manifest: rawManifest(),
       manifestSyncedAt: new Date().toISOString(),
       name: 'پوستهٔ تست',
       port: 3000,
@@ -491,7 +488,7 @@ describe('adopting a theme', () => {
     await payload.update({
       collection: 'theme-packages',
       data: {
-        manifest: manifest({ proxiesApi: true }) as unknown as Record<string, unknown>,
+        manifest: rawManifest({ proxiesApi: true }),
         proxiesApi: true,
       },
       id: packageId,
@@ -575,7 +572,7 @@ describe('the theme environment', () => {
 
     const result = await buildEnvironment({
       apiKey: 'eshobe_live_testkey',
-      manifest: manifest(),
+      manifest: rawManifest(),
       req,
       revalidateSecret: 'esrv_test',
       serviceDomain: 'preview.sites.test.invalid',
@@ -606,7 +603,7 @@ describe('the theme environment', () => {
 
     const { variables } = await buildEnvironment({
       apiKey: 'eshobe_live_testkey',
-      manifest: manifest(),
+      manifest: rawManifest(),
       req,
       revalidateSecret: 'esrv_test',
       serviceDomain: 'preview.sites.test.invalid',
@@ -632,7 +629,7 @@ describe('the theme environment', () => {
 
     const { variables } = await buildEnvironment({
       apiKey: null,
-      manifest: manifest(),
+      manifest: rawManifest(),
       req,
       revalidateSecret: 'esrv_test',
       serviceDomain: 'preview.sites.test.invalid',

@@ -6,7 +6,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
 import { siteDescriptor } from '@/endpoints/siteDescriptor'
-import { assertGenericSiteDescriptor, verifyRendererRevalidation } from '../fixtures/externalThemeRenderer'
+import {
+  assertGenericSiteDescriptor,
+  assertHostScopedDocs,
+  verifyRendererRevalidation,
+} from '../fixtures/externalThemeRenderer'
 import { signRendererBody } from '@/lib/renderer-webhook'
 
 /**
@@ -67,8 +71,16 @@ describe('external theme bootstrap fixture', () => {
       hostRead('acme.localhost', 'forms'),
     ])
 
+    const { docs: siteRows } = await payload.find({
+      collection: 'sites',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      where: { domain: { equals: 'acme.localhost' } },
+    })
+    const siteId = String(siteRows[0]?.id ?? '')
     expect(pages.length).toBeGreaterThan(0)
-    expect(new Set(pages.map((doc) => String((doc as { site?: unknown }).site))).size).toBeLessThanOrEqual(1)
+    assertHostScopedDocs(pages, siteId)
     expect(header).toHaveLength(1)
     expect(footer).toHaveLength(1)
     expect(posts.length + categories.length + forms.length).toBeGreaterThanOrEqual(0)

@@ -4,6 +4,8 @@
  */
 import { createHmac } from 'node:crypto'
 
+import { expect } from 'vitest'
+
 import { contractVersion } from '@eshobe/site-runtime'
 
 export type SiteDescriptor = {
@@ -43,4 +45,14 @@ export const assertGenericSiteDescriptor = (body: unknown): SiteDescriptor => {
 export const verifyRendererRevalidation = (secret: string, rawBody: string, signature: string) => {
   const expected = `sha256=${createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')}`
   return signature === expected
+}
+
+/** Minimal shape checks for headless collection rows a theme typically consumes. */
+export const assertHostScopedDocs = (
+  docs: { site?: unknown }[],
+  expectedSiteId: string,
+): void => {
+  const sites = new Set(docs.map((doc) => String((doc.site as { id?: string })?.id ?? doc.site)))
+  expect(sites.size).toBeLessThanOrEqual(1)
+  if (docs.length) expect(sites).toEqual(new Set([expectedSiteId]))
 }
