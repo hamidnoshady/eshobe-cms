@@ -1,8 +1,8 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
-import { THEME_PACKAGE_SYNC_CONTEXT_KEY } from '@/collections/ThemePackages'
-import { fetchThemeManifest } from '@/deploy/github'
+import { syncThemePackage } from '@/deploy/themePackageSync'
+import { previewHttpsUrl } from '@/lib/deploy/previewUrl'
 import { buildRoutingTable } from '@/deploy/routing'
 import {
   advanceDeployment,
@@ -17,6 +17,7 @@ import { isSafeGitRef } from '@/lib/deploy/manifest'
 import {
   DOMAIN_MODES,
   STALE_DOMAIN_MESSAGE,
+  applicationHostOf,
   isProductionMode,
   needsRedeploy,
   type DomainMode,
@@ -24,6 +25,7 @@ import {
 import { emitPlatformEvent } from '@/platform/webhooks'
 
 import { json, param, requireOperator, siteById } from './platformShared'
+import { themeGithubWebhookEndpoint } from './themeGithubWebhook'
 
 /**
  * `/api/platform/theme-packages/*` and `/api/platform/sites/:id/deployment*` — the
@@ -98,6 +100,7 @@ const deploymentRow = (
   needsRedeploy: needsRedeploy(doc, site),
   packageName: names.packages.get(String(idOf(doc.themePackage))) ?? null,
   previewDomain: doc.previewDomain ?? null,
+  previewOpenUrl: previewHttpsUrl(applicationHostOf(doc)),
   ref: doc.ref ?? null,
   site: idOf(doc.site),
   status: doc.status ?? 'queued',
@@ -249,63 +252,25 @@ export const themePackageSyncEndpoint: Endpoint = {
       return json({ message: 'نام شاخه یا تگ نامعتبر است.', ok: false }, 400)
     }
 
-    const result = await fetchThemeManifest(String(pkg.repository ?? ''), requestedRef)
+    const result = await syncThemePackage(req, pkg, requestedRef)
 
     if (!result.ok) {
-      await req.payload.update({
-        collection: 'theme-packages',
-        data: { syncError: result.errors.join('\n') },
-        depth: 0,
-        id,
-        overrideAccess: true,
-        req,
-      })
-      return json({ errors: result.errors, message: result.errors[0], ok: false }, 422)
+      return json({ errors: result.errors, message: result.message, ok: false }, 422)
     }
 
-    const { manifest } = result
-
-    const updated = await req.payload.update({
+    const updated = await req.payload.findByID({
       collection: 'theme-packages',
-      // Tells `forgetSyncedCommitOnRefEdit` this write *is* the sync — the one writer
-      // allowed to set the ref and the commit it resolved together.
-      context: { [THEME_PACKAGE_SYNC_CONTEXT_KEY]: true },
-      data: {
-        buildPack: manifest.build.buildPack,
-        contractVersion: manifest.contractVersion,
-        defaultRef: requestedRef,
-        envSchema: manifest.env,
-        healthCheckPath: manifest.build.healthCheckPath,
-        manifest: manifest as unknown as Record<string, unknown>,
-        manifestSyncedAt: new Date().toISOString(),
-        port: manifest.build.port,
-        proxiesApi: manifest.proxiesApi,
-        siteTypes: manifest.siteTypes,
-        // What the ref resolved to *now* — the basis of every "new version available"
-        // notice. Null when GitHub would not say; that notice is then withheld rather
-        // than guessed.
-        syncedCommitSha: result.sha,
-        syncError: null,
-      },
       depth: 0,
       id,
       overrideAccess: true,
       req,
     })
 
-    await emitPlatformEvent(req, {
-      data: { commit: result.sha, key: String(pkg.key ?? ''), ref: requestedRef },
-      event: 'plugin.changed',
-      message: `مانیفست پوستهٔ «${String(pkg.name ?? '')}» از ${requestedRef} خوانده شد.`,
-      targetCollection: 'theme-packages',
-      targetId: id,
-    })
-
     return json({
-      commit: result.sha,
-      manifest,
+      commit: result.commit,
+      manifest: (updated as { manifest?: unknown })?.manifest ?? null,
       ok: true,
-      package: { id: String((updated as { id: unknown }).id), key: String(pkg.key ?? '') },
+      package: { id, key: String(pkg.key ?? '') },
     })
   },
 }
@@ -776,6 +741,7 @@ export const routingTableEndpoint: Endpoint = {
  * ahead of the fleet file's bare `/platform/sites/:id`.
  */
 export const platformDeploymentEndpoints: Endpoint[] = [
+  themeGithubWebhookEndpoint,
   themePackagesListEndpoint,
   themePackageSyncEndpoint,
   themePackagePublishEndpoint,
