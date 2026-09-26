@@ -54,8 +54,9 @@ test.describe('platform control plane over HTTP', () => {
 
     const body = await res.json()
     expect(body.ok).toBe(true)
-    expect(body.overview.subscriptions).toBeTruthy()
-    expect(Array.isArray(body.overview.billing.collected)).toBe(true)
+    expect(body.overview.commercialAuthority).toBe('cafe-restaurant-pos')
+    expect(typeof body.overview.billing.outboxPending).toBe('number')
+    expect(body.overview.billing.collected).toBeUndefined()
   })
 
   test('routes the per-site sub-paths instead of letting /platform/sites/:id swallow them', async () => {
@@ -158,7 +159,7 @@ test.describe('the operator panel', () => {
     // for `audit-log`. That is the accessible name in the sidebar, not the
     // collection's own plural label «ردّ تغییرات», which still stands inside the
     // collection view. The others carry no override and render as their labels.
-    for (const label of ['طرح‌ها', 'اشتراک‌ها', 'صورتحساب‌ها', 'وب‌هوک‌ها', 'Audit']) {
+    for (const label of ['وب‌هوک‌ها', 'Audit', 'خروجی مصرف', 'وضعیت تجاری']) {
       await expect(nav.getByRole('link', { name: label }).first(), label).toBeVisible({ timeout: 30_000 })
     }
 
@@ -166,7 +167,7 @@ test.describe('the operator panel', () => {
     // the audience-aware EshobeNav. With the escape hatch on, any site-content
     // collection a platform admin can now see lands in the trailing «سایر» group,
     // not among these.
-    await expect(page.getByText('اشتراک و مالی').first()).toBeVisible()
+    await expect(page.getByText('یکپارچه‌سازی').first()).toBeVisible()
     await expect(page.getByText('عملیات').first()).toBeVisible()
   })
 
@@ -181,6 +182,6 @@ test.describe('the operator panel', () => {
     // The dashboard is rendered from the same functions the API returns, so a broken
     // report shows the fallback banner rather than these sections.
     await expect(page.getByText('ناوگان سایت‌ها')).toBeVisible()
-    await expect(page.getByText('اشتراک و درآمد')).toBeVisible()
+    await expect(page.getByText('صورت‌حساب مرکزی')).toBeVisible()
   })
 })

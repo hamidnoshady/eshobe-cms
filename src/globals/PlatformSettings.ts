@@ -12,10 +12,10 @@ import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
  * point**. "Is signup open", "what happens when a site passes its quota", "how many
  * failures disable a webhook" are the operator's questions, not any customer's.
  *
- * Anything per-site lives on `sites`, `subscriptions` or `site-entitlements`. If a
- * field here ever grows a "…except for customer X" requirement, it moves — a global
- * with exceptions encoded in a JSON blob is how a platform loses track of what a
- * given customer is actually subject to.
+ * Anything per-site lives on `sites` or `site-entitlements`. Commercial invoices,
+ * prices and renewal belong to cafe-restaurant-pos. The invoice fields below are a
+ * frozen archive of values this deployment used to apply; nothing reads them to
+ * create a bill.
  */
 export const PlatformSettings: GlobalConfig = {
   slug: 'platform-settings',
@@ -25,7 +25,7 @@ export const PlatformSettings: GlobalConfig = {
   },
   admin: {
     description:
-      'رفتار کلی سکو: هویت، سیاست اعمال سقف‌ها، صورتحساب، نگهداشت گزارش‌ها و حالت تعمیر. هر چیزی که برای هر مشتری فرق می‌کند، جای دیگری تعریف می‌شود.',
+      'رفتار کلی سکو: هویت، سیاست اعمال سقف‌ها، نگهداشت گزارش‌ها و حالت تعمیر. قیمت، اشتراک و صورتحساب مشتری در سکوی اشوبه است، نه اینجا.',
     group: PLATFORM_GROUPS.operations,
     // Platform-only (`access.read` is `platformAdmin`); keep it out of customer nav.
     hidden: hiddenFromCustomers,
@@ -45,7 +45,7 @@ export const PlatformSettings: GlobalConfig = {
                   type: 'text',
                   label: 'نام سکو',
                   defaultValue: 'اشوبه',
-                  admin: { width: '50', description: 'در ایمیل‌ها، صورتحساب‌ها و پاسخ API معرفی می‌شود.' },
+                  admin: { width: '50', description: 'در ایمیل‌ها و پاسخ API معرفی می‌شود.' },
                 },
                 {
                   name: 'supportEmail',
@@ -154,7 +154,9 @@ export const PlatformSettings: GlobalConfig = {
           ],
         },
         {
-          label: 'صورتحساب',
+          label: 'بایگانی صورتحساب',
+          description:
+            'این مقدارها دیگر صورتحسابی نمی‌سازند. مهلت، مالیات و تمدید را سکوی اشوبه تعیین می‌کند. فیلدها فقط برای بایگانی خواندنی مانده‌اند.',
           fields: [
             {
               type: 'row',
@@ -162,38 +164,42 @@ export const PlatformSettings: GlobalConfig = {
                 {
                   name: 'invoiceDueDays',
                   type: 'number',
-                  label: 'مهلت پرداخت (روز)',
+                  label: 'مهلت پرداخت (بایگانی)',
                   defaultValue: 7,
                   min: 0,
                   max: 120,
-                  admin: { width: '50' },
+                  access: { update: () => false },
+                  admin: { readOnly: true, width: '50' },
                 },
                 {
                   name: 'taxPercent',
                   type: 'number',
-                  label: 'مالیات پیش‌فرض (درصد)',
+                  label: 'مالیات پیش‌فرض (بایگانی)',
                   defaultValue: 0,
                   min: 0,
                   max: 100,
-                  admin: { width: '50', description: 'روی صورتحساب‌های تازه اعمال می‌شود؛ صورتحساب‌های گذشته تغییر نمی‌کنند.' },
+                  access: { update: () => false },
+                  admin: { readOnly: true, width: '50' },
                 },
               ],
             },
             {
               name: 'autoRenewInvoices',
               type: 'checkbox',
-              label: 'ساخت خودکار صورتحساب تمدید',
+              label: 'ساخت خودکار صورتحساب تمدید (بایگانی)',
               defaultValue: true,
+              access: { update: () => false },
               admin: {
-                description:
-                  'در پایان هر دوره، برای اشتراک‌های «تمدید خودکار» یک صورتحساب پیش‌نویس ساخته می‌شود. پرداخت خودکار انجام نمی‌شود.',
+                readOnly: true,
+                description: 'دیگر اجرا نمی‌شود. تمدید و صورتحساب در سکوی اشوبه است.',
               },
             },
             {
               name: 'invoiceFooter',
               type: 'textarea',
-              label: 'پانویس صورتحساب',
-              admin: { description: 'شمارهٔ اقتصادی، شرایط پرداخت، هر چیزی که باید پای هر صورتحساب بیاید.' },
+              label: 'پانویس صورتحساب (بایگانی)',
+              access: { update: () => false },
+              admin: { readOnly: true },
             },
           ],
         },

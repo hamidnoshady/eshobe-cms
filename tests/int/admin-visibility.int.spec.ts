@@ -76,7 +76,7 @@ describe('admin nav visibility (config-level)', () => {
     const cfg = await loadConfig()
     const visible = visibleFor(cfg, operator)
 
-    for (const slug of ['plans', 'subscriptions', 'invoices', 'webhooks', 'audit-log', 'api-keys', 'storage-connections', 'site-deployments']) {
+    for (const slug of ['webhooks', 'audit-log', 'api-keys', 'storage-connections', 'site-deployments', 'billing-usage-outbox', 'central-entitlement-projections']) {
       expect(visible.collections, slug).toContain(slug)
     }
     for (const slug of ['pages', 'posts', 'media', 'products', 'orders', 'store', 'theme', 'redirects']) {
@@ -180,7 +180,6 @@ describe('admin nav resolution against the real config', () => {
     // operator can see the demoted supporting tables and they sweep into the catch-all.
     expect(labels).toEqual([
       'مشتریان',
-      'اشتراک و مالی',
       'محصول',
       'زیرساخت',
       'یکپارچه‌سازی',
@@ -196,6 +195,8 @@ describe('admin nav resolution against the real config', () => {
     const other = groups.find((g) => g.label === OTHER_GROUP_LABEL)
     expect(other?.entities.map((e) => e.slug).sort()).toEqual(
       [
+        'billing-storage-accounts',
+        'billing-usage-samples',
         'cdn-events',
         'reseller-domain-events',
         'reseller-domain-operations',

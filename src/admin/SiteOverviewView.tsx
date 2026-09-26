@@ -5,6 +5,7 @@ import type { DocumentViewServerProps, PayloadRequest } from 'payload'
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { formatDate, formatNumber } from '@/lib/format'
 import { locales } from '@/lib/locales'
+import { billingStatusForSite } from '@/billing/health'
 import { siteReportFor } from '@/platform/report'
 
 /**
@@ -136,6 +137,13 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
     )
   }
 
+  let billing: Awaited<ReturnType<typeof billingStatusForSite>> | null = null
+  try {
+    billing = await billingStatusForSite(req, siteId)
+  } catch (error) {
+    req.payload.logger.error({ err: error as Error, msg: 'customer-360 billing status failed', siteId })
+  }
+
   const t = report.totals
   const statusLabel = STATUS_LABEL[report.status] ?? report.status
   const statusAccent = STATUS_ACCENT[report.status] ?? 'var(--theme-elevation-400)'
@@ -147,8 +155,8 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
       <header style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
         <h2 style={{ margin: 0 }}>نمای ۳۶۰ مشتری — {report.name}</h2>
         <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
-          همهٔ داده‌های این پنل از <code>GET /api/platform/sites/{siteId}</code> می‌آید؛ همان گزارشی
-          که کنسول سکو و برنامه‌های دیگر می‌خوانند. این صفحه فقط آن را در یک نما گرد هم می‌آورد.
+          گزارش عملیاتی از <code>GET /api/platform/sites/{siteId}</code> می‌آید. وضعیت تجاری فقط‌خواندنی
+          است و از <code>GET /api/platform/sites/{siteId}/billing</code> — قیمت و صورتحساب اینجا ویرایش نمی‌شود.
         </p>
       </header>
 
@@ -181,6 +189,23 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
           دامنهٔ سایت پس از استقرار فعلی تغییر کرده است. پوسته را از تب «استقرار پوسته» مجدداً مستقر کنید.
         </div>
       ) : null}
+
+      <Section title="وضعیت تجاری">
+        <Stat label="مرجع" value="پلتفرم اشوب" note="طرح و قیمت اینجا ویرایش نمی‌شود." />
+        <Stat label="کد طرح" value={billing?.planCode || '—'} />
+        <Stat label="نسخهٔ تصویر" value={billing?.projectionVersion ?? '—'} />
+        <Stat
+          accent={billing?.serving ? 'var(--theme-success-500)' : 'var(--theme-warning-500)'}
+          label="سرویس تجاری"
+          note={billing?.subscriptionStatus ?? 'تعویق پرداخت به‌تنهایی سایت را معلق نمی‌کند.'}
+          value={billing?.serving ? 'در حال سرویس' : 'خارج از سرویس'}
+        />
+        <Stat
+          label="آخرین همگام‌سازی"
+          value={billing?.receivedAt ? formatDate(billing.receivedAt, 'fa') : '—'}
+        />
+        <Stat label="مصرف ارسال‌نشده" value={billing?.unsentUsage ?? '—'} />
+      </Section>
 
       <Section title="پوسته و استقرار">
         <Stat

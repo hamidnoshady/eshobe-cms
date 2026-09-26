@@ -8,6 +8,12 @@ import path from 'path'
 import { buildConfig, PayloadRequest } from 'payload'
 import { fileURLToPath } from 'url'
 
+import { BillingReplayNonces } from './collections/BillingReplayNonces'
+import { BillingServiceCredentials } from './collections/BillingServiceCredentials'
+import { BillingStorageAccounts } from './collections/BillingStorageAccounts'
+import { BillingUsageOutbox } from './collections/BillingUsageOutbox'
+import { BillingUsageSamples } from './collections/BillingUsageSamples'
+import { CentralEntitlementProjections } from './collections/CentralEntitlementProjections'
 import { ApiKeys } from './collections/ApiKeys'
 import { AuditLog } from './collections/AuditLog'
 import { Categories } from './collections/Categories'
@@ -50,6 +56,7 @@ import { Header } from './Header/config'
 import { runtimeDatabaseOptions } from './lib/database'
 import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
 import { defaultLocale, locales } from './lib/locales'
+import { billingIntegrationTask } from './billing/task'
 import { advanceDeploymentsTask } from './deploy/task'
 import { storageHealthCheckTask } from './storage/task'
 import { plugins } from './plugins'
@@ -64,6 +71,7 @@ import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { platformControlEndpoints } from './endpoints/platformControl'
 import { platformDeploymentEndpoints } from './endpoints/platformDeployments'
+import { platformBillingEndpoints } from './endpoints/platformBilling'
 import { platformSaasEndpoints } from './endpoints/platformSaas'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
@@ -134,6 +142,7 @@ export default buildConfig({
     // `/theme` with `id` set to the site and the rest ignored — a 200 with the wrong
     // body, which is the failure mode that does not look like one. The same trap the
     // fleet file records for its own `/snapshot` pair.
+    ...platformBillingEndpoints,
     ...platformSaasEndpoints,
     // Wave 11 — the deployable-theme surface, spread here for the same ordering
     // reason as the SaaS routes above it: it registers several literal
@@ -276,6 +285,12 @@ export default buildConfig({
     Invoices,
     SiteEntitlements,
     UsageRecords,
+    CentralEntitlementProjections,
+    BillingUsageOutbox,
+    BillingUsageSamples,
+    BillingStorageAccounts,
+    BillingServiceCredentials,
+    BillingReplayNonces,
     FeatureFlags,
     Plugins,
     ThemeTemplates,
@@ -483,7 +498,7 @@ export default buildConfig({
      * is still the reason `JOBS_AUTORUN=false` plus a `payload jobs:run` container
      * is the upgrade path.
      */
-    tasks: [advanceDeploymentsTask, storageHealthCheckTask],
+    tasks: [advanceDeploymentsTask, storageHealthCheckTask, billingIntegrationTask],
   },
   /**
    * Last line of defence for the values that only bite in production. Deliberately

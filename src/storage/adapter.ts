@@ -11,6 +11,8 @@ import { unlink } from 'node:fs/promises'
 
 import { getRangeRequestInfo } from 'payload/internal'
 
+import { noteOriginTransfer } from '@/billing/meters/buffer'
+
 import { getActiveConnection, storageClient } from './connection'
 import { shouldDropLocalMirrorAfterUpload, shouldUseObjectStorage } from './mode'
 
@@ -137,6 +139,11 @@ export const s3ObjectStorageAdapter: Adapter = ({ collection, prefix = '' }) => 
       )
 
       if (!object.Body) return new Response(null, { status: 404, statusText: 'Not Found' })
+
+      const transferred =
+        rangeResult.type === 'partial' ? rangeResult.rangeEnd - rangeResult.rangeStart + 1 : fileSize
+      const siteMatch = /^sites\/([^/]+)\//.exec(String(docPrefix ?? ''))
+      if (siteMatch?.[1] && transferred > 0) noteOriginTransfer(siteMatch[1], transferred)
 
       return new Response(object.Body as ReadableStream, {
         headers: responseHeaders,

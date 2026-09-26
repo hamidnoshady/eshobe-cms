@@ -3,6 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { platformAdmin } from '@/access/platformAdmin'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { QUOTA_LABELS, QUOTA_METRICS } from '@/lib/saas/plans'
+import { stripCommercialGrants } from '@/collections/hooks/stripCommercialGrants'
 
 /**
  * The per-site exception sheet: features forced on or off, and quotas moved, for
@@ -18,11 +19,11 @@ import { QUOTA_LABELS, QUOTA_METRICS } from '@/lib/saas/plans'
  *
  * ## The resolution order, stated once
  *
- * Features: catalogue `defaultEnabled` → the plan's granted list → this document's
- * overrides. Quotas: the plan's `limits` → the subscription's `limitOverrides` →
- * this document's `limitOverrides`. Last wins, and `resolveFeatures` /
- * `resolveEntitlement` are the only implementations — a second one in a UI
- * component is how two screens start disagreeing about what a customer has.
+ * Commercial grants used to live here. They are now a read-only archive:
+ * `stripCommercialGrants` drops `features` and `limitOverrides` on every write.
+ * What remains writable is technical: `quotaEnforcement` (warn / enforce / off)
+ * and `technicalHolds`, which can disable a feature the projection granted.
+ * A hold cannot enable anything.
  *
  * Registered with the multi-tenant plugin (it carries `site`), platform-admin-only
  * on every operation: an entitlement a customer could edit is not an entitlement.
@@ -38,13 +39,25 @@ export const SiteEntitlements: CollectionConfig<'site-entitlements'> = {
   admin: {
     defaultColumns: ['site', 'quotaEnforcement', 'updatedAt'],
     description:
-      'استثناهای هر سایت: امکاناتی که دستی روشن/خاموش شده‌اند و سقف‌هایی که جدا از طرح تغییر کرده‌اند. آخرین لایه در ترتیب حل‌شدن.',
+      'نگه‌داشت فنی و سیاست اعمال سقف. روشن‌کردن امکان پولی و سقف تجاری از تصویر مرکزی می‌آید و اینجا نوشته نمی‌شود.',
     group: PLATFORM_GROUPS.billing,
     hidden: hiddenFromCustomers,
     useAsTitle: 'site',
   },
   labels: { plural: 'استثناهای سایت', singular: 'استثناهای سایت' },
+  hooks: {
+    beforeChange: [stripCommercialGrants],
+  },
   fields: [
+    {
+      name: 'technicalHolds',
+      type: 'json',
+      label: 'نگه‌داشت فنی',
+      admin: {
+        description:
+          'فهرستی از کلید امکاناتی که به‌خاطر یک مشکل فنی موقتاً خاموش‌اند. این فهرست هیچ امکانی را روشن نمی‌کند.',
+      },
+    },
     {
       name: 'features',
       type: 'array',

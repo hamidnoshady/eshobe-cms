@@ -29,6 +29,10 @@ export async function register(): Promise<void> {
   )
     return
 
+  // Every replica may persist its own samples. Publishing stays on the jobs queue.
+  const { startBillingFlushLoop } = await import('./billing/flush-loop')
+  startBillingFlushLoop()
+
   const { jobsAutoRunEnabled } = await import('./lib/env')
 
   // Dev and tests keep the queue out of the process: a cron ticking every minute

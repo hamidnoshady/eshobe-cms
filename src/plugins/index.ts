@@ -256,6 +256,13 @@ export const plugins: Plugin[] = [
       invoices: {},
       'site-entitlements': { isGlobal: true },
       'usage-records': {},
+      // Execution-plane billing. One projection and one storage clock per site.
+      // Outbox and samples are per-site measurements. Credentials and replay
+      // nonces are platform-wide and stay out of this map.
+      'central-entitlement-projections': { isGlobal: true },
+      'billing-storage-accounts': { isGlobal: true },
+      'billing-usage-outbox': {},
+      'billing-usage-samples': {},
       // The deployment surface splits the same way. `site-deployments` and
       // `site-theme-settings` each carry exactly one site, so both are registered;
       // `theme-packages` and `deploy-targets` are the operator's own catalogue and

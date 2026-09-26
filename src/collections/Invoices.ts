@@ -1,12 +1,15 @@
 import type { CollectionConfig } from 'payload'
 
 import { platformAdmin } from '@/access/platformAdmin'
-import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
+import { PLATFORM_GROUPS } from '@/admin/visibility'
 import { currencyCodes, currencies } from '@/lib/money'
+import { freezeCommercialWrites } from './hooks/freezeCommercialWrites'
 import { computeInvoiceTotals, stampInvoiceNumber } from './hooks/invoiceTotals'
 
 /**
- * What the platform billed a customer, and whether it was paid.
+ * Legacy archive of invoices this CMS used to issue. Customer billing, payment
+ * and dunning belong to cafe-restaurant-pos. Rows are readable for audit and
+ * are not a ledger the CMS still writes.
  *
  * Money is stored exactly as `orders` stores it and for the same reasons
  * (`src/lib/money.ts`): **integer minor units**, with the currency snapshotted onto
@@ -30,17 +33,17 @@ import { computeInvoiceTotals, stampInvoiceNumber } from './hooks/invoiceTotals'
 export const Invoices: CollectionConfig<'invoices'> = {
   slug: 'invoices',
   access: {
-    create: platformAdmin,
-    delete: platformAdmin,
+    create: () => false,
+    delete: () => false,
     read: platformAdmin,
-    update: platformAdmin,
+    update: () => false,
   },
   admin: {
     defaultColumns: ['number', 'site', 'total', 'status', 'issuedAt', 'dueAt'],
     description:
-      'صورتحساب‌های سکو برای مشتری‌ها. جمع‌ها از روی ردیف‌ها محاسبه می‌شوند و دستی قابل تغییر نیستند؛ مبالغ در واحد خردِ ارز همان صورتحساب‌اند.',
+      'بایگانی فقط‌خواندنیِ صورتحساب‌های قدیمی. مبلغ مشتری اینجا محاسبه نمی‌شود.',
     group: PLATFORM_GROUPS.billing,
-    hidden: hiddenFromCustomers,
+    hidden: true,
     useAsTitle: 'number',
   },
   labels: { plural: 'صورتحساب‌ها', singular: 'صورتحساب' },
@@ -237,7 +240,7 @@ export const Invoices: CollectionConfig<'invoices'> = {
   ],
   hooks: {
     beforeChange: [computeInvoiceTotals],
-    beforeValidate: [stampInvoiceNumber],
+    beforeValidate: [freezeCommercialWrites, stampInvoiceNumber],
   },
   timestamps: true,
 }

@@ -149,7 +149,7 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
  * deliberately NOT primary items: they are per-site/contextual detail, surfaced in
  * a site's Customer-360 report, and remain reachable through the «سایر» catch-all
  * (demoted, never deleted). The group order mirrors the product information
- * architecture: who the customers are, then money, then the product catalogue,
+ * architecture: who the customers are, then the product catalogue,
  * then the infrastructure that runs it, then integrations, then day-to-day
  * operations, then the platform's own settings.
  */
@@ -157,14 +157,6 @@ export const PLATFORM_NAV: NavGroupDef[] = [
   {
     label: 'مشتریان',
     entities: [collection('sites'), collection('users')],
-  },
-  {
-    // Money only. Usage and entitlements are per-customer/per-site detail, not
-    // equivalent primary products — they are surfaced in a site's Customer-360
-    // context (`siteReportFor`) and remain reachable through the «سایر» catch-all,
-    // never as top-level billing siblings.
-    label: 'اشتراک و مالی',
-    entities: [collection('plans'), collection('subscriptions'), collection('invoices')],
   },
   {
     // The product catalogue: features, themes, plugins. `site-theme-settings` is a
@@ -205,7 +197,11 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     // log — contextual detail under a webhook, not a primary product — so it is
     // demoted to «سایر» rather than listed as a sibling of the webhook config.
     label: 'یکپارچه‌سازی',
-    entities: [collection('api-keys'), collection('webhooks')],
+    entities: [
+      collection('api-keys'),
+      collection('webhooks'),
+      collection('billing-service-credentials', 'اعتبارنامهٔ صورت‌حساب'),
+    ],
   },
   {
     // Day-to-day running of the fleet: deployments and the audit trail. Activity
@@ -213,7 +209,12 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     // `GET /api/platform/overview` + the events feed), not collections, so they
     // have no sidebar entity of their own.
     label: 'عملیات',
-    entities: [collection('site-deployments', 'انتشارها'), collection('audit-log', 'Audit')],
+    entities: [
+      collection('site-deployments', 'انتشارها'),
+      collection('central-entitlement-projections', 'وضعیت تجاری'),
+      collection('billing-usage-outbox', 'خروجی مصرف'),
+      collection('audit-log', 'Audit'),
+    ],
   },
   {
     label: 'تنظیمات سکو',

@@ -49,7 +49,7 @@ describe('platform site endpoint ordering', () => {
     const paths = new Set((await siteEndpoints()).map((e) => e.path))
     // The exact routes the config header names as swallow-risks. If one is renamed,
     // this list is the reminder to update the ordering reasoning with it.
-    for (const tail of ['quota', 'usage', 'features', 'theme', 'entitlement', 'deployment', 'snapshot']) {
+    for (const tail of ['quota', 'usage', 'features', 'theme', 'entitlement', 'deployment', 'snapshot', 'billing']) {
       expect(
         [...paths].some((p) => p === `/platform/sites/:id/${tail}` || p.startsWith(`/platform/sites/:id/${tail}`)),
         `expected a /platform/sites/:id/${tail} route to exist and be guarded`,

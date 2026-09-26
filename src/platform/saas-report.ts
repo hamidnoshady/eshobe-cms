@@ -1,33 +1,17 @@
 import type { PayloadRequest, Where } from 'payload'
 
-import {
-  accumulateOrderTotals,
-  clampReportDays,
-  currencyRows,
-  type CurrencyTotals,
-} from '@/lib/platform-control'
+import { clampReportDays } from '@/lib/platform-control'
+import { billingIntegrationHealth } from '@/billing/health'
 import { isUuid } from '@/lib/ids'
 import { slugKey } from '@/lib/saas/plans'
 
 /**
- * The commercial report — "is this SaaS healthy as a business?"
+ * Operator overview for the website execution plane.
  *
- * `src/platform/report.ts` answers the *operational* version of that question
- * (sites, content, storage, jobs). This one answers the commercial one: who is on
- * which plan, how much was invoiced and collected, what is overdue, how many
- * subscriptions are in trial and how many are about to lapse.
- *
- * Same two rules as the operational report, restated because they are what keeps a
- * dashboard from becoming an outage:
- *
- *  - **No unbounded scan.** Counts come from `payload.count`. Money is summed row by
- *    row (Payload has no aggregate; raw SQL stays in migrations), so every sum is
- *    both windowed and capped, and says so when it was cut short.
- *  - **Sums are per currency, in minor units.** An invoice snapshots the currency it
- *    was issued in, so adding two together invents a number.
+ * Commercial revenue, invoices and subscription counts are not computed here.
+ * cafe-restaurant-pos is the billing authority. This report answers whether the
+ * CMS is enforcing the cached entitlement and whether usage is leaving the outbox.
  */
-
-const INVOICE_SCAN_CAP = 5_000
 
 const countOf = async (
   req: PayloadRequest,
@@ -50,65 +34,14 @@ const countOf = async (
   }
 }
 
-/** Paged, capped sum of invoice totals per currency. */
-const sumInvoices = async (
-  req: PayloadRequest,
-  where: Where,
-): Promise<{ count: number; totals: CurrencyTotals; truncated: boolean }> => {
-  const totals: CurrencyTotals = {}
-  let page = 1
-  let scanned = 0
-
-  for (;;) {
-    const result = await req.payload
-      .find({
-        collection: 'invoices',
-        depth: 0,
-        limit: 500,
-        overrideAccess: true,
-        page,
-        req,
-        select: { currency: true, total: true },
-        where,
-      })
-      .catch(() => null)
-
-    if (!result) return { count: scanned, totals, truncated: false }
-
-    // `accumulateOrderTotals` is the same per-currency bucket the fleet report uses
-    // for orders — reused rather than re-implemented so "minor units, never summed
-    // across currencies" has one implementation and one test.
-    accumulateOrderTotals(result.docs as { currency?: unknown; total?: unknown }[], totals)
-
-    scanned += result.docs.length
-    if (!result.hasNextPage) return { count: scanned, totals, truncated: false }
-    if (scanned >= INVOICE_SCAN_CAP) return { count: scanned, totals, truncated: true }
-    page += 1
-  }
-}
-
 export type SaasOverview = Awaited<ReturnType<typeof saasOverview>>
 
 export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown } = {}) => {
   const days = clampReportDays(opts.days)
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-  const nowIso = new Date().toISOString()
-  const soon = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
   const [
-    plansTotal,
-    plansActive,
-    subsTotal,
-    subsTrialing,
-    subsActive,
-    subsPastDue,
-    subsSuspended,
-    subsCancelled,
-    subsExpiringSoon,
-    invoicesTotal,
-    invoicesDraft,
-    invoicesIssued,
-    invoicesOverdue,
+    billing,
     pluginsTotal,
     pluginsEnabled,
     themesTotal,
@@ -117,28 +50,9 @@ export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown }
     webhooksFailing,
     featuresTotal,
     auditRecent,
+    settings,
   ] = await Promise.all([
-    countOf(req, 'plans'),
-    countOf(req, 'plans', { active: { equals: true } }),
-    countOf(req, 'subscriptions'),
-    countOf(req, 'subscriptions', { status: { equals: 'trialing' } }),
-    countOf(req, 'subscriptions', { status: { equals: 'active' } }),
-    countOf(req, 'subscriptions', { status: { equals: 'pastDue' } }),
-    countOf(req, 'subscriptions', { status: { equals: 'suspended' } }),
-    countOf(req, 'subscriptions', { status: { equals: 'cancelled' } }),
-    countOf(req, 'subscriptions', {
-      and: [
-        { entitled: { equals: true } },
-        { currentPeriodEnd: { greater_than: nowIso } },
-        { currentPeriodEnd: { less_than: soon } },
-      ],
-    }),
-    countOf(req, 'invoices'),
-    countOf(req, 'invoices', { status: { equals: 'draft' } }),
-    countOf(req, 'invoices', { status: { equals: 'issued' } }),
-    countOf(req, 'invoices', {
-      and: [{ status: { equals: 'issued' } }, { dueAt: { less_than: nowIso } }],
-    }),
+    billingIntegrationHealth(req),
     countOf(req, 'plugins'),
     countOf(req, 'plugins', { enabled: { equals: true } }),
     countOf(req, 'theme-templates', { active: { equals: true } }),
@@ -147,69 +61,12 @@ export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown }
     countOf(req, 'webhooks', { consecutiveFailures: { greater_than: 0 } }),
     countOf(req, 'feature-flags'),
     countOf(req, 'audit-log', { createdAt: { greater_than: since } }),
+    req.payload.findGlobal({ slug: 'platform-settings', depth: 0, overrideAccess: true, req }).catch(() => null),
   ])
-
-  const [collected, billed, outstanding] = await Promise.all([
-    sumInvoices(req, {
-      and: [{ status: { equals: 'paid' } }, { paidAt: { greater_than_equal: since } }],
-    }),
-    sumInvoices(req, {
-      and: [
-        { status: { not_equals: 'void' } },
-        { status: { not_equals: 'draft' } },
-        { createdAt: { greater_than_equal: since } },
-      ],
-    }),
-    sumInvoices(req, { status: { equals: 'issued' } }),
-  ])
-
-  // Plan distribution: one count per plan, not a scan of the subscriptions table.
-  const { docs: planDocs } = await req.payload
-    .find({
-      collection: 'plans',
-      depth: 0,
-      limit: 100,
-      overrideAccess: true,
-      pagination: false,
-      req,
-      select: { code: true, currency: true, interval: true, name: true, price: true },
-      sort: 'sortOrder',
-    })
-    .catch(() => ({ docs: [] as Record<string, unknown>[] }))
-
-  const byPlan = []
-  for (const plan of planDocs as unknown as Record<string, unknown>[]) {
-    byPlan.push({
-      code: String(plan.code ?? ''),
-      currency: String(plan.currency ?? 'IRT'),
-      id: String(plan.id),
-      interval: String(plan.interval ?? 'monthly'),
-      name: String(plan.name ?? ''),
-      price: Number(plan.price ?? 0),
-      subscribers: await countOf(req, 'subscriptions', {
-        and: [{ plan: { equals: plan.id } }, { entitled: { equals: true } }],
-      }),
-    })
-  }
-
-  const settings = await req.payload
-    .findGlobal({ slug: 'platform-settings', depth: 0, overrideAccess: true, req })
-    .catch(() => null)
 
   return {
-    billing: {
-      billed: currencyRows(billed.totals),
-      collected: currencyRows(collected.totals),
-      invoices: {
-        draft: invoicesDraft,
-        issued: invoicesIssued,
-        overdue: invoicesOverdue,
-        total: invoicesTotal,
-      },
-      outstanding: currencyRows(outstanding.totals),
-      truncated: billed.truncated || collected.truncated || outstanding.truncated,
-      windowDays: days,
-    },
+    billing,
+    commercialAuthority: 'cafe-restaurant-pos' as const,
     extensions: {
       featureFlags: featuresTotal,
       plugins: { enabled: pluginsEnabled, total: pluginsTotal },
@@ -223,16 +80,7 @@ export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown }
       signupsOpen: (settings as { signupsOpen?: unknown } | null)?.signupsOpen === true,
       webhooks: { enabled: webhooksEnabled, failing: webhooksFailing, total: webhooksTotal },
     },
-    plans: { active: plansActive, byPlan, total: plansTotal },
-    subscriptions: {
-      active: subsActive,
-      cancelled: subsCancelled,
-      expiringWithin7Days: subsExpiringSoon,
-      pastDue: subsPastDue,
-      suspended: subsSuspended,
-      total: subsTotal,
-      trialing: subsTrialing,
-    },
+    windowDays: days,
   }
 }
 

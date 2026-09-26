@@ -1,5 +1,7 @@
 import type { Access, CollectionBeforeChangeHook, PayloadRequest } from 'payload'
 
+import { isBillableCustomerApiPath } from '@/billing/meters/api-path'
+import { noteCustomerApiRequest } from '@/billing/meters/buffer'
 import { hashApiKey, parseBearerToken } from '@/lib/api-keys'
 import { idOf } from '@/lib/ids'
 
@@ -73,6 +75,9 @@ export const requestApiKey = async (req: PayloadRequest): Promise<ResolvedApiKey
 
   req.context[API_KEY_CONTEXT_KEY] = resolved
   if (resolved) touchLastUsed(req, resolved.id)
+  if (resolved?.role === 'site' && resolved.siteId && isBillableCustomerApiPath(req.url)) {
+    noteCustomerApiRequest(resolved.siteId)
+  }
 
   return resolved
 }

@@ -55,7 +55,6 @@ const CUSTOMER_TARGET = [
  */
 const PLATFORM_TARGET = [
   { entities: ['sites', 'users'], label: 'مشتریان' },
-  { entities: ['plans', 'subscriptions', 'invoices'], label: 'اشتراک و مالی' },
   { entities: ['feature-flags', 'theme-templates', 'theme-packages', 'plugins'], label: 'محصول' },
   {
     entities: [
@@ -69,8 +68,11 @@ const PLATFORM_TARGET = [
     ],
     label: 'زیرساخت',
   },
-  { entities: ['api-keys', 'webhooks'], label: 'یکپارچه‌سازی' },
-  { entities: ['site-deployments', 'audit-log'], label: 'عملیات' },
+  { entities: ['api-keys', 'webhooks', 'billing-service-credentials'], label: 'یکپارچه‌سازی' },
+  {
+    entities: ['site-deployments', 'central-entitlement-projections', 'billing-usage-outbox', 'audit-log'],
+    label: 'عملیات',
+  },
   { entities: ['platform-settings'], label: 'تنظیمات سکو' },
 ]
 
@@ -124,7 +126,7 @@ describe('sidebar information architecture', () => {
       visible: everythingVisible(CUSTOMER_NAV),
     }).map((g) => g.label)
 
-    for (const platform of ['مشتریان', 'اشتراک و مالی', 'زیرساخت', 'یکپارچه‌سازی', 'تنظیمات سکو']) {
+    for (const platform of ['مشتریان', 'زیرساخت', 'یکپارچه‌سازی', 'تنظیمات سکو']) {
       expect(labels).not.toContain(platform)
     }
   })
