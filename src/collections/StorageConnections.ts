@@ -3,42 +3,48 @@ import type { CollectionConfig, FieldAccess, Validate } from 'payload'
 import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { storageConnectionEndpoints } from '@/endpoints/storageConnections'
+import { normalizeStorageEndpoint, UnsafeStorageEndpoint } from '@/storage/endpoint'
+import { storageProviderOptions } from '@/storage/providers'
 
 import {
+  STORAGE_HEALTH_WRITE_CONTEXT_KEY,
   STORAGE_SECRET_READ_CONTEXT_KEY,
   assertConnectionUsable,
-  assertSingleEnabledConnection,
   encryptStorageCredentials,
   maskStorageSecret,
 } from './hooks/storageConnectionSecrets'
+import {
+  clearStorageCacheAfterChange,
+  clearStorageCacheAfterDelete,
+  deactivateOtherStorageConnections,
+  invalidateStorageHealthOnChange,
+  mergeContextStorageHealth,
+  normaliseStorageConnection,
+  preventDeleteActiveStorageConnection,
+  requireFullHealthBeforeEnable,
+} from './hooks/storageConnectionLifecycle'
 
 /**
- * The platform's single object-storage connection — where every tenant's media lands.
+ * Platform-wide S3-compatible object storage — where every tenant's media lands.
  *
- * Deliberately a *platform-admin-only, platform-wide* collection and **not** in the
- * multi-tenant plugin's `collections` map: this is shared infrastructure, like `ApiKeys`,
- * not a site's own content. A superadmin enters the ArvanCloud Object Storage endpoint,
- * bucket and credentials once; every site transparently writes its media there, namespaced
- * by `sites/<id>/media` (`src/hooks/mediaPrefix.ts`). A tenant never sees or configures any
- * of it.
- *
- * The secret key is AES-256-GCM encrypted at rest and masked on every read (only the
- * resolver in `src/storage/connection.ts` may read the ciphertext), exactly like the CDN
- * zone and payment-gateway credentials.
+ * Not in the multi-tenant plugin's map (shared infrastructure, like `ApiKeys`).
+ * Per-site keys: `sites/<id>/media` (`src/hooks/mediaPrefix.ts`).
  */
 
-/** Only the resolver inside the storage module may temporarily read the ciphertext. */
 const secretReadAccess: FieldAccess = ({ req }) =>
   isPlatformAdmin(req.user) || req.context[STORAGE_SECRET_READ_CONTEXT_KEY] === true
+
+const healthWriteAccess: FieldAccess = ({ req }) =>
+  isPlatformAdmin(req?.user) ||
+  req?.context?.[STORAGE_HEALTH_WRITE_CONTEXT_KEY] === true
 
 const validateEndpoint: Validate = (value) => {
   if (value === null || value === undefined || value === '') return true
   try {
-    const url = new URL(String(value))
-    return url.protocol === 'https:' || url.protocol === 'http:'
-      ? true
-      : 'نشانی باید با https:// شروع شود.'
-  } catch {
+    normalizeStorageEndpoint(String(value))
+    return true
+  } catch (error) {
+    if (error instanceof UnsafeStorageEndpoint) return error.message
     return 'نشانی معتبر نیست.'
   }
 }
@@ -52,29 +58,91 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
     update: platformAdmin,
   },
   admin: {
-    defaultColumns: ['name', 'enabled', 'bucket', 'endpoint', 'credentialsSummary'],
+    components: {
+      views: {
+        list: {
+          actions: ['@/storage/admin/StorageNavButton'],
+        },
+        storageOverview: {
+          Component: '@/storage/admin/StorageOverviewView',
+          meta: { title: 'ذخیره‌سازی اشیا' },
+          path: '/infrastructure/storage',
+        },
+        storageHealth: {
+          Component: '@/storage/admin/StorageHealthView',
+          meta: { title: 'سلامت ذخیره‌سازی' },
+          path: '/infrastructure/storage/health',
+        },
+        storageUsage: {
+          Component: '@/storage/admin/StorageUsageView',
+          meta: { title: 'مصرف ذخیره‌سازی' },
+          path: '/infrastructure/storage/usage',
+        },
+      },
+    },
+    defaultColumns: ['name', 'provider', 'enabled', 'healthStatus', 'bucket', 'lastCheckedAt'],
     description:
-      'اتصال ذخیره‌سازی ArvanCloud که همهٔ رسانه‌های سایت‌ها در آن ذخیره می‌شود. فقط یک اتصال می‌تواند فعال باشد؛ کلید رمزنگاری‌شده ذخیره می‌شود و هرگز از API برگردانده نمی‌شود.',
+      'اتصال S3-compatible برای رسانهٔ همهٔ سایت‌ها. فقط یک اتصال می‌تواند فعال باشد؛ Secret Key رمزنگاری‌شده ذخیره می‌شود و هرگز از API برنمی‌گردد.',
     group: PLATFORM_GROUPS.infrastructure,
     hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },
   fields: [
     {
+      name: 'ui',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/storage/admin/StorageConnectionActions',
+        },
+      },
+    },
+    {
       name: 'name',
       type: 'text',
       label: 'نام اتصال',
       required: true,
-      admin: { description: 'برای خودتان؛ مثلاً «تولید — تهران» یا «باکت اصلی رسانه».' },
+      admin: { description: 'برای خودتان؛ مثلاً «تولید — رسانه».' },
     },
     {
-      name: 'enabled',
-      type: 'checkbox',
-      label: 'فعال (اتصال فعلی)',
-      defaultValue: true,
+      type: 'row',
+      fields: [
+        {
+          name: 'provider',
+          type: 'select',
+          label: 'ارائه‌دهنده',
+          required: true,
+          defaultValue: 'arvancloud',
+          options: storageProviderOptions(),
+          admin: { width: '50' },
+        },
+        {
+          name: 'enabled',
+          type: 'checkbox',
+          label: 'فعال (اتصال تولید)',
+          defaultValue: false,
+          admin: {
+            width: '50',
+            description:
+              'اتصال فعال پس از خودآزمایی کامل. فعال‌سازی، اتصال قبلی را خودکار غیرفعال می‌کند.',
+          },
+        },
+      ],
+    },
+    {
+      name: 'storageMode',
+      type: 'select',
+      label: 'حالت ذخیره‌سازی',
+      defaultValue: 'object_storage_with_local_mirror',
+      required: true,
+      options: [
+        { label: 'فقط دیسک محلی (توسعه)', value: 'local' },
+        { label: 'شیء‌نگاری (مرجع)', value: 'object_storage' },
+        { label: 'شیء‌نگاری + آینهٔ محلی', value: 'object_storage_with_local_mirror' },
+      ],
       admin: {
         description:
-          'اتصالی که آپلودها به آن می‌روند. فقط یکی می‌تواند فعال باشد؛ بدون اتصال فعال، فایل‌ها روی دیسک محلی می‌مانند.',
+          'در «شیء‌نگاری»، فایل پس از آپلود موفق به S3 از دیسک محلی حذف می‌شود. بدون اتصال فعال، Payload همچنان از دیسک سرو می‌دهد.',
       },
     },
     {
@@ -87,8 +155,7 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
           required: true,
           validate: validateEndpoint,
           admin: {
-            description:
-              'نشانی S3 آروان‌کلود؛ معمولاً https://s3.ir-thr-at1.arvanstorage.ir (بدون اسلش انتهایی).',
+            description: 'نشانی S3-compatible (بدون اسلش انتهایی).',
             placeholder: 'https://s3.ir-thr-at1.arvanstorage.ir',
             width: '60',
           },
@@ -98,7 +165,7 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
           type: 'text',
           label: 'Bucket',
           required: true,
-          admin: { width: '40', description: 'نام باکت در پنل Object Storage آروان‌کلود.' },
+          admin: { width: '40' },
         },
       ],
     },
@@ -110,21 +177,14 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
           type: 'text',
           label: 'Region',
           defaultValue: 'default',
-          admin: {
-            width: '40',
-            description: 'آروان‌کلود در نمونه‌های SDK مقدار «default» می‌پذیرد؛ تغییرش معمولاً لازم نیست.',
-          },
+          admin: { width: '40' },
         },
         {
           name: 'forcePathStyle',
           type: 'checkbox',
           label: 'Path-style endpoint',
           defaultValue: true,
-          admin: {
-            width: '60',
-            description:
-              'آروان‌کلود باکت را به‌صورت path-style آدرس‌دهی می‌کند (باکت در مسیر، نه زیردامنه). روشن بماند.',
-          },
+          admin: { width: '60' },
         },
       ],
     },
@@ -133,7 +193,6 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
       type: 'text',
       label: 'Access key',
       required: true,
-      admin: { description: 'شناسهٔ Access Key از پنل Object Storage آروان‌کلود.' },
     },
     {
       name: 'secretAccessKey',
@@ -147,17 +206,14 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
       hooks: { afterRead: [maskStorageSecret()] },
       admin: {
         description:
-          'کلید رمز در پنل Object Storage آروان‌کلود. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و بعد از آن هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده».',
+          'AES-256-GCM در rest. خالی = «تغییر نده»؛ برای پاک کردن از گزینهٔ زیر استفاده کنید.',
       },
     },
     {
       name: 'clearCredentials',
       type: 'checkbox',
-      label: 'پاک کردن کلید ذخیره‌شده',
+      label: 'پاک کردن Secret ذخیره‌شده',
       defaultValue: false,
-      admin: {
-        description: 'فقط همراه ذخیره‌سازی استفاده کنید؛ بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».',
-      },
     },
     {
       name: 'credentialsSummary',
@@ -168,44 +224,136 @@ export const StorageConnections: CollectionConfig<'storage-connections'> = {
     },
     {
       type: 'collapsible',
-      label: 'آخرین خودآزمایی',
+      label: 'سلامت',
+      admin: { initCollapsed: false },
       fields: [
+        {
+          name: 'healthStatus',
+          type: 'select',
+          label: 'وضعیت',
+          defaultValue: 'unknown',
+          options: [
+            { label: 'نامشخص', value: 'unknown' },
+            { label: 'در حال آزمون', value: 'testing' },
+            { label: 'سالم', value: 'healthy' },
+            { label: 'تضعیف‌شده', value: 'degraded' },
+            { label: 'ناموفق', value: 'failed' },
+            { label: 'نیاز به آزمون مجدد', value: 'retest_required' },
+            { label: 'غیرفعال', value: 'disabled' },
+          ],
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { readOnly: true },
+        },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'lastCheckedAt',
+              type: 'date',
+              label: 'آخرین بررسی',
+              access: { create: () => false, update: healthWriteAccess },
+              admin: { readOnly: true, width: '33' },
+            },
+            {
+              name: 'lastHealthyAt',
+              type: 'date',
+              label: 'آخرین موفق',
+              access: { create: () => false, update: healthWriteAccess },
+              admin: { readOnly: true, width: '33' },
+            },
+            {
+              name: 'latencyMs',
+              type: 'number',
+              label: 'تأخیر (ms)',
+              access: { create: () => false, update: healthWriteAccess },
+              admin: { readOnly: true, width: '33' },
+            },
+          ],
+        },
+        {
+          type: 'row',
+          fields: [
+            { name: 'endpointReachable', type: 'checkbox', label: 'Endpoint', access: { create: () => false, update: healthWriteAccess }, admin: { readOnly: true, width: '16' } },
+            { name: 'authenticationOk', type: 'checkbox', label: 'Auth', access: { create: () => false, update: healthWriteAccess }, admin: { readOnly: true, width: '16' } },
+            { name: 'bucketAccessible', type: 'checkbox', label: 'Bucket', access: { create: () => false, update: healthWriteAccess }, admin: { readOnly: true, width: '16' } },
+            { name: 'writeAccessOk', type: 'checkbox', label: 'Write', access: { create: () => false, update: healthWriteAccess }, admin: { readOnly: true, width: '16' } },
+            { name: 'readAccessOk', type: 'checkbox', label: 'Read', access: { create: () => false, update: healthWriteAccess }, admin: { readOnly: true, width: '16' } },
+            { name: 'deleteAccessOk', type: 'checkbox', label: 'Delete', access: { create: () => false, update: healthWriteAccess }, admin: { readOnly: true, width: '16' } },
+          ],
+        },
+        {
+          name: 'lastErrorCode',
+          type: 'text',
+          label: 'کد خطا',
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { readOnly: true, width: '33' },
+        },
+        {
+          name: 'lastErrorCategory',
+          type: 'select',
+          label: 'دستهٔ خطا',
+          options: [
+            { label: 'NETWORK', value: 'NETWORK' },
+            { label: 'TLS', value: 'TLS' },
+            { label: 'TIMEOUT', value: 'TIMEOUT' },
+            { label: 'AUTHENTICATION', value: 'AUTHENTICATION' },
+            { label: 'BUCKET_NOT_FOUND', value: 'BUCKET_NOT_FOUND' },
+            { label: 'PERMISSION', value: 'PERMISSION' },
+            { label: 'READ_FAILED', value: 'READ_FAILED' },
+            { label: 'WRITE_FAILED', value: 'WRITE_FAILED' },
+            { label: 'DELETE_FAILED', value: 'DELETE_FAILED' },
+            { label: 'PROVIDER', value: 'PROVIDER' },
+            { label: 'CONFIGURATION', value: 'CONFIGURATION' },
+            { label: 'UNKNOWN', value: 'UNKNOWN' },
+          ],
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { readOnly: true, width: '33' },
+        },
+        {
+          name: 'lastErrorMessage',
+          type: 'text',
+          label: 'آخرین خطا (امن)',
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { readOnly: true },
+        },
         {
           name: 'lastSelfTestOk',
           type: 'checkbox',
-          label: 'نتیجهٔ خودآزمایی',
-          access: { create: () => false, update: () => false },
-          admin: { readOnly: true },
+          label: 'legacy: lastSelfTestOk',
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { hidden: true, readOnly: true },
         },
         {
           name: 'lastSelfTestDetail',
           type: 'text',
-          label: 'جزئیات',
-          access: { create: () => false, update: () => false },
-          admin: { readOnly: true },
+          label: 'legacy: detail',
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { hidden: true, readOnly: true },
         },
         {
           name: 'lastSelfTestAt',
           type: 'date',
-          label: 'زمان',
-          access: { create: () => false, update: () => false },
-          admin: { readOnly: true },
+          label: 'legacy: tested at',
+          access: { create: () => false, update: healthWriteAccess },
+          admin: { hidden: true, readOnly: true },
         },
       ],
     },
   ],
-  /**
-   * The self-test lives on the collection so `/api/storage-connections/self-test`
-   * actually routes: an API path whose first segment is a collection slug is
-   * dispatched against that collection's endpoints only, never the top-level
-   * `endpoints` array — where this sat, unreachable, answering 404 to the POS
-   * console. See `src/endpoints/storageConnections.ts` for the rule.
-   */
   endpoints: storageConnectionEndpoints,
   hooks: {
-    // Order matters: encryption first, so `assertConnectionUsable` inspects the same
-    // ciphertext that is about to be written.
-    beforeChange: [encryptStorageCredentials, assertSingleEnabledConnection, assertConnectionUsable],
+    afterChange: [clearStorageCacheAfterChange],
+    afterDelete: [clearStorageCacheAfterDelete],
+    beforeChange: [
+      normaliseStorageConnection,
+      encryptStorageCredentials,
+      invalidateStorageHealthOnChange,
+      deactivateOtherStorageConnections,
+      assertConnectionUsable,
+      mergeContextStorageHealth,
+      requireFullHealthBeforeEnable,
+    ],
+    beforeDelete: [preventDeleteActiveStorageConnection],
   },
   labels: {
     plural: 'اتصالات ذخیره‌سازی',

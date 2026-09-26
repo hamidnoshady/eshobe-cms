@@ -30,6 +30,11 @@ import { default as default_f73c2cf723071d8a624fa0c68ef80684 } from '@/provision
 import { default as default_b65188f9bfb30318173e978b78c9b237 } from '@/provisioning/AdminView'
 import { default as default_9980c03876844b08f72c9b6dc4add562 } from '@/api-keys/IssueKeyButton'
 import { default as default_19588e16805c00ac0b845efd64fa0f53 } from '@/api-keys/IssueKeyView'
+import { default as default_58ed968bae9436db36f2a5811e8f0364 } from '@/storage/admin/StorageConnectionActions'
+import { default as default_2641ff35c71272844a0100235031216a } from '@/storage/admin/StorageNavButton'
+import { default as default_65a470f2202a8412641431111a42ebde } from '@/storage/admin/StorageOverviewView'
+import { default as default_4176c770526ccc60d32dde9523f009cf } from '@/storage/admin/StorageHealthView'
+import { default as default_3ebbbaea09260b9d83d5cdfeda76ec11 } from '@/storage/admin/StorageUsageView'
 import { RowLabel as RowLabel_ec255a65fa6fa8d1faeb09cf35284224 } from '@/Header/RowLabel'
 import { RowLabel as RowLabel_1f6ff6ff633e3695d348f4f3c58f1466 } from '@/Footer/RowLabel'
 import { default as default_dbf97d303b2c66d609d855eec19054fd } from '@/deploy/admin/ThemePackageActions'
@@ -80,6 +85,11 @@ export const importMap = {
   "@/provisioning/AdminView#default": default_b65188f9bfb30318173e978b78c9b237,
   "@/api-keys/IssueKeyButton#default": default_9980c03876844b08f72c9b6dc4add562,
   "@/api-keys/IssueKeyView#default": default_19588e16805c00ac0b845efd64fa0f53,
+  "@/storage/admin/StorageConnectionActions#default": default_58ed968bae9436db36f2a5811e8f0364,
+  "@/storage/admin/StorageNavButton#default": default_2641ff35c71272844a0100235031216a,
+  "@/storage/admin/StorageOverviewView#default": default_65a470f2202a8412641431111a42ebde,
+  "@/storage/admin/StorageHealthView#default": default_4176c770526ccc60d32dde9523f009cf,
+  "@/storage/admin/StorageUsageView#default": default_3ebbbaea09260b9d83d5cdfeda76ec11,
   "@/Header/RowLabel#RowLabel": RowLabel_ec255a65fa6fa8d1faeb09cf35284224,
   "@/Footer/RowLabel#RowLabel": RowLabel_1f6ff6ff633e3695d348f4f3c58f1466,
   "@/deploy/admin/ThemePackageActions#default": default_dbf97d303b2c66d609d855eec19054fd,

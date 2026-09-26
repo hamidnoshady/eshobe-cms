@@ -34,6 +34,8 @@ export type NavEntityRef = {
   label?: string
   slug: string
   type: 'collection' | 'global'
+  /** Payload custom collection view path suffix (e.g. `/infrastructure/storage`). */
+  viewPath?: string
 }
 
 export type NavGroupDef = {
@@ -41,10 +43,11 @@ export type NavGroupDef = {
   entities: NavEntityRef[]
 }
 
-export const collection = (slug: string, label?: string): NavEntityRef => ({
+export const collection = (slug: string, label?: string, viewPath?: string): NavEntityRef => ({
   type: 'collection',
   slug,
   label,
+  viewPath,
 })
 export const global = (slug: string, label?: string): NavEntityRef => ({
   type: 'global',
@@ -65,9 +68,9 @@ export const adminBase = (adminRoute: string): string => (adminRoute === '/' ? '
  */
 export const entityHref = (adminRoute: string, ref: NavEntityRef): string => {
   const base = adminBase(adminRoute)
-  return ref.type === 'collection'
-    ? `${base}/collections/${ref.slug}`
-    : `${base}/globals/${ref.slug}`
+  if (ref.type === 'global') return `${base}/globals/${ref.slug}`
+  if (ref.viewPath) return `${base}/collections/${ref.slug}${ref.viewPath}`
+  return `${base}/collections/${ref.slug}`
 }
 
 /** The `New …` route for a collection (globals have no create route). */
@@ -190,7 +193,7 @@ export const PLATFORM_NAV: NavGroupDef[] = [
       collection('domain-reseller-products', 'کاتالوگ TLD'),
       global('domain-reseller'),
       collection('cdn-zones', 'CDN — زون‌ها'),
-      collection('storage-connections', 'ذخیره‌سازی'),
+      collection('storage-connections', 'ذخیره‌سازی اشیا', '/infrastructure/storage'),
       collection('deploy-targets', 'سرورهای انتشار'),
       // Platform payment policy — which gateway adapters are globally allowed —
       // is infrastructure, distinct from a customer's per-site gateway config.

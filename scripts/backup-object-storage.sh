@@ -1,5 +1,5 @@
 #!/bin/sh
-# Nightly copy of the ArvanCloud object-storage media bucket to a second bucket.
+# Nightly copy of the platform object-storage media bucket to a second bucket.
 #
 #   ./scripts/backup-object-storage.sh
 #   30 3 * * *  cd /srv/eshobe-cms && ./scripts/backup-object-storage.sh >> /var/log/eshobe-backup.log 2>&1

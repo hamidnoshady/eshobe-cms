@@ -20,6 +20,12 @@ import { decryptStorageSecret, encryptStorageSecret, fingerprintStorageSecret, i
 
 export const STORAGE_SECRET_READ_CONTEXT_KEY = 'eshobeStorageSecretRead'
 
+/** Allows self-test / scheduled health jobs to write derived health columns. */
+export const STORAGE_HEALTH_WRITE_CONTEXT_KEY = 'eshobeStorageHealthWrite'
+
+/** Patch object merged in `mergeContextStorageHealth` (after field access). */
+export const STORAGE_HEALTH_PATCH_CONTEXT_KEY = 'eshobeStorageHealthPatch'
+
 type StorageConnectionData = {
   clearCredentials?: unknown
   credentialsSummary?: unknown

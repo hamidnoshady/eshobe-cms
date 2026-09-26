@@ -1,7 +1,7 @@
 import { cloudStoragePlugin } from '@payloadcms/plugin-cloud-storage'
 import type { Plugin } from 'payload'
 
-import { arvanCloudAdapter } from '@/storage/adapter'
+import { s3ObjectStorageAdapter } from '@/storage/adapter'
 
 /**
  * Tenant media on ArvanCloud Object Storage, configured by a superadmin.
@@ -29,7 +29,7 @@ import { arvanCloudAdapter } from '@/storage/adapter'
 export const storage: Plugin = cloudStoragePlugin({
   collections: {
     media: {
-      adapter: arvanCloudAdapter,
+      adapter: s3ObjectStorageAdapter,
       disableLocalStorage: false,
       prefix: '',
     },

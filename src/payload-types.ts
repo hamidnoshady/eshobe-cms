@@ -191,6 +191,7 @@ export interface Config {
   jobs: {
     tasks: {
       advanceDeployments: TaskAdvanceDeployments;
+      storageHealthCheck: TaskStorageHealthCheck;
       schedulePublish: TaskSchedulePublish;
       inline: {
         input: unknown;
@@ -1437,7 +1438,7 @@ export interface ArchiveBlock {
   blockType: 'archive';
 }
 /**
- * اتصال ذخیره‌سازی ArvanCloud که همهٔ رسانه‌های سایت‌ها در آن ذخیره می‌شود. فقط یک اتصال می‌تواند فعال باشد؛ کلید رمزنگاری‌شده ذخیره می‌شود و هرگز از API برگردانده نمی‌شود.
+ * اتصال S3-compatible برای رسانهٔ همهٔ سایت‌ها. فقط یک اتصال می‌تواند فعال باشد؛ Secret Key رمزنگاری‌شده ذخیره می‌شود و هرگز از API برنمی‌گردد.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "storage-connections".
@@ -1445,42 +1446,60 @@ export interface ArchiveBlock {
 export interface StorageConnection {
   id: string;
   /**
-   * برای خودتان؛ مثلاً «تولید — تهران» یا «باکت اصلی رسانه».
+   * برای خودتان؛ مثلاً «تولید — رسانه».
    */
   name: string;
+  provider: 'arvancloud' | 'aws' | 'cloudflare_r2' | 'custom' | 'digitalocean' | 'minio' | 'wasabi';
   /**
-   * اتصالی که آپلودها به آن می‌روند. فقط یکی می‌تواند فعال باشد؛ بدون اتصال فعال، فایل‌ها روی دیسک محلی می‌مانند.
+   * اتصال فعال پس از خودآزمایی کامل. فعال‌سازی، اتصال قبلی را خودکار غیرفعال می‌کند.
    */
   enabled?: boolean | null;
   /**
-   * نشانی S3 آروان‌کلود؛ معمولاً https://s3.ir-thr-at1.arvanstorage.ir (بدون اسلش انتهایی).
+   * در «شیء‌نگاری»، فایل پس از آپلود موفق به S3 از دیسک محلی حذف می‌شود. بدون اتصال فعال، Payload همچنان از دیسک سرو می‌دهد.
+   */
+  storageMode: 'local' | 'object_storage' | 'object_storage_with_local_mirror';
+  /**
+   * نشانی S3-compatible (بدون اسلش انتهایی).
    */
   endpoint: string;
-  /**
-   * نام باکت در پنل Object Storage آروان‌کلود.
-   */
   bucket: string;
-  /**
-   * آروان‌کلود در نمونه‌های SDK مقدار «default» می‌پذیرد؛ تغییرش معمولاً لازم نیست.
-   */
   region?: string | null;
-  /**
-   * آروان‌کلود باکت را به‌صورت path-style آدرس‌دهی می‌کند (باکت در مسیر، نه زیردامنه). روشن بماند.
-   */
   forcePathStyle?: boolean | null;
-  /**
-   * شناسهٔ Access Key از پنل Object Storage آروان‌کلود.
-   */
   accessKeyId: string;
   /**
-   * کلید رمز در پنل Object Storage آروان‌کلود. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و بعد از آن هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده».
+   * AES-256-GCM در rest. خالی = «تغییر نده»؛ برای پاک کردن از گزینهٔ زیر استفاده کنید.
    */
   secretAccessKey?: string | null;
-  /**
-   * فقط همراه ذخیره‌سازی استفاده کنید؛ بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».
-   */
   clearCredentials?: boolean | null;
   credentialsSummary?: string | null;
+  healthStatus?: ('unknown' | 'testing' | 'healthy' | 'degraded' | 'failed' | 'retest_required' | 'disabled') | null;
+  lastCheckedAt?: string | null;
+  lastHealthyAt?: string | null;
+  latencyMs?: number | null;
+  endpointReachable?: boolean | null;
+  authenticationOk?: boolean | null;
+  bucketAccessible?: boolean | null;
+  writeAccessOk?: boolean | null;
+  readAccessOk?: boolean | null;
+  deleteAccessOk?: boolean | null;
+  lastErrorCode?: string | null;
+  lastErrorCategory?:
+    | (
+        | 'NETWORK'
+        | 'TLS'
+        | 'TIMEOUT'
+        | 'AUTHENTICATION'
+        | 'BUCKET_NOT_FOUND'
+        | 'PERMISSION'
+        | 'READ_FAILED'
+        | 'WRITE_FAILED'
+        | 'DELETE_FAILED'
+        | 'PROVIDER'
+        | 'CONFIGURATION'
+        | 'UNKNOWN'
+      )
+    | null;
+  lastErrorMessage?: string | null;
   lastSelfTestOk?: boolean | null;
   lastSelfTestDetail?: string | null;
   lastSelfTestAt?: string | null;
@@ -2868,7 +2887,7 @@ export interface PayloadJob {
     | {
         executedAt: string;
         completedAt: string;
-        taskSlug: 'inline' | 'advanceDeployments' | 'schedulePublish';
+        taskSlug: 'inline' | 'advanceDeployments' | 'storageHealthCheck' | 'schedulePublish';
         taskID: string;
         input?:
           | {
@@ -2901,7 +2920,7 @@ export interface PayloadJob {
         id?: string | null;
       }[]
     | null;
-  taskSlug?: ('inline' | 'advanceDeployments' | 'schedulePublish') | null;
+  taskSlug?: ('inline' | 'advanceDeployments' | 'storageHealthCheck' | 'schedulePublish') | null;
   queue?: string | null;
   waitUntil?: string | null;
   processing?: boolean | null;
@@ -3660,7 +3679,9 @@ export interface ApiKeysSelect<T extends boolean = true> {
  */
 export interface StorageConnectionsSelect<T extends boolean = true> {
   name?: T;
+  provider?: T;
   enabled?: T;
+  storageMode?: T;
   endpoint?: T;
   bucket?: T;
   region?: T;
@@ -3669,6 +3690,19 @@ export interface StorageConnectionsSelect<T extends boolean = true> {
   secretAccessKey?: T;
   clearCredentials?: T;
   credentialsSummary?: T;
+  healthStatus?: T;
+  lastCheckedAt?: T;
+  lastHealthyAt?: T;
+  latencyMs?: T;
+  endpointReachable?: T;
+  authenticationOk?: T;
+  bucketAccessible?: T;
+  writeAccessOk?: T;
+  readAccessOk?: T;
+  deleteAccessOk?: T;
+  lastErrorCode?: T;
+  lastErrorCategory?: T;
+  lastErrorMessage?: T;
   lastSelfTestOk?: T;
   lastSelfTestDetail?: T;
   lastSelfTestAt?: T;
@@ -4904,6 +4938,16 @@ export interface TaskAdvanceDeployments {
   input?: unknown;
   output: {
     advanced?: number | null;
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskStorageHealthCheck".
+ */
+export interface TaskStorageHealthCheck {
+  input?: unknown;
+  output: {
+    checked?: boolean | null;
   };
 }
 /**

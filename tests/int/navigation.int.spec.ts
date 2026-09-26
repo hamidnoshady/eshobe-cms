@@ -151,7 +151,7 @@ describe('sidebar information architecture', () => {
     expect(label('feature-flags')).toBe('قابلیت‌ها')
     expect(label('theme-templates')).toBe('پوسته‌ها')
     expect(label('plugins')).toBe('افزونه‌ها')
-    expect(label('storage-connections')).toBe('ذخیره‌سازی')
+    expect(label('storage-connections')).toBe('ذخیره‌سازی اشیا')
     expect(label('deploy-targets')).toBe('سرورهای انتشار')
     expect(label('site-deployments')).toBe('انتشارها')
   })
