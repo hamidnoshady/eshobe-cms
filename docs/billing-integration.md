@@ -196,3 +196,13 @@ Central Billing does not yet expose an entitlement pull. CMS accepts the
 signed push and keeps serving the last projection when the push is late.
 A periodic pull waits on that API. Missing `CENTRAL_BILLING_URL` leaves
 outbox rows pending; it does not mark them sent.
+
+## Store orders (Phase G) — not billing meters
+
+Paid storefront checkouts are **not** usage events. CMS records `order.paid`
+on the platform event feed (`emitOrderPaid`); cafe-restaurant-pos ingests via
+`POST /api/cms/order-events` or by polling `GET /api/platform/events` and
+fetching the order document. Wire shapes live in the platform repo under
+`cms-store-order-contract/v1/`; see `docs/platform-control-api.md` §11b.
+Refunds after import are a separate platform concern — no refund event in the
+billing or store-order contract yet.

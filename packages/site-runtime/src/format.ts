@@ -7,9 +7,9 @@
  * `Date` — see CLAUDE.md.
  */
 
-import type { CurrencyCode } from './money'
+import type { CurrencyCode } from './money.js'
 
-import { currencies, minorToMajor } from './money'
+import { currencies, minorToMajor } from './money.js'
 
 // Payload locale codes are short forms; Intl wants a BCP 47 tag.
 const intlLocale = (locale: string) => (locale === 'fa' ? 'fa-IR' : locale)
@@ -47,7 +47,7 @@ export const formatNumber = (
  * Re-exported from `src/lib/digits.ts` so money parsing can share the mapping without
  * importing this module; the rule that every rendered number goes through here stands.
  */
-export { toLocaleDigits } from './digits'
+export { toLocaleDigits } from './digits.js'
 
 /**
  * A price, in the site's currency, in the active locale's digits.

@@ -7,11 +7,12 @@
  * ignores the site's brand. See `WAVE-9.md` §3 and §5.
  */
 
-export * from './digits'
-export * from './money'
-export * from './format'
-export * from './theme'
-export * from './blocks'
-export * from './slug'
+export * from './digits.js'
+export * from './money.js'
+export * from './format.js'
+export * from './theme.js'
+export * from './blocks.js'
+export * from './slug.js'
+export * from './locale.js'
 
 export const contractVersion = 1 as const

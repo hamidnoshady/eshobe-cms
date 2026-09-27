@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { link } from '@/fields/link'
-import { revalidateSiteGlobal } from '@/hooks/revalidateSiteGlobal'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 import { authenticated } from '../access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
@@ -46,5 +46,6 @@ export const Footer: CollectionConfig = {
   ],
   hooks: {
     afterChange: [revalidateSiteGlobal('footer')],
+    afterDelete: [revalidateSiteGlobalDelete('footer')],
   },
 }

@@ -78,13 +78,18 @@ export const themeSettingsSaveEndpoint: Endpoint = {
       return json({ message: 'فقط مالک سایت می‌تواند تنظیمات پوسته را تغییر دهد.', ok: false }, 403)
     }
 
-    const saved = await saveThemeSettings(req, siteId, { clear: body.clear, values: body.values })
+    const saved = await saveThemeSettings(req, siteId, {
+      bindings: body.bindings,
+      clear: body.clear,
+      runtimeSettings: body.runtimeSettings,
+      values: body.values,
+    })
     if (!saved.ok) {
       return json({ errors: saved.errors, message: saved.errors.join(' '), ok: false }, 400)
     }
 
     return json({
-      message: 'تنظیمات پوسته ذخیره شد. در استقرار بعدی روی پوسته اعمال می‌شود.',
+      message: 'تنظیمات پوسته ذخیره شد.',
       ok: true,
       ...(await themeSettingsView(req, siteId, role)),
     })

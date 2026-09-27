@@ -44,7 +44,7 @@ const CUSTOMER_TARGET = [
   { entities: ['pages', 'header', 'footer', 'forms', 'form-submissions', 'search', 'redirects'], label: 'وب‌سایت' },
   { entities: ['posts', 'categories', 'media'], label: 'محتوا' },
   { entities: ['products', 'orders', 'payment-gateways', 'store'], label: 'فروشگاه' },
-  { entities: ['theme'], label: 'طراحی و انتشار' },
+  { entities: ['site-branding', 'theme'], label: 'طراحی و انتشار' },
   { entities: ['users'], label: 'تیم' },
   { entities: ['sites'], label: 'تنظیمات' },
 ]

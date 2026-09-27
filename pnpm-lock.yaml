@@ -193,11 +193,7 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
-  packages/site-runtime:
-    dependencies:
-      payload:
-        specifier: ^3.0.0
-        version: 3.88.0(graphql@16.14.2)(supports-color@7.2.0)(typescript@6.0.3)
+  packages/site-runtime: {}
 
 packages:
 

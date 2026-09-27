@@ -23,6 +23,26 @@ export const Contact: Block = {
     {
       type: 'row',
       fields: [
+        { name: 'latitude', type: 'number', min: -90, max: 90, label: 'عرض جغرافیایی' },
+        { name: 'longitude', type: 'number', min: -180, max: 180, label: 'طول جغرافیایی' },
+      ],
+    },
+    {
+      name: 'mapUrl',
+      type: 'text',
+      label: 'پیوند نقشه',
+      validate: (value: unknown) => {
+        if (!value) return true
+        try {
+          return new URL(String(value)).protocol === 'https:' || 'پیوند نقشه باید HTTPS باشد.'
+        } catch {
+          return 'پیوند نقشه نامعتبر است.'
+        }
+      },
+    },
+    {
+      type: 'row',
+      fields: [
         {
           name: 'phones',
           type: 'text',

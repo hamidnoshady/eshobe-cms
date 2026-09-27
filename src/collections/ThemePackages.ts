@@ -66,8 +66,14 @@ export const THEME_PACKAGE_SYNC_CONTEXT_KEY = 'eshobeThemePackageSync'
  * (or a missing one) on every site running the package. Cleared rather than kept;
  * the next sync fills it in again.
  */
-const forgetSyncedCommitOnRefEdit: CollectionBeforeChangeHook = ({ context, data, operation, originalDoc }) => {
-  if (operation !== 'update' || context?.[THEME_PACKAGE_SYNC_CONTEXT_KEY] === true || !originalDoc) return data
+const forgetSyncedCommitOnRefEdit: CollectionBeforeChangeHook = ({
+  context,
+  data,
+  operation,
+  originalDoc,
+}) => {
+  if (operation !== 'update' || context?.[THEME_PACKAGE_SYNC_CONTEXT_KEY] === true || !originalDoc)
+    return data
   if (typeof data.defaultRef === 'string' && data.defaultRef !== originalDoc.defaultRef) {
     data.syncedCommitSha = null
   }
@@ -120,7 +126,10 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
           unique: true,
           index: true,
           hooks: { beforeValidate: [({ value, data }) => slugKey(value || data?.name)] },
-          admin: { width: '50', description: 'شناسهٔ ماشینی؛ در API استقرار با همین نام ارسال می‌شود.' },
+          admin: {
+            width: '50',
+            description: 'شناسهٔ ماشینی؛ در API استقرار با همین نام ارسال می‌شود.',
+          },
         },
       ],
     },
@@ -303,7 +312,8 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
               admin: {
                 readOnly: true,
                 width: '50',
-                description: 'لازمهٔ حالت «دامنه روی Coolify». بدون آن، فرم تماس و پرداخت کار نمی‌کنند.',
+                description:
+                  'لازمهٔ حالت «دامنه روی Coolify». بدون آن، فرم تماس و پرداخت کار نمی‌کنند.',
               },
             },
           ],
@@ -324,6 +334,26 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
             readOnly: true,
             description:
               'متغیرهای source: "platform" را سکو می‌نویسد؛ متغیرهای source: "tenant" به‌صورت فرم به مشتری نشان داده می‌شوند.',
+          },
+        },
+        {
+          name: 'runtimeSettingsSchema',
+          type: 'json',
+          label: 'گزینه‌های زمان اجرا',
+          access: readOnly,
+          admin: {
+            readOnly: true,
+            description: 'گزینه‌های نمایشی امن که بدون استقرار مجدد قابل ویرایش‌اند.',
+          },
+        },
+        {
+          name: 'contentSlotsSchema',
+          type: 'json',
+          label: 'جایگاه‌های محتوا',
+          access: readOnly,
+          admin: {
+            readOnly: true,
+            description: 'نگاشت‌های محتوایی که پوسته از سایت درخواست می‌کند.',
           },
         },
         {

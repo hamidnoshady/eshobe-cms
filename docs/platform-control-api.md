@@ -327,6 +327,41 @@ clear?: [KEY] }`. It answers `{ package, fields: [{ key, label, help, required, 
 value? , set? }], canEdit }` — secrets as `set: true|false`, never their value. See
 `docs/theme-deployments.md` §8.
 
+## 11b. Store `order.paid` → POS accounting (Phase G)
+
+When a store checkout marks an order `paid`, the CMS emits `order.paid` on the audit log /
+platform webhooks and lists it on `GET /api/platform/events` (`kind: "order.paid"`, `data.orderId`).
+
+When a **paid** order later moves to `refunded` or `cancelled`, the CMS emits matching
+`order.refunded` / `order.cancelled` events with the same `data.orderId` shape.
+
+The POS ingests through **`POST /api/cms/order-events`** on the business deployment
+(HMAC `x-eshobe-signature` over the raw body, same secret as revalidate). Body shape:
+
+```json
+{
+  "siteId": "<cms site uuid>",
+  "deliveryId": "<unique delivery id>",
+  "event": "order.paid",
+  "order": { /* full Orders document */ }
+}
+```
+
+For a reversal, `event` is `order.refunded` or `order.cancelled` and `order.status` must
+match. The POS voids the previously imported sale through a closed-order amendment (no
+re-import). Each `deliveryId` is idempotent.
+
+If no direct `order-events` webhook is configured, the POS polls this feed on a cursor
+(`store_order_ingest_cursor` on the platform) and fetches the order by id with the site's
+API key before importing.
+
+**Webhook shapes:** subscriptions on the CMS `webhooks` collection deliver the platform
+event JSON (`event`, `id`, `data.orderId`, …) with an `x-eshobe-timestamp` + HMAC over
+`<timestamp>.<body>`. The POS `POST /api/cms/order-events` endpoint expects the
+`cms-store-order-contract/v1` body (full `order` document) and verifies HMAC over the
+raw body only — same as cache revalidation. Do not point a stock CMS webhook URL at
+`order-events` without a translator; use the poll path or a custom bridge.
+
 ## 12. Rules that are easy to break
 
 - **Deployment literals before the bare site route.** Every
@@ -340,3 +375,11 @@ value? , set? }], canEdit }` — secrets as `set: true|false`, never their value
 - **The routing table is the edge's only input.** `buildRoutingTable` is shared by this
   route and the in-process map regeneration; a rule added in one place and not the other
   is a customer domain served by the wrong renderer.
+
+## Manifest-owned runtime schemas
+
+Package manifests may declare strict `settings` and `contentSlots`. Those schemas are synced
+from the repository and are not manually editable platform fields. Per-site values live in
+tenant-scoped `site-theme-settings`, separate from encrypted deployment environment. Site
+keys never gain package/target/log/promotion access, and platform keys do not imply content
+editing rights.

@@ -5,18 +5,41 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    ".": "./src/index.ts",
-    "./format": "./src/format.ts",
-    "./money": "./src/money.ts",
-    "./theme": "./src/theme.ts",
-    "./blocks": "./src/blocks.ts",
-    "./slug": "./src/slug.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
+    },
+    "./money": {
+      "types": "./dist/money.d.ts",
+      "import": "./dist/money.js"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js"
+    },
+    "./blocks": {
+      "types": "./dist/blocks.d.ts",
+      "import": "./dist/blocks.js"
+    },
+    "./slug": {
+      "types": "./dist/slug.d.ts",
+      "import": "./dist/slug.js"
+    },
+    "./locale": {
+      "types": "./dist/locale.d.ts",
+      "import": "./dist/locale.js"
+    }
   },
   "files": [
-    "src"
+    "dist"
   ],
-  "peerDependencies": {
-    "payload": "^3.0.0"
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "tsc -p tsconfig.json"
   },
   "publishConfig": {
     "access": "public"

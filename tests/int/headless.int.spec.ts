@@ -253,4 +253,30 @@ describe('GET /api/site', () => {
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'unknown-host' })
   })
+
+  it('exposes branding on every seeded site without deployment secrets', async () => {
+    const res = await fetchDescriptor('acme.localhost')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      branding?: { displayName?: string; primaryLogo?: unknown }
+      themeRuntime?: unknown
+    }
+    expect(body.branding?.displayName).toBeTruthy()
+    expect(body.branding).toHaveProperty('displayName')
+    for (const key of [
+      'compactLogo',
+      'darkLogo',
+      'favicon',
+      'lightLogo',
+      'primaryLogo',
+      'shortName',
+      'socialImage',
+      'tagline',
+    ] as const) {
+      expect(body.branding).toHaveProperty(key)
+    }
+    expect(body.themeRuntime).toBeNull()
+    const raw = JSON.stringify(body)
+    expect(raw).not.toMatch(/enc:v1|secretValues|coolify/i)
+  })
 })
