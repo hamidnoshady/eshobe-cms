@@ -64,6 +64,77 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
 
   ALTER TABLE "site_deployments" ALTER COLUMN "lane" SET NOT NULL;
   `)
+
+  await db.execute(sql`
+  INSERT INTO "theme_bindings" (
+    "id",
+    "binding_key",
+    "theme_package_id",
+    "lane",
+    "target_id",
+    "app_uuid",
+    "application_hostname",
+    "coolify_project_uuid",
+    "server_uuid",
+    "environment_name",
+    "state",
+    "site_id",
+    "created_at",
+    "updated_at"
+  )
+  SELECT
+    gen_random_uuid(),
+    sd."site_id"::text || ':' || sd."theme_package_id"::text || ':' || sd."lane"::text,
+    sd."theme_package_id",
+    sd."lane"::text::"enum_theme_bindings_lane",
+    sd."target_id",
+    sd."app_uuid",
+    sd."preview_domain",
+    COALESCE(dt."production_project_uuid", dt."project_uuid"),
+    dt."server_uuid",
+    COALESCE(dt."environment_name", 'production'),
+    'active'::"enum_theme_bindings_state",
+    sd."site_id",
+    NOW(),
+    NOW()
+  FROM (
+    SELECT DISTINCT ON ("site_id", "theme_package_id", "lane")
+      *
+    FROM "site_deployments"
+    WHERE "app_uuid" IS NOT NULL AND TRIM("app_uuid") <> ''
+    ORDER BY
+      "site_id",
+      "theme_package_id",
+      "lane",
+      CASE "status"
+        WHEN 'live' THEN 0
+        WHEN 'verifying' THEN 1
+        WHEN 'building' THEN 2
+        WHEN 'creating' THEN 3
+        WHEN 'queued' THEN 4
+        ELSE 5
+      END,
+      "updated_at" DESC
+  ) sd
+  INNER JOIN "deploy_targets" dt ON dt."id" = sd."target_id"
+  ON CONFLICT ("binding_key") DO NOTHING;
+
+  UPDATE "site_deployments" sd
+  SET "theme_binding_id" = tb."id"
+  FROM "theme_bindings" tb
+  WHERE
+    tb."binding_key" = sd."site_id"::text || ':' || sd."theme_package_id"::text || ':' || sd."lane"::text
+    AND sd."theme_binding_id" IS NULL;
+
+  UPDATE "sites" s
+  SET "assigned_theme_package_id" = sd."theme_package_id"
+  FROM "site_deployments" sd
+  WHERE
+    sd."site_id" = s."id"
+    AND sd."status" = 'live'
+    AND sd."domain_mode" IN ('edge', 'direct')
+    AND s."assigned_theme_package_id" IS NULL;
+  `)
 }
 
 export async function down({ db }: MigrateDownArgs): Promise<void> {

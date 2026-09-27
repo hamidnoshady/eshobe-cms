@@ -107,4 +107,8 @@ describe('legacy caddy flag', () => {
     vi.stubEnv('ESHOBE_LEGACY_CADDY_EDGE', '')
     expect(legacyCaddyEdgeEnabled()).toBe(false)
   })
+
+  it('rejects unknown domainMode values instead of defaulting to preview', () => {
+    expect(resolveDeployMode({ domainMode: 'whatever' })).toMatchObject({ ok: false })
+  })
 })

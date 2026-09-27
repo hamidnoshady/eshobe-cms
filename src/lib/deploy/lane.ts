@@ -63,5 +63,9 @@ export const resolveDeployMode = (input: {
     return { domainMode, lane: laneFromDomainMode(domainMode) }
   }
 
+  if (input.domainMode !== undefined && input.domainMode !== null && String(input.domainMode).trim() !== '') {
+    return { message: 'حالت دامنه یا مسیر نامعتبر است.', ok: false }
+  }
+
   return { domainMode: 'preview', lane: 'preview' }
 }

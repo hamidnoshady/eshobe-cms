@@ -440,12 +440,27 @@ const parseDeployModeBody = (
   fallback: { domainMode?: unknown; lane?: unknown } = {},
 ):
   | { domainMode: DomainMode; lane: (typeof DEPLOYMENT_LANES)[number] }
-  | { message: string; ok: false } => {
+  | { message: string; ok: false; status: number } => {
+  if (
+    body?.domainMode !== undefined &&
+    body.domainMode !== null &&
+    String(body.domainMode).trim() !== '' &&
+    !(DOMAIN_MODES as readonly string[]).includes(String(body.domainMode))
+  ) {
+    return {
+      message: `«domainMode» باید یکی از ${DOMAIN_MODES.join('، ')} باشد.`,
+      ok: false,
+      status: 400,
+    }
+  }
+
   const resolved = resolveDeployMode({
     domainMode: body?.domainMode ?? fallback.domainMode,
     lane: body?.lane ?? fallback.lane,
   })
-  if (!('lane' in resolved)) return resolved
+  if (!('lane' in resolved)) {
+    return { message: resolved.message, ok: false, status: 409 }
+  }
   return resolved
 }
 
@@ -473,7 +488,7 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
     if (!packageRef) return json({ message: 'کلید یا شناسهٔ پوسته الزامی است.', ok: false }, 400)
 
     const mode = parseDeployModeBody(body, { domainMode: 'preview', lane: 'preview' })
-    if (!('lane' in mode)) return json({ message: mode.message, ok: false }, 409)
+    if (!('lane' in mode)) return json({ message: mode.message, ok: false }, mode.status)
 
     const created = await createDeployment({
       domainMode: mode.domainMode,
@@ -557,7 +572,7 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
       domainMode: source.domainMode,
       lane: source.lane ?? (source.domainMode === 'preview' ? 'preview' : 'production'),
     })
-    if (!('lane' in mode)) return json({ message: mode.message, ok: false }, 409)
+    if (!('lane' in mode)) return json({ message: mode.message, ok: false }, mode.status)
 
     const created = await createDeployment({
       domainMode: mode.domainMode,
