@@ -18,7 +18,8 @@ describe('cms-store-order-contract/v1 (platform event slice)', () => {
 
   it('pins the poll feed fixture shape used by cafe-restaurant-pos', () => {
     expect(fixture.kind).toBe('order.paid')
-    expect(typeof fixture.data.orderId).toBe('string')
-    expect(fixture.data.orderId.length).toBeGreaterThan(0)
+    const orderId = fixture.data.orderId
+    expect(typeof orderId).toBe('string')
+    expect(orderId!.length).toBeGreaterThan(0)
   })
 })
