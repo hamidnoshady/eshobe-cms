@@ -224,6 +224,8 @@ export type ControlEventKind =
   | 'gateway.selftest'
   | 'key.issued'
   | 'order.paid'
+  | 'order.refunded'
+  | 'order.cancelled'
   | 'order.placed'
   | 'site.changed'
   | 'site.suspended'

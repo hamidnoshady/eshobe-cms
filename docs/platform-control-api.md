@@ -332,6 +332,9 @@ value? , set? }], canEdit }` — secrets as `set: true|false`, never their value
 When a store checkout marks an order `paid`, the CMS emits `order.paid` on the audit log /
 platform webhooks and lists it on `GET /api/platform/events` (`kind: "order.paid"`, `data.orderId`).
 
+When a **paid** order later moves to `refunded` or `cancelled`, the CMS emits matching
+`order.refunded` / `order.cancelled` events with the same `data.orderId` shape.
+
 The POS ingests through **`POST /api/cms/order-events`** on the business deployment
 (HMAC `x-eshobe-signature` over the raw body, same secret as revalidate). Body shape:
 
@@ -343,6 +346,10 @@ The POS ingests through **`POST /api/cms/order-events`** on the business deploym
   "order": { /* full Orders document */ }
 }
 ```
+
+For a reversal, `event` is `order.refunded` or `order.cancelled` and `order.status` must
+match. The POS voids the previously imported sale through a closed-order amendment (no
+re-import). Each `deliveryId` is idempotent.
 
 If no webhook URL is configured, the POS polls this feed on a cursor and fetches the order
 by id with the site's API key before importing.

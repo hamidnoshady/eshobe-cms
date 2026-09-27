@@ -41,6 +41,8 @@ export const PLATFORM_EVENTS = {
   'storage.changed': 'اتصال ذخیره‌سازی تغییر کرد',
   'cdn.synced': 'CDN همگام شد',
   'order.paid': 'سفارش پرداخت شد',
+  'order.refunded': 'سفارش بازپرداخت شد',
+  'order.cancelled': 'سفارش لغو شد',
   'backup.completed': 'پشتیبان گرفته شد',
   'platform.settingsChanged': 'تنظیمات سکو تغییر کرد',
 } as const
