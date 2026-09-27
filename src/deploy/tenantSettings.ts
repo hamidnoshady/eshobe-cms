@@ -72,6 +72,17 @@ export const themePackageForSite = async (
 }> => {
   if (!isUuid(siteId)) return null
 
+  const site = (await req.payload.findByID({
+    collection: 'sites',
+    depth: 0,
+    disableErrors: true,
+    id: siteId,
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+
+  const assignedId = site ? idOf(site.assignedThemePackage) : null
+
   const { docs } = await req.payload.find({
     collection: 'site-deployments',
     depth: 0,
@@ -88,7 +99,7 @@ export const themePackageForSite = async (
     rows.find((doc) => doc.status === 'live' && isProductionMode(doc.domainMode)) ??
     rows.find((doc) => doc.status === 'live') ??
     rows[0]
-  const packageId = row ? idOf(row.themePackage) : null
+  const packageId = assignedId ?? (row ? idOf(row.themePackage) : null)
   if (!packageId) return null
 
   const pkg = (await req.payload.findByID({

@@ -18,10 +18,20 @@ import { resolveEntitlement } from '@/platform/entitlements'
 import { applyThemeTemplate } from '@/platform/saas-report'
 import { emitPlatformEvent } from '@/platform/webhooks'
 import { readDeployTargetToken } from '@/collections/hooks/deploySecrets'
-import { CoolifyClient, boundedLabel, coolifyAppName, scrubDetail, type DeployTarget } from './coolify'
+import { CoolifyClient, boundedLabel, scrubDetail, type DeployTarget } from './coolify'
 import { buildEnvironment } from './environment'
 import { resolveCommitSha } from './github'
 import { requestThemeRoutesRegeneration } from './routing'
+import {
+  claimBindingProvisioning,
+  coolifyTargetForBinding,
+  ensureThemeBinding,
+  laneForDeployment,
+  persistBindingApp,
+  resolveBindingAppUuid,
+} from './bindings'
+import { bindingAppName } from '@/lib/deploy/appIdentity'
+import { resolveDeployMode, type DeploymentLane } from '@/lib/deploy/lane'
 
 /**
  * The deploy service — everything between "an operator picked a theme for a site"
@@ -169,8 +179,10 @@ export const loadTarget = async (
     gitSource: (doc.gitSource as DeployTarget['gitSource']) ?? 'public',
     id,
     name: String(doc.name ?? ''),
+    previewProjectUuid: doc.previewProjectUuid ? String(doc.previewProjectUuid) : null,
     privateKeyUuid: doc.privateKeyUuid ? String(doc.privateKeyUuid) : null,
-    projectUuid: String(doc.projectUuid ?? ''),
+    productionProjectUuid: doc.productionProjectUuid ? String(doc.productionProjectUuid) : null,
+    projectUuid: String(doc.productionProjectUuid ?? doc.projectUuid ?? ''),
     serverUuid: String(doc.serverUuid ?? ''),
   }
 }
@@ -260,7 +272,7 @@ export const previewHostname = (
 ): null | string => {
   const base = String(wildcardDomain ?? '').replace(/^\*\./, '').trim()
   if (!base) return null
-  const label = boundedLabel(`${String(site.domain ?? site.id)}-${themeKey}`, 50, variant)
+  const label = boundedLabel(`${String(site.id)}-${themeKey}`, 50, variant)
   return label ? `${label}.${base}` : null
 }
 
@@ -269,6 +281,7 @@ const variantFor = (mode: DomainMode): null | string => (mode === 'preview' ? 'p
 
 export type StartDeploymentInput = {
   domainMode?: DomainMode
+  lane?: DeploymentLane
   packageRef: string
   ref?: null | string
   req: PayloadRequest
@@ -363,24 +376,26 @@ export const createDeployment = async (
     return { message: 'نام شاخه یا تگ نامعتبر است.', ok: false, status: 400 }
   }
 
-  const domainMode: DomainMode = input.domainMode ?? 'preview'
+  const modeResolved = resolveDeployMode({ domainMode: input.domainMode, lane: input.lane })
+  if (!('lane' in modeResolved)) {
+    return { message: modeResolved.message, ok: false, status: 409 }
+  }
+  const { domainMode, lane } = modeResolved
 
-  if (domainMode !== 'preview' && site.domainVerified !== true) {
+  if (lane === 'production' && site.domainVerified !== true) {
     return {
-      message: 'تا وقتی دامنهٔ اصلی تأیید نشده، فقط حالت «پیش‌نمایش» ممکن است.',
+      message: 'تا وقتی دامنهٔ اصلی تأیید نشده، انتشار روی دامنه ممکن نیست.',
       ok: false,
       status: 409,
     }
   }
 
-  // The rule §5 of docs/theme-deployments.md exists to state: in `direct` mode the
-  // customer's DNS leaves Caddy, so the reserved API paths — checkout, the contact
-  // form, media — only work if the theme proxies them back. A theme that does not
-  // declare `proxiesApi` would take checkout down the moment DNS moved.
-  if (domainMode === 'direct' && !manifest.proxiesApi) {
+  // Coolify-first production requires the theme to proxy reserved API paths when the
+  // customer's DNS points at Coolify (`direct`). Legacy `edge` keeps CMS APIs on Caddy.
+  if (lane === 'production' && domainMode === 'direct' && !manifest.proxiesApi) {
     return {
       message:
-        'این پوسته مسیرهای /api را پراکسی نمی‌کند، پس حالت «دامنه مستقیم» پرداخت و فرم تماس را از کار می‌اندازد. از حالت Caddy استفاده کنید.',
+        'این پوسته مسیرهای /api را پراکسی نمی‌کند و برای انتشار مستقیم روی Coolify مناسب نیست.',
       ok: false,
       status: 409,
     }
@@ -402,9 +417,7 @@ export const createDeployment = async (
     variantFor(domainMode),
   )
 
-  // Every mode needs the wildcard: `preview` is served on it, `edge` uses it as
-  // Caddy's upstream, and `direct` keeps it as the hostname the health check reaches
-  // before customer DNS has moved.
+  // Every mode needs the wildcard hostname for health checks; preview is also served on it.
   if (!preview) {
     return {
       message: 'سرور استقرار باید «دامنهٔ عام پیش‌نمایش» داشته باشد.',
@@ -418,6 +431,7 @@ export const createDeployment = async (
     data: {
       domain: domainMode === 'preview' ? preview : String(site.domain ?? ''),
       domainMode,
+      lane,
       previewDomain: preview,
       ref: effectiveRef,
       site: siteId,
@@ -642,22 +656,61 @@ export const runDeployment = async (
     return fail(req, deploymentId, 'سرور استقرار در دسترس نیست یا توکن آن خوانا نیست.')
   }
 
+  const targetDoc = (await req.payload.findByID({
+    collection: 'deploy-targets',
+    depth: 0,
+    disableErrors: true,
+    id: String(idOf(deployment.target)),
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+
+  if (!targetDoc) return fail(req, deploymentId, 'سرور استقرار پیدا نشد.')
+
   const repo = parseRepository(pkg.repository)
   if (!repo) return fail(req, deploymentId, 'نشانی مخزن پوسته نامعتبر است.')
 
   const domainMode = String(deployment.domainMode ?? 'preview') as DomainMode
+  const lane = laneForDeployment(deployment)
   const previewDomain = deployment.previewDomain ? String(deployment.previewDomain) : null
   const siteDomain = String(site.domain ?? '')
 
   // The customer's domain is read now, not copied from create time: the row must
   // describe the hostname this build will actually be attached to.
-  if (isProductionMode(domainMode) && site.domainVerified !== true) {
-    return fail(req, deploymentId, 'دامنهٔ اصلی سایت تأیید نشده است؛ فقط حالت پیش‌نمایش ممکن است.')
+  if (lane === 'production' && site.domainVerified !== true) {
+    return fail(req, deploymentId, 'دامنهٔ اصلی سایت تأیید نشده است؛ انتشار روی دامنه ممکن نیست.')
   }
 
-  const client = new CoolifyClient(target)
   const themeKey = String(pkg.key ?? 'theme')
-  const appName = coolifyAppName(siteDomain || String(site.id), themeKey, variantFor(domainMode))
+
+  const bindingResult = await ensureThemeBinding({
+    applicationHostname: previewDomain,
+    domainMode,
+    lane,
+    req,
+    site,
+    siteId: String(site.id),
+    targetDoc,
+    themeKey,
+    themePackageId: String(pkg.id),
+  })
+  if (!bindingResult.ok) return fail(req, deploymentId, bindingResult.message)
+
+  const binding = bindingResult.binding
+  const bindingId = String(binding.id)
+
+  await req.payload.update({
+    collection: 'site-deployments',
+    data: { themeBinding: bindingId },
+    depth: 0,
+    id: deploymentId,
+    overrideAccess: true,
+    req,
+  })
+
+  const pinnedTarget = coolifyTargetForBinding(target, binding)
+  const client = new CoolifyClient(pinnedTarget)
+  const appName = String(binding.appName ?? bindingAppName(String(site.id), themeKey, lane))
   const ref = String(deployment.ref ?? effectiveRefFor(pkg))
   // A sha is a commit, not a branch: Coolify clones `git_branch` and then checks out
   // `git_commit_sha`, so a pinned or rolled-back deployment clones the default branch.
@@ -672,10 +725,12 @@ export const runDeployment = async (
    * racing for one hostname is a rate limit and an outage. It gets the preview name
    * only, and Caddy points at it.
    */
-  const domains =
-    domainMode === 'direct'
-      ? [siteDomain, previewDomain].filter(Boolean).map((host) => `https://${host}`)
-      : [previewDomain].filter(Boolean).map((host) => `https://${host}`)
+  const domainHosts =
+    lane === 'preview' || domainMode === 'edge'
+      ? [previewDomain].filter(Boolean)
+      : [siteDomain].filter(Boolean)
+
+  const domains = domainHosts.map((host) => `https://${host}`)
 
   if (!domains.length) {
     return fail(req, deploymentId, 'هیچ میزبانی برای این استقرار مشخص نشده است.')
@@ -691,11 +746,23 @@ export const runDeployment = async (
   let appUuid = deployment.appUuid ? String(deployment.appUuid) : ''
 
   if (!appUuid) {
-    const existing = await client.findApplicationByName(appName)
-    if (existing.ok && existing.data) appUuid = existing.data.uuid
+    const resolved = await resolveBindingAppUuid(req, {
+      binding,
+      client,
+      domainMode,
+      site,
+      themeKey,
+    })
+    if (!resolved.ok) return fail(req, deploymentId, resolved.message)
+    appUuid = resolved.appUuid
   }
 
   if (!appUuid) {
+    const claimed = await claimBindingProvisioning(req, bindingId, deploymentId)
+    if (!claimed) {
+      return fail(req, deploymentId, 'استقرار دیگری در حال ایجاد اپلیکیشن برای همین مسیر است.')
+    }
+
     const created = await client.createApplication({
       baseDirectory: manifest.build.baseDirectory,
       buildCommand: manifest.build.buildCommand,
@@ -724,6 +791,8 @@ export const runDeployment = async (
     appUuid = String(created.data.uuid ?? '')
     if (!appUuid) return fail(req, deploymentId, 'Coolify شناسهٔ اپلیکیشن برنگرداند.')
 
+    await persistBindingApp(req, bindingId, { appUuid, applicationHostname: previewDomain })
+
     // Before anything else can fail. An application Coolify holds and the CMS does not
     // know about is the one state nothing here can clean up.
     await req.payload.update({
@@ -747,6 +816,10 @@ export const runDeployment = async (
       overrideAccess: true,
       req,
     })
+
+    if (!binding.appUuid) {
+      await persistBindingApp(req, bindingId, { appUuid, applicationHostname: previewDomain })
+    }
 
     const repointed = await client.updateApplication(appUuid, {
       domains: domains.join(','),

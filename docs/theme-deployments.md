@@ -6,8 +6,10 @@ the revalidation webhook — is [`docs/THEME_API.md`](./THEME_API.md) §17 and �
 HTTP surface is [`docs/platform-control-api.md`](./platform-control-api.md) §9.
 
 A theme built against the Theme API lives in its own GitHub repository. The operator
-registers it, the platform builds and runs it on the operator's own Coolify, attaches the
-customer's domain, and keeps it in step with the site's lifecycle.
+registers it, assigns it to a site, deploys a **preview** on the operator's preview Coolify
+project, verifies the customer's domain, then **publishes** on the production Coolify project.
+The normal product flow no longer chooses between Caddy `edge` and Coolify `direct` — production
+is Coolify-first. Legacy `edge` remains behind `ESHOBE_LEGACY_CADDY_EDGE=1` for existing sites.
 
 ---
 
@@ -34,7 +36,9 @@ A customer's staff decide exactly one thing: the answers to the variables the th
 | Token presets | `theme-templates` | platform | Paint only. A package may name one to copy onto a site when it goes live. |
 | **Deployable theme** | `theme-packages` | platform | A repository + the manifest its last sync read + the commit that sync resolved. |
 | **Coolify connection** | `deploy-targets` | platform | Base URL, encrypted API token, server/project, wildcard preview domain. |
-| **One attempt** | `site-deployments` | site | site × package × target: status, mode, hostnames, ref/commit, Coolify ids, log tail. History is kept. |
+| **One attempt** | `site-deployments` | site | Auditable history: status, lane/mode, hostnames, ref/commit, log tail. |
+| **Coolify identity** | `theme-bindings` | site | One row per (site × package × lane): `appUuid`, pinned project/server, app name. |
+| **Intent** | `sites.assignedThemePackage` | site | Which published package is assigned before any container exists. |
 | **Tenant answers** | `site-theme-settings` | site | The customer's values for the manifest's `source: "tenant"` variables (one document per site). |
 
 `theme-packages` and `deploy-targets` are platform-wide (the documented exception to the
@@ -76,7 +80,28 @@ masked on read, and blank-on-save means unchanged.
 
 ---
 
-## 4. The three domain modes
+## 4. Lanes (preview and production)
+
+| Lane | Coolify project | Hostnames | Effect on live site |
+|---|---|---|---|
+| `preview` | `deploy-targets.previewProjectUuid` | Wildcard preview only | Rehearsal — does not change `renderedBy` |
+| `production` | `deploy-targets.productionProjectUuid` | Verified primary domain on Coolify | After health check, sets `activeDeployment` + `renderedBy: deployment` |
+
+API and admin UI prefer `lane`. Older callers may still send `domainMode=preview` or
+`domainMode=direct` (mapped to production). New `edge` deploys are rejected unless
+`ESHOBE_LEGACY_CADDY_EDGE=1`.
+
+Operator flow:
+
+1. Register/sync/publish the package.
+2. Assign the package to the site (`POST …/theme-assignment` or admin UI).
+3. Deploy preview → review on wildcard URL.
+4. Verify customer DNS.
+5. Publish production (`lane=production`) — reuses the same production binding/app on updates.
+
+---
+
+## 4 (legacy). The three domain modes (historical rows)
 
 | Mode | Customer DNS | Coolify app answers on | Caddy | `renderedBy` after success |
 |---|---|---|---|---|

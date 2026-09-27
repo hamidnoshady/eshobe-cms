@@ -434,6 +434,18 @@ export const Sites: CollectionConfig = {
      * it.
      */
     {
+      name: 'assignedThemePackage',
+      type: 'relationship',
+      relationTo: 'theme-packages',
+      label: 'پوستهٔ اختصاص‌یافته',
+      access: { create: () => false, update: platformAdminFieldAccess },
+      admin: {
+        description:
+          'پوسته‌ای که برای این سایت در نظر گرفته شده — حتی پیش از اولین استقرار. فقط پوسته‌های منتشرشده.',
+        position: 'sidebar',
+      },
+    },
+    {
       name: 'renderedBy',
       type: 'select',
       label: 'رندر توسط',

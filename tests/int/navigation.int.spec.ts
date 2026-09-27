@@ -85,6 +85,7 @@ const DEMOTED_SUPPORTING = [
   'usage-records',
   'site-entitlements',
   'site-theme-settings',
+  'theme-bindings',
   'reseller-domain-operations',
   'reseller-domain-events',
   'cdn-events',

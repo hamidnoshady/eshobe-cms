@@ -96,13 +96,40 @@ export const deployTargetSelfTest: Endpoint = {
       return json({ message: detail, ok: false }, 422)
     }
 
-    const detail = `اتصال برقرار است؛ سرور پیدا شد (${result.data.servers} سرور، ${elapsed}ms).`
+    const detailParts = [
+      `اتصال برقرار است؛ سرور پیدا شد (${result.data.servers} سرور، ${elapsed}ms).`,
+    ]
+
+    if (!result.data.projectsListed) {
+      detailParts.push('فهرست پروژه‌ها از API خوانده نشد (بررسی نشد).')
+    } else {
+      if (!result.data.previewProjectFound) {
+        detailParts.push('پروژهٔ پیش‌نمایش در Coolify دیده نشد — UUID را بررسی کنید.')
+      }
+      if (!result.data.productionProjectFound) {
+        detailParts.push('پروژهٔ انتشار در Coolify دیده نشد — UUID را بررسی کنید.')
+      }
+      if (result.data.previewProjectFound && result.data.productionProjectFound && !result.data.projectsDistinct) {
+        detailParts.push('پروژهٔ پیش‌نمایش و انتشار یکسان‌اند؛ ترجیحاً جدا باشند.')
+      }
+    }
+
+    if (!result.data.applicationsListed) {
+      detailParts.push('فهرست اپلیکیشن‌ها از API خوانده نشد (همگام‌سازی نام محدود می‌شود).')
+    }
+
+    const detail = detailParts.join(' ')
+    const ok =
+      result.data.serverFound &&
+      result.data.previewProjectFound &&
+      result.data.productionProjectFound
+
     await req.payload.update({
       collection: 'deploy-targets',
       data: {
         lastSelfTestAt: new Date().toISOString(),
         lastSelfTestDetail: detail,
-        lastSelfTestOk: true,
+        lastSelfTestOk: ok,
       },
       depth: 0,
       id,
@@ -110,7 +137,17 @@ export const deployTargetSelfTest: Endpoint = {
       req,
     })
 
-    return json({ message: detail, ok: true, servers: result.data.servers })
+    return json(
+      {
+        message: detail,
+        ok,
+        previewProjectFound: result.data.previewProjectFound,
+        productionProjectFound: result.data.productionProjectFound,
+        projectsDistinct: result.data.projectsDistinct,
+        servers: result.data.servers,
+      },
+      ok ? 200 : 422,
+    )
   },
 }
 

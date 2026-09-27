@@ -139,3 +139,13 @@ Provider plans and token permissions vary. The **قابلیت‌ها و entitlem
 Cloudflare API tokens should be scoped to the one zone and only the permissions needed (DNS edit, Zone settings edit, Cache purge, and Rulesets/WAF edit only if used). ArvanCloud uses the CDN API key associated with that domain/account. Rotate either token by entering a new value; leave the field empty to retain the prior encrypted value, or use the explicit clear checkbox to remove it.
 
 Finally, CDN proxy mode does **not** itself prevent direct requests to the origin IP. At the network firewall/load-balancer layer, allow only Cloudflare or ArvanCloud published edge ranges (plus required health-check/administration paths) to reach ports 80/443. Keep that list maintained from the provider's official IP ranges; do not trust a client-supplied `X-Forwarded-For` header.
+
+## Deployable themes and DNS
+
+**تأیید DNS** and **انتشار پوسته روی دامنه** are separate steps:
+
+- Verifying the primary hostname only proves the customer pointed DNS correctly and allows TLS on that name.
+- Production theme publish (`lane=production`) additionally requires a verified primary domain and attaches the theme on Coolify/Traefik to that hostname.
+- Until publish completes, the site may still be served by the built-in renderer even when DNS is verified.
+
+Changing the primary hostname resets verification and marks production deployments as needing redeploy; the Coolify application identity (`theme-bindings`) is preserved — only domains on the existing app are updated after a successful redeploy.

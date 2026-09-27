@@ -37,6 +37,7 @@ import { Posts } from './collections/Posts'
 import { SiteDeployments } from './collections/SiteDeployments'
 import { SiteEntitlements } from './collections/SiteEntitlements'
 import { SiteThemeSettings } from './collections/SiteThemeSettings'
+import { ThemeBindings } from './collections/ThemeBindings'
 import { SiteBranding } from './collections/SiteBranding'
 import { Sites } from './collections/Sites'
 import { StorageConnections } from './collections/StorageConnections'
@@ -314,6 +315,7 @@ export default buildConfig({
     ThemePackages,
     DeployTargets,
     SiteDeployments,
+    ThemeBindings,
     SiteThemeSettings,
     Webhooks,
     WebhookDeliveries,

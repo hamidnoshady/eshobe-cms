@@ -457,7 +457,8 @@ describe('adopting a theme', () => {
     const site: Record<string, unknown> = { ...(await siteDoc('acme')), domainVerified: false }
 
     const result = await createDeployment({
-      domainMode: 'edge',
+      domainMode: 'direct',
+      lane: 'production',
       packageRef: 'test-theme',
       req: await reqAsAdmin(),
       site,
@@ -543,16 +544,31 @@ describe('adopting a theme', () => {
     await payload.delete({ collection: 'site-deployments', id: result.deploymentId, overrideAccess: true })
   })
 
-  it('derives a stable preview hostname, which is what makes a lost create recoverable', () => {
+  it('derives a stable preview hostname from site id, not the mutable domain', () => {
     const site = { domain: 'acme.ir', id: 'x' }
 
     expect(previewHostname('*.sites.test.invalid', site, 'bazaar')).toBe(
-      'acme-ir-bazaar.sites.test.invalid',
+      'x-bazaar.sites.test.invalid',
     )
     expect(previewHostname('*.sites.test.invalid', site, 'bazaar')).toBe(
       previewHostname('sites.test.invalid', site, 'bazaar'),
     )
     expect(previewHostname(null, site, 'bazaar')).toBeNull()
+  })
+
+  it('refuses new edge deploys when legacy Caddy mode is disabled', async () => {
+    vi.stubEnv('ESHOBE_LEGACY_CADDY_EDGE', '')
+    const site: Record<string, unknown> = { ...(await siteDoc('acme')), domainVerified: true }
+
+    const result = await createDeployment({
+      domainMode: 'edge',
+      packageRef: 'test-theme',
+      req: await reqAsAdmin(),
+      site,
+    })
+
+    expect(result.ok).toBe(false)
+    vi.unstubAllEnvs()
   })
 })
 

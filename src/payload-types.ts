@@ -106,6 +106,7 @@ export interface Config {
     'theme-packages': ThemePackage;
     'deploy-targets': DeployTarget;
     'site-deployments': SiteDeployment;
+    'theme-bindings': ThemeBinding;
     'site-theme-settings': SiteThemeSetting;
     webhooks: Webhook;
     'webhook-deliveries': WebhookDelivery;
@@ -166,6 +167,7 @@ export interface Config {
     'theme-packages': ThemePackagesSelect<false> | ThemePackagesSelect<true>;
     'deploy-targets': DeployTargetsSelect<false> | DeployTargetsSelect<true>;
     'site-deployments': SiteDeploymentsSelect<false> | SiteDeploymentsSelect<true>;
+    'theme-bindings': ThemeBindingsSelect<false> | ThemeBindingsSelect<true>;
     'site-theme-settings': SiteThemeSettingsSelect<false> | SiteThemeSettingsSelect<true>;
     webhooks: WebhooksSelect<false> | WebhooksSelect<true>;
     'webhook-deliveries': WebhookDeliveriesSelect<false> | WebhookDeliveriesSelect<true>;
@@ -361,6 +363,10 @@ export interface Site {
   availableLocales: ('fa' | 'en')[];
   defaultLocale: 'fa' | 'en';
   /**
+   * پوسته‌ای که برای این سایت در نظر گرفته شده — حتی پیش از اولین استقرار. فقط پوسته‌های منتشرشده.
+   */
+  assignedThemePackage?: (string | null) | ThemePackage;
+  /**
    * با استقرار یک پوستهٔ نصب‌شدنی خودکار تغییر می‌کند. دستی تغییر ندهید؛ «بازگشت به رندرر داخلی» راه درست است.
    */
   renderedBy?: ('platform' | 'deployment') | null;
@@ -373,55 +379,6 @@ export interface Site {
    */
   generateSlug?: boolean | null;
   slug: string;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * هر ردیف، یک اجرای واقعی از یک پوسته روی یک سایت است. وضعیت را فقط کار استقرار می‌نویسد؛ ردیف‌های قدیمی برای بازگشت به نسخهٔ قبل نگه داشته می‌شوند.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "site-deployments".
- */
-export interface SiteDeployment {
-  id: string;
-  site?: (string | null) | Site;
-  themePackage: string | ThemePackage;
-  target: string | DeployTarget;
-  /**
-   * فقط کار استقرار این را می‌نویسد.
-   */
-  status: 'queued' | 'creating' | 'building' | 'verifying' | 'live' | 'failed' | 'stopped' | 'removed';
-  /**
-   * پیش‌نمایش: بدون دست زدن به DNS مشتری. Caddy: دامنه سر جایش می‌ماند و فقط صفحات به پوسته می‌روند. مستقیم: DNS مشتری به Coolify اشاره می‌کند و پوسته باید /api را پراکسی کند.
-   */
-  domainMode: 'preview' | 'edge' | 'direct';
-  /**
-   * نشانی‌ای که این اجرا روی آن پاسخ می‌دهد.
-   */
-  domain?: string | null;
-  previewDomain?: string | null;
-  ref?: string | null;
-  /**
-   * دقیقاً همان چیزی که ساخته شد — ورودی بازگشت به نسخهٔ قبل.
-   */
-  commitSha?: string | null;
-  /**
-   * پیش از هر کار دیگری ذخیره می‌شود؛ یک اپلیکیشن بی‌صاحب گران‌ترین حالت ممکن است.
-   */
-  appUuid?: string | null;
-  lastDeploymentUuid?: string | null;
-  /**
-   * کلید role: "site" که این اجرا با آن محتوا می‌خواند. با توقف این استقرار باطل می‌شود.
-   */
-  apiKey?: (string | null) | ApiKey;
-  revalidateSecret?: string | null;
-  lastError?: string | null;
-  /**
-   * کوتاه‌شده و پاک‌سازی‌شده — هیچ توکنی در آن نیست.
-   */
-  logTail?: string | null;
-  deployedAt?: string | null;
-  healthCheckedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -740,13 +697,21 @@ export interface DeployTarget {
   clearApiToken?: boolean | null;
   tokenSummary?: string | null;
   /**
+   * فقط برای سازگاری با نسخهٔ قبل. مقدار به «پروژهٔ انتشار» منتقل شده است؛ برای استقرار جدید هر دو پروژه را پر کنید.
+   */
+  projectUuid?: string | null;
+  /**
+   * UUID پروژهٔ Coolify برای استقرارهای پیش‌نمایش.
+   */
+  previewProjectUuid?: string | null;
+  /**
+   * UUID پروژهٔ Coolify برای انتشار روی دامنهٔ مشتری. ترجیحاً با پروژهٔ پیش‌نمایش متفاوت باشد.
+   */
+  productionProjectUuid?: string | null;
+  /**
    * UUID سرور در Coolify.
    */
   serverUuid: string;
-  /**
-   * UUID پروژه‌ای که سایت‌های مشتریان در آن ساخته می‌شوند.
-   */
-  projectUuid: string;
   environmentName: string;
   /**
    * برای پوسته‌های خصوصی باید در Coolify از قبل یک منبع ساخته باشید.
@@ -762,6 +727,88 @@ export interface DeployTarget {
   lastSelfTestOk?: boolean | null;
   lastSelfTestDetail?: string | null;
   lastSelfTestAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * هر ردیف، یک اجرای واقعی از یک پوسته روی یک سایت است. وضعیت را فقط کار استقرار می‌نویسد؛ ردیف‌های قدیمی برای بازگشت به نسخهٔ قبل نگه داشته می‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "site-deployments".
+ */
+export interface SiteDeployment {
+  id: string;
+  site?: (string | null) | Site;
+  themePackage: string | ThemePackage;
+  target: string | DeployTarget;
+  /**
+   * فقط کار استقرار این را می‌نویسد.
+   */
+  status: 'queued' | 'creating' | 'building' | 'verifying' | 'live' | 'failed' | 'stopped' | 'removed';
+  /**
+   * فقط برای تاریخچه و سازگاری. استقرار جدید از فیلد «مسیر» استفاده می‌کند.
+   */
+  domainMode: 'preview' | 'edge' | 'direct';
+  lane?: ('preview' | 'production') | null;
+  themeBinding?: (string | null) | ThemeBinding;
+  /**
+   * نشانی‌ای که این اجرا روی آن پاسخ می‌دهد.
+   */
+  domain?: string | null;
+  previewDomain?: string | null;
+  ref?: string | null;
+  /**
+   * دقیقاً همان چیزی که ساخته شد — ورودی بازگشت به نسخهٔ قبل.
+   */
+  commitSha?: string | null;
+  /**
+   * پیش از هر کار دیگری ذخیره می‌شود؛ یک اپلیکیشن بی‌صاحب گران‌ترین حالت ممکن است.
+   */
+  appUuid?: string | null;
+  lastDeploymentUuid?: string | null;
+  /**
+   * کلید role: "site" که این اجرا با آن محتوا می‌خواند. با توقف این استقرار باطل می‌شود.
+   */
+  apiKey?: (string | null) | ApiKey;
+  revalidateSecret?: string | null;
+  lastError?: string | null;
+  /**
+   * کوتاه‌شده و پاک‌سازی‌شده — هیچ توکنی در آن نیست.
+   */
+  logTail?: string | null;
+  deployedAt?: string | null;
+  healthCheckedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * هویت ثابت اپلیکیشن Coolify برای هر سایت، پوسته و مسیر (پیش‌نمایش یا انتشار). ردیف‌های استقرار به این ردیف ارجاع می‌دهند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-bindings".
+ */
+export interface ThemeBinding {
+  id: string;
+  site?: (string | null) | Site;
+  bindingKey?: string | null;
+  themePackage: string | ThemePackage;
+  lane: 'preview' | 'production';
+  /**
+   * سروری که این اپلیکیشن روی آن ساخته شده. تغییر پیش‌فرض سرور روی استقرارهای بعدی اثر ندارد.
+   */
+  target: string | DeployTarget;
+  appUuid?: string | null;
+  appName?: string | null;
+  /**
+   * برای بررسی سلامت؛ در انتشار روی دامنه لزوماً همان دامنهٔ مشتری نیست.
+   */
+  applicationHostname?: string | null;
+  coolifyProjectUuid: string;
+  serverUuid: string;
+  environmentName: string;
+  state: 'active' | 'provisioning' | 'stopped' | 'conflict';
+  conflictDetail?: string | null;
+  provisioningDeployment?: (string | null) | SiteDeployment;
   updatedAt: string;
   createdAt: string;
 }
@@ -3408,6 +3455,10 @@ export interface PayloadLockedDocument {
         value: string | SiteDeployment;
       } | null)
     | ({
+        relationTo: 'theme-bindings';
+        value: string | ThemeBinding;
+      } | null)
+    | ({
         relationTo: 'site-theme-settings';
         value: string | SiteThemeSetting;
       } | null)
@@ -4006,6 +4057,7 @@ export interface SitesSelect<T extends boolean = true> {
   status?: T;
   availableLocales?: T;
   defaultLocale?: T;
+  assignedThemePackage?: T;
   renderedBy?: T;
   activeDeployment?: T;
   generateSlug?: T;
@@ -4798,8 +4850,10 @@ export interface DeployTargetsSelect<T extends boolean = true> {
   apiToken?: T;
   clearApiToken?: T;
   tokenSummary?: T;
-  serverUuid?: T;
   projectUuid?: T;
+  previewProjectUuid?: T;
+  productionProjectUuid?: T;
+  serverUuid?: T;
   environmentName?: T;
   gitSource?: T;
   githubAppUuid?: T;
@@ -4822,6 +4876,8 @@ export interface SiteDeploymentsSelect<T extends boolean = true> {
   target?: T;
   status?: T;
   domainMode?: T;
+  lane?: T;
+  themeBinding?: T;
   domain?: T;
   previewDomain?: T;
   ref?: T;
@@ -4834,6 +4890,28 @@ export interface SiteDeploymentsSelect<T extends boolean = true> {
   logTail?: T;
   deployedAt?: T;
   healthCheckedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-bindings_select".
+ */
+export interface ThemeBindingsSelect<T extends boolean = true> {
+  site?: T;
+  bindingKey?: T;
+  themePackage?: T;
+  lane?: T;
+  target?: T;
+  appUuid?: T;
+  appName?: T;
+  applicationHostname?: T;
+  coolifyProjectUuid?: T;
+  serverUuid?: T;
+  environmentName?: T;
+  state?: T;
+  conflictDetail?: T;
+  provisioningDeployment?: T;
   updatedAt?: T;
   createdAt?: T;
 }
