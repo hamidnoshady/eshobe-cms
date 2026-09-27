@@ -351,8 +351,16 @@ For a reversal, `event` is `order.refunded` or `order.cancelled` and `order.stat
 match. The POS voids the previously imported sale through a closed-order amendment (no
 re-import). Each `deliveryId` is idempotent.
 
-If no webhook URL is configured, the POS polls this feed on a cursor and fetches the order
-by id with the site's API key before importing.
+If no direct `order-events` webhook is configured, the POS polls this feed on a cursor
+(`store_order_ingest_cursor` on the platform) and fetches the order by id with the site's
+API key before importing.
+
+**Webhook shapes:** subscriptions on the CMS `webhooks` collection deliver the platform
+event JSON (`event`, `id`, `data.orderId`, …) with an `x-eshobe-timestamp` + HMAC over
+`<timestamp>.<body>`. The POS `POST /api/cms/order-events` endpoint expects the
+`cms-store-order-contract/v1` body (full `order` document) and verifies HMAC over the
+raw body only — same as cache revalidation. Do not point a stock CMS webhook URL at
+`order-events` without a translator; use the poll path or a custom bridge.
 
 ## 12. Rules that are easy to break
 
