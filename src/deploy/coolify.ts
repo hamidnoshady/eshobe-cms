@@ -322,7 +322,7 @@ export class CoolifyClient {
     variables: { isBuildTime?: boolean; key: string; value: string }[],
   ): Promise<CoolifyResult<unknown>> {
     if (!variables.length) return { data: {}, ok: true }
-    return this.call('PATCH', `/applications/${appUuid}/envs/bulk`, {
+    return this.call('PATCH', `/applications/${encodeURIComponent(appUuid)}/envs/bulk`, {
       data: variables.map((variable) => ({
         is_build_time: variable.isBuildTime ?? true,
         is_literal: true,
@@ -337,30 +337,50 @@ export class CoolifyClient {
     appUuid: string,
     patch: Record<string, unknown>,
   ): Promise<CoolifyResult<unknown>> {
-    return this.call('PATCH', `/applications/${appUuid}`, patch)
+    return this.call('PATCH', `/applications/${encodeURIComponent(appUuid)}`, patch)
   }
 
-  async deploy(appUuid: string): Promise<CoolifyResult<{ deploymentUuid: null | string }>> {
-    const result = await this.call<Record<string, unknown>>(
-      'GET',
-      `/deploy?uuid=${encodeURIComponent(appUuid)}`,
-    )
+  async deploy(appUuid: string): Promise<CoolifyResult<{ deploymentUuid: string }>> {
+    /**
+     * `/deploy` used to be GET-with-query-parameters. Current Coolify releases reject
+     * that request with 405 and `This endpoint has changed to a POST request.`. Keep
+     * the selector in the JSON body, as documented by the current API, so application
+     * UUIDs do not end up in proxy access-log URLs either.
+     */
+    const result = await this.call<Record<string, unknown>>('POST', '/deploy', {
+      force: false,
+      uuid: appUuid,
+    })
     if (!result.ok) return result
 
-    // Coolify answers `{ deployments: [{ deployment_uuid }] }`; older builds answer a
-    // bare object. Read both rather than depend on the shape of one release.
+    // Coolify answers `{ deployments: [{ deployment_uuid }] }`; some older builds
+    // answered a bare object. Read both shapes, but do not report success without an
+    // id: the poller cannot follow such a build and would otherwise leave the row in
+    // `building` until the one-hour stale-job timeout.
     const deployments = (result.data as { deployments?: unknown[] })?.deployments
     const first = Array.isArray(deployments) ? (deployments[0] as Record<string, unknown>) : null
     const uuid =
       (first?.deployment_uuid as string | undefined) ??
       ((result.data as Record<string, unknown>)?.deployment_uuid as string | undefined) ??
-      null
+      ''
 
-    return { data: { deploymentUuid: uuid ? String(uuid) : null }, ok: true }
+    if (!uuid) {
+      return {
+        detail: scrubDetail(result.data),
+        message: 'Coolify شناسهٔ استقرار را برنگرداند.',
+        ok: false,
+        status: 502,
+      }
+    }
+
+    return { data: { deploymentUuid: String(uuid) }, ok: true }
   }
 
   async deploymentStatus(deploymentUuid: string): Promise<CoolifyResult<DeploymentStatus>> {
-    const result = await this.call<Record<string, unknown>>('GET', `/deployments/${deploymentUuid}`)
+    const result = await this.call<Record<string, unknown>>(
+      'GET',
+      `/deployments/${encodeURIComponent(deploymentUuid)}`,
+    )
     if (!result.ok) return result
     const raw = String(result.data?.status ?? 'unknown')
     return { data: { raw, status: statusFromRaw(raw) }, ok: true }
@@ -373,6 +393,8 @@ export class CoolifyClient {
    * deployment through the health check, never a container resurrected as it was.
    */
   async stop(appUuid: string): Promise<CoolifyResult<unknown>> {
-    return this.call('GET', `/applications/${appUuid}/stop`)
+    // Lifecycle actions are POST in Coolify's current API. Older versions accepted
+    // POST as well, so this avoids the same GET → POST break that affected `/deploy`.
+    return this.call('POST', `/applications/${encodeURIComponent(appUuid)}/stop`)
   }
 }
