@@ -109,6 +109,19 @@ describe('deployment plan resolver', () => {
     expect(placementForLane(target, 'preview').serverUuid).toBe('server-default')
   })
 
+  it('uses the legacy project for both lanes when lane projects are not configured', () => {
+    const legacy = {
+      serverUuid: 'legacy-server',
+      projectUuid: 'legacy-project',
+      environmentName: 'production',
+    }
+    expect(placementForLane(legacy, 'preview')).toMatchObject({
+      projectUuid: 'legacy-project',
+      serverUuid: 'legacy-server',
+    })
+    expect(placementForLane(legacy, 'production').projectUuid).toBe('legacy-project')
+  })
+
   it('keeps a binding pinned after target edits', () => {
     const result = resolve(
       {},

@@ -4,7 +4,7 @@ import { normalizeArtifactRegistration, verifyArtifactSignature } from '@/deploy
 import { isUuid } from '@/lib/ids'
 import { scrubDetail } from '@/deploy/coolify'
 import { emitPlatformEvent } from '@/platform/webhooks'
-import { json, param } from './platformShared'
+import { json, param, requireOperator } from './platformShared'
 
 const rawBody = async (req: PayloadRequest): Promise<null | string> => {
   const request = req as PayloadRequest & { text?: () => Promise<string> }
@@ -20,6 +20,12 @@ export const themeArtifactRegistrationEndpoint: Endpoint = {
   path: '/platform/theme-packages/:id/artifacts',
   method: 'post',
   handler: async (req) => {
+    // HMAC callbacks do not use an Eshobe bearer token. If one is supplied, still
+    // enforce the platform boundary so a site-scoped key cannot probe this route.
+    if (req.headers.get('authorization')) {
+      const denied = await requireOperator(req)
+      if (denied) return denied
+    }
     const secret = process.env.ESHOBE_THEME_ARTIFACT_SECRET?.trim()
     if (!secret) return json({ ok: false, message: 'ثبت آرتیفکت روی سرور پیکربندی نشده است.' }, 503)
     const raw = await rawBody(req)

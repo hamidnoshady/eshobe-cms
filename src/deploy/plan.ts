@@ -62,9 +62,7 @@ export const placementForLane = (
       text(target[`${prefix}ServerUuid`]) ||
       text(target.defaultServerUuid) ||
       text(target.serverUuid),
-    projectUuid:
-      text(target[`${prefix}ProjectUuid`]) ||
-      (lane === 'production' ? text(target.projectUuid) : ''),
+    projectUuid: text(target[`${prefix}ProjectUuid`]) || text(target.projectUuid),
     environmentName:
       text(target[`${prefix}EnvironmentName`]) || text(target.environmentName) || 'production',
   }
