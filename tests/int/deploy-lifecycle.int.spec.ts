@@ -78,6 +78,7 @@ const net = {
   buildStatus: 'finished',
   calls: [] as Call[],
   counter: 0,
+  deployOmitsUuid: false,
   healthStatus: 200,
   refs: { main: SHA_MAIN } as Record<string, string>,
   stopFails: false,
@@ -95,6 +96,15 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   if (url.startsWith(`${COOLIFY}/api/v1`)) {
     const path = url.slice(`${COOLIFY}/api/v1`.length)
     if (method === 'GET' && path === '/applications') return respond(net.apps)
+    if (method === 'POST' && path === '/deploy') {
+      if (!body?.uuid) return respond({ message: 'uuid is required' }, 422)
+      return net.deployOmitsUuid
+        ? respond({ deployments: [] })
+        : respond({ deployments: [{ deployment_uuid: `build-${++net.counter}` }] })
+    }
+    if (method === 'POST' && path.endsWith('/stop')) {
+      return net.stopFails ? respond({ message: 'coolify is down' }, 502) : respond({})
+    }
     if (method === 'POST' && path.startsWith('/applications/')) {
       const uuid = `app-${++net.counter}`
       net.apps.push({ name: String(body?.name ?? ''), uuid })
@@ -102,13 +112,7 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
     }
     if (method === 'PATCH' && /^\/applications\/[^/]+\/envs\/bulk$/.test(path)) return respond({})
     if (method === 'PATCH' && /^\/applications\/[^/]+$/.test(path)) return respond({})
-    if (method === 'GET' && path.startsWith('/deploy?uuid=')) {
-      return respond({ deployments: [{ deployment_uuid: `build-${++net.counter}` }] })
-    }
     if (method === 'GET' && path.startsWith('/deployments/')) return respond({ status: net.buildStatus })
-    if (method === 'GET' && path.endsWith('/stop')) {
-      return net.stopFails ? respond({ message: 'coolify is down' }, 502) : respond({})
-    }
     if (method === 'GET' && path.endsWith('/start')) return respond({})
     if (method === 'DELETE') return respond({})
     return respond({ message: 'not stubbed' }, 404)
@@ -282,6 +286,7 @@ beforeEach(async () => {
   net.buildStatus = 'finished'
   net.calls = []
   net.counter = 0
+  net.deployOmitsUuid = false
   net.healthStatus = 200
   net.refs = { main: SHA_MAIN }
   net.stopFails = false
@@ -373,6 +378,12 @@ describe('an edge deployment, from queued to live', () => {
     expect(vars.find((v) => v.key === 'ESHOBE_PUBLIC_ORIGIN')?.value).toBe(`https://${String(shop.domain)}`)
     expect(vars.find((v) => v.key === 'ESHOBE_SITE_DOMAIN')?.value).toBe(String(shop.domain))
 
+    // Current Coolify accepts this action only as POST. Pin the method and JSON shape;
+    // reverting to the former GET query endpoint produces a 405 on a real server.
+    const deploy = callsTo('POST', /\/api\/v1\/deploy$/)[0]!
+    expect(deploy.body).toEqual({ force: false, uuid: 'app-1' })
+    expect(callsTo('GET', /\/api\/v1\/deploy(?:\?|$)/)).toHaveLength(0)
+
     // Not live yet: the site is untouched until the health check answers.
     expect((await site()).renderedBy).toBe('platform')
 
@@ -429,6 +440,21 @@ describe('an edge deployment, from queued to live', () => {
     expect((await site()).renderedBy).toBe('platform')
   })
 
+  it('fails immediately when Coolify accepts deploy but omits its deployment id', async () => {
+    const req = await reqAsAdmin()
+    const created = await createDeployment({ domainMode: 'edge', packageRef: packageId, req, site: await site() })
+    if (!created.ok) throw new Error(created.message)
+    net.deployOmitsUuid = true
+
+    await advanceDeployment(req, created.deploymentId)
+
+    const failed = await row(created.deploymentId)
+    expect(failed.status).toBe('failed')
+    expect(failed.lastDeploymentUuid).toBeFalsy()
+    expect(String(failed.lastError)).toContain('شناسهٔ استقرار')
+    expect((await site()).renderedBy).toBe('platform')
+  })
+
   it('refuses to run a queued deployment for a site that was suspended meanwhile', async () => {
     const req = await reqAsAdmin()
     const created = await createDeployment({ domainMode: 'preview', packageRef: packageId, req, site: await site() })
@@ -464,7 +490,7 @@ describe('redeploy, upgrade and rollback', () => {
     expect(after.renderedBy).toBe('deployment')
     expect(after.activeDeployment).toBe(liveId)
     // Nothing was stopped and nothing was deleted.
-    expect(callsTo('GET', /\/stop$/)).toHaveLength(0)
+    expect(callsTo('POST', /\/stop$/)).toHaveLength(0)
     expect(net.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0)
   })
 
@@ -524,7 +550,7 @@ describe('redeploy, upgrade and rollback', () => {
     // so it must not have been stopped.
     const superseded = await row(liveId)
     expect(superseded.status).toBe('stopped')
-    expect(callsTo('GET', /\/applications\/app-1\/stop$/)).toHaveLength(0)
+    expect(callsTo('POST', /\/applications\/app-1\/stop$/)).toHaveLength(0)
 
     // Its key is revoked; the new row has its own.
     const oldKey = await payload.findByID({ collection: 'api-keys', id: String(superseded.apiKey), overrideAccess: true })
@@ -618,7 +644,7 @@ describe('a preview is a rehearsal', () => {
     const after = await site()
     expect(after.renderedBy).toBe('deployment')
     expect(after.activeDeployment).toBe(productionId)
-    expect(callsTo('GET', /\/stop$/)).toHaveLength(0)
+    expect(callsTo('POST', /\/stop$/)).toHaveLength(0)
   })
 })
 
@@ -635,7 +661,7 @@ describe('suspension and archival', () => {
 
     const stopped = await row(liveId)
     expect(stopped.status).toBe('stopped')
-    expect(callsTo('GET', new RegExp(`/applications/${String(before.appUuid)}/stop$`))).toHaveLength(1)
+    expect(callsTo('POST', new RegExp(`/applications/${String(before.appUuid)}/stop$`))).toHaveLength(1)
     expect(net.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0)
     const key = await payload.findByID({ collection: 'api-keys', id: String(before.apiKey), overrideAccess: true })
     expect(key.disabledAt).toBeTruthy()
@@ -660,7 +686,7 @@ describe('suspension and archival', () => {
     await updateSite({ status: 'suspended' })
 
     expect((await row(liveId)).status).toBe('stopped')
-    expect(callsTo('GET', /\/applications\/app-1\/stop$/)).toHaveLength(1)
+    expect(callsTo('POST', /\/applications\/app-1\/stop$/)).toHaveLength(1)
     expect((await site()).renderedBy).toBe('platform')
   })
 
@@ -675,7 +701,7 @@ describe('suspension and archival', () => {
 
     for (const id of [liveId, previewId, queued.deploymentId]) expect((await row(id)).status).toBe('stopped')
     // Two applications (production and preview), each stopped once; the queued row had none.
-    expect(callsTo('GET', /\/stop$/)).toHaveLength(2)
+    expect(callsTo('POST', /\/stop$/)).toHaveLength(2)
   })
 
   it('reactivating restarts nothing, and a second suspension is harmless', async () => {
@@ -686,7 +712,7 @@ describe('suspension and archival', () => {
     await updateSite({ status: 'active' })
     expect((await row(liveId)).status).toBe('stopped')
     expect((await site()).renderedBy).toBe('platform')
-    expect(callsTo('GET', /\/(start|deploy\?)/)).toHaveLength(0)
+    expect(callsTo('POST', /\/(?:start|deploy)$/)).toHaveLength(0)
     const { totalDocs: queued } = await payload.count({
       collection: 'site-deployments',
       where: { and: [{ site: { equals: siteId } }, { status: { equals: 'queued' } }] },
