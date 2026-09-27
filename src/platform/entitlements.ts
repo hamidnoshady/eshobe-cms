@@ -435,7 +435,7 @@ export const usageForSite = async (req: PayloadRequest, siteId: string): Promise
 /**
  * Quota display for storage. Prefers the maintained byte total. The capped scan
  * is only the fallback before that total exists, and it is approximate — it is
- * not the billable `media.storage_byte_hour` meter.
+ * not the billable `cms.storage_byte_hour` meter.
  */
 const MEDIA_SCAN_PAGES = 20
 

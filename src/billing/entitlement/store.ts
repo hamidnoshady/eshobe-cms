@@ -57,6 +57,15 @@ export const parseProjectionInput = (
   if (siteId.length < 8) return { error: 'سایت نامعتبر است.' }
   const version = Number(raw.version)
   if (!Number.isSafeInteger(version) || version < 1) return { error: 'نسخه باید عدد صحیح مثبت باشد.' }
+  if (typeof raw.planCode !== 'string' || !raw.planCode.trim()) {
+    return { error: 'planCode الزامی است.' }
+  }
+  if (typeof raw.features !== 'object' || raw.features == null || Array.isArray(raw.features)) {
+    return { error: 'features باید یک شیء باشد.' }
+  }
+  if (typeof raw.limits !== 'object' || raw.limits == null || Array.isArray(raw.limits)) {
+    return { error: 'limits باید یک شیء باشد.' }
+  }
   const limits = parseLimitMap(raw.limits)
   if ('error' in limits) return { error: limits.error }
   const features = boolMap(raw.features)

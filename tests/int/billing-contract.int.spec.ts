@@ -1,8 +1,18 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { describe, expect, it } from 'vitest'
 
+import {
+  signLegacyUsageBody,
+  verifyLegacyUsageSignature,
+} from '@/billing/auth/compat/legacy-nonce-body-hash'
 import { parseUsageBatch, parseUsageEvent } from '@/billing/contract/v1'
+import { parseProjectionInput } from '@/billing/entitlement/store'
 import { applyTechnicalGate } from '@/billing/entitlement/features'
 import { decideProjectionVersion, limitsToQuota, parseLimitMap } from '@/billing/entitlement/limits'
+import { parseBatchAck } from '@/billing/client/interpret'
 import { centralBillingUrl } from '@/billing/client/url'
 import { isBillableCustomerApiPath } from '@/billing/meters/api-path'
 import { deploymentMeasure } from '@/billing/meters/deployment'
@@ -12,6 +22,13 @@ import { advanceStorageClock, emptyStorageClock } from '@/billing/meters/storage
 import { verifyBillingSignature, signBillingBody, REPLAY_WINDOW_MS } from '@/billing/auth/sign'
 import { OUTBOX_BATCH } from '@/billing/usage/outbox'
 import { MAX_PUBLISH_ATTEMPTS, classifyPublishResult, nextAttemptDelayMs } from '@/billing/usage/retry'
+
+const contractRoot = join(dirname(fileURLToPath(import.meta.url)), '../../billing-contract/v1')
+const readFixture = (name: string) => JSON.parse(readFileSync(join(contractRoot, 'fixtures', name), 'utf8'))
+const readVectors = () =>
+  JSON.parse(readFileSync(join(contractRoot, 'hmac-test-vectors.json'), 'utf8')) as {
+    vectors: { body: string; id: string; secret: string; signature: string; timestampSec: string }[]
+  }
 
 const site = '11111111-1111-1111-1111-111111111111'
 const hour = new Date('2026-09-26T13:00:00.000Z')
@@ -73,6 +90,30 @@ describe('billing contract v1', () => {
 
   it('rejects a batch that names another source', () => {
     const parsed = parseUsageBatch({ contractVersion: 1, events: [measurement()], source: 'somewhere' })
+    expect('error' in parsed).toBe(true)
+  })
+
+  it('parses committed fixture batches and acks', () => {
+    const batch = readFixture('usage-measurement-batch.json')
+    expect('batch' in parseUsageBatch(batch)).toBe(true)
+    const ack = readFixture('usage-ack.json')
+    const parsedAck = parseBatchAck(ack)
+    expect('results' in parsedAck).toBe(true)
+    if ('results' in parsedAck) expect(parsedAck.results).toHaveLength(3)
+    const projection = readFixture('entitlement-push.json')
+    expect('input' in parseProjectionInput(projection, 'push')).toBe(true)
+  })
+
+  it('rejects legacy aggregate ingest acknowledgements', () => {
+    const legacy = parseBatchAck({ accepted: 1, duplicates: 0, rejected: [] })
+    expect('error' in legacy).toBe(true)
+  })
+
+  it('rejects flat numeric limits on entitlement push', () => {
+    const parsed = parseProjectionInput(
+      { features: {}, limits: { pages: 10 }, planCode: 'pro', serving: true, siteId: site, version: 1 },
+      'push',
+    )
     expect('error' in parsed).toBe(true)
   })
 })
@@ -153,6 +194,48 @@ describe('publisher policy', () => {
       ok: false,
       reason: 'mismatch',
     })
+  })
+
+  it('pins committed HMAC test vectors', () => {
+    for (const vector of readVectors().vectors) {
+      expect(signBillingBody(vector.secret, vector.timestampSec, vector.body)).toBe(vector.signature)
+      expect(
+        verifyBillingSignature({
+          body: vector.body,
+          now: Number(vector.timestampSec) * 1000,
+          secret: vector.secret,
+          signature: vector.signature,
+          timestamp: vector.timestampSec,
+        }).ok,
+      ).toBe(true)
+    }
+  })
+
+  it('isolates the deprecated nonce/body-hash MAC', () => {
+    const body = '{"source":"eshobe-cms","events":[]}'
+    const timestampMs = '1700000000000'
+    const nonce = 'abc123'
+    const signature = signLegacyUsageBody({ body, nonce, secret: 'legacy', timestampMs })
+    expect(
+      verifyLegacyUsageSignature({
+        body,
+        nonce,
+        now: 1700000000000,
+        secret: 'legacy',
+        signature,
+        timestampMs,
+      }).ok,
+    ).toBe(true)
+    expect(
+      verifyLegacyUsageSignature({
+        body,
+        nonce,
+        now: 1700000000000,
+        secret: 'wrong',
+        signature,
+        timestampMs,
+      }).ok,
+    ).toBe(false)
   })
 
   it('refuses a metadata host as the billing origin', () => {

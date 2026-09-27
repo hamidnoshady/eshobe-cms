@@ -1,0 +1,23 @@
+{
+  "contractVersion": 1,
+  "algorithm": "HMAC-SHA256",
+  "signedPayload": "<unix-seconds>.<raw-body>",
+  "signatureHeader": "x-eshobe-billing-signature",
+  "signatureFormat": "sha256=<lowercase-hex>",
+  "vectors": [
+    {
+      "id": "empty-batch",
+      "secret": "test-secret",
+      "timestampSec": "1700000000",
+      "body": "{\"source\":\"eshobe-cms\",\"contractVersion\":1,\"events\":[]}",
+      "signature": "sha256=1bca5706239b8bd6239ee8a2a04da9a3817416757496e899b88795b28d87ad66"
+    },
+    {
+      "id": "entitlement-push",
+      "secret": "ent-secret",
+      "timestampSec": "1700000100",
+      "body": "{\"siteId\":\"11111111-1111-1111-1111-111111111111\",\"version\":1,\"planCode\":\"pro\",\"serving\":true,\"features\":{\"store\":true},\"limits\":{\"pages\":{\"state\":\"limit\",\"value\":4}}}",
+      "signature": "sha256=57b718b6d8096cc157067c7dacd589a0eb61ce0ae59bd1101c1d7e3d32361bec"
+    }
+  ]
+}

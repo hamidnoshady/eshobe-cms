@@ -1,0 +1,12 @@
+{
+  "siteId": "11111111-1111-1111-1111-111111111111",
+  "version": 2,
+  "planCode": "pro",
+  "serving": true,
+  "features": { "store": true, "editor": false },
+  "limits": {
+    "pages": { "state": "limit", "value": 40 },
+    "posts": { "state": "unlimited" }
+  },
+  "subscriptionStatus": "active"
+}

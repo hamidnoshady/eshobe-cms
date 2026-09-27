@@ -37,7 +37,7 @@ Billing meters are a closed registry in `src/billing/meters/registry.ts`:
 | `cms.api_request` | request | Site API key on a customer API path, folded per UTC hour |
 | `cms.origin_transfer_bytes` | byte | Bytes actually returned by the object-storage proxy |
 | `cms.bandwidth_bytes` | byte | Ingest only. CMS has no CDN byte counter and does not invent one |
-| `media.storage_byte_hour` | byte_hour | Time-weighted integral of stored object bytes |
+| `cms.storage_byte_hour` | byte_hour | Time-weighted integral of stored object bytes |
 | `cms.deployment` | deployment | One event after a production `edge` or `direct` promotion reaches `live` |
 | `cms.build_second` | second | Ingest only. CMS does not invent build duration |
 
@@ -139,11 +139,21 @@ Billing on each create.
 (`eshobe-cms:billing-service:v1`), blanked on read, and returned once from
 `POST /api/platform/billing/credentials` (admin session).
 
+**Who mints what:** CMS issues `billing.entitlement.write` through
+`POST /api/platform/billing/credentials` (admin session). Store the returned
+`keyId` and `secret` in the platform operator configuration. Central Billing
+issues `billing.usage.write`; an operator creates that credential on the platform,
+then saves the `keyId` and `secret` into CMS (`billing-service-credentials`, encrypted
+at rest). The outbox publisher is the only consumer. The credential issue route
+refuses to mint `billing.usage.write` on CMS.
+
 Requests are signed `HMAC-SHA256` over `<unix-seconds>.<body>` using the same
 helper as platform webhooks. Headers: `x-eshobe-billing-key`,
 `x-eshobe-billing-timestamp`, `x-eshobe-billing-signature`. The replay window
 is five minutes. A repeated body fingerprint is refused. The secret is never
-logged.
+logged. Until central Billing verifies v1 signatures on usage ingest, CMS may
+set `BILLING_USAGE_AUTH=legacy-nonce` to speak the deprecated nonce/body-hash
+protocol outbound only (`src/billing/auth/compat/`).
 
 `CENTRAL_BILLING_URL` must be HTTPS in production, must not carry userinfo,
 and must not target link-local or metadata hosts. Calls time out at 10

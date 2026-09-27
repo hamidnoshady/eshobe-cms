@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "billing-contract/v1/usage-event.schema.json",
+  "type": "object",
+  "required": [
+    "eventId",
+    "siteId",
+    "meterKey",
+    "quantity",
+    "unit",
+    "periodStart",
+    "periodEnd",
+    "occurredAt"
+  ],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "eventId": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "siteId": { "type": "string", "minLength": 8 },
+    "meterKey": {
+      "enum": [
+        "cms.api_request",
+        "cms.origin_transfer_bytes",
+        "cms.bandwidth_bytes",
+        "cms.storage_byte_hour",
+        "cms.deployment",
+        "cms.build_second"
+      ]
+    },
+    "kind": { "enum": ["measurement", "correction"] },
+    "quantity": { "type": "integer" },
+    "unit": { "type": "string" },
+    "periodStart": { "type": "string", "format": "date-time" },
+    "periodEnd": { "type": "string", "format": "date-time" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "resourceType": { "type": ["string", "null"] },
+    "resourceId": { "type": ["string", "null"] },
+    "dimensions": { "type": "object", "additionalProperties": { "type": "string" } },
+    "correctsEventId": { "type": ["string", "null"] },
+    "correctionReason": { "type": ["string", "null"] },
+    "actor": { "type": ["string", "null"] }
+  }
+}

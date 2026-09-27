@@ -2578,7 +2578,7 @@ export interface BillingUsageOutbox {
     | 'cms.api_request'
     | 'cms.origin_transfer_bytes'
     | 'cms.bandwidth_bytes'
-    | 'media.storage_byte_hour'
+    | 'cms.storage_byte_hour'
     | 'cms.deployment'
     | 'cms.build_second';
   quantity: number;
@@ -2628,7 +2628,7 @@ export interface BillingUsageSample {
     | 'cms.api_request'
     | 'cms.origin_transfer_bytes'
     | 'cms.bandwidth_bytes'
-    | 'media.storage_byte_hour'
+    | 'cms.storage_byte_hour'
     | 'cms.deployment'
     | 'cms.build_second';
   quantity: number;

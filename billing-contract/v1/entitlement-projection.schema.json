@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "billing-contract/v1/entitlement-projection.schema.json",
+  "type": "object",
+  "required": ["siteId", "version", "planCode", "serving", "features", "limits"],
+  "properties": {
+    "siteId": { "type": "string", "minLength": 8 },
+    "version": { "type": "integer", "minimum": 1 },
+    "planCode": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "serving": { "type": "boolean" },
+    "features": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["state", "value"],
+            "properties": {
+              "state": { "const": "limit" },
+              "value": { "type": "integer", "minimum": 1 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["state"],
+            "properties": { "state": { "const": "unlimited" } }
+          }
+        ]
+      }
+    },
+    "billingCycleStart": { "type": ["string", "null"], "format": "date-time" },
+    "billingCycleEnd": { "type": ["string", "null"], "format": "date-time" },
+    "effectiveAt": { "type": ["string", "null"], "format": "date-time" },
+    "subscriptionStatus": { "type": ["string", "null"] }
+  }
+}
