@@ -1,4 +1,5 @@
 import { isSafeGitRef, type BuildPack } from '@/lib/deploy/manifest'
+import type { DeploymentLane } from '@/lib/deploy/lane'
 
 /**
  * The Coolify REST client — the only place in this codebase that knows Coolify's
@@ -32,10 +33,64 @@ export type DeployTarget = {
   gitSource: 'deployKey' | 'githubApp' | 'public'
   id: string
   name: string
+  previewProjectUuid: null | string
   privateKeyUuid: null | string
+  productionProjectUuid: null | string
+  /** Legacy column; migrated into `productionProjectUuid`. Still used as production fallback. */
   projectUuid: string
   serverUuid: string
 }
+
+export type ProjectUuidSource = {
+  previewProjectUuid?: unknown
+  productionProjectUuid?: unknown
+  projectUuid?: unknown
+}
+
+export const projectUuidForLane = (target: ProjectUuidSource, lane: DeploymentLane): string => {
+  if (lane === 'preview') {
+    const preview = String(target.previewProjectUuid ?? '').trim()
+    if (preview) return preview
+  } else {
+    const production = String(target.productionProjectUuid ?? '').trim()
+    if (production) return production
+  }
+  return String(target.projectUuid ?? '').trim()
+}
+
+export const targetPinnedToBinding = (
+  base: DeployTarget,
+  binding: Record<string, unknown>,
+): DeployTarget => ({
+  ...base,
+  environmentName: String(binding.environmentName ?? base.environmentName),
+  projectUuid: String(binding.coolifyProjectUuid ?? base.projectUuid),
+  serverUuid: String(binding.serverUuid ?? base.serverUuid),
+})
+
+export type ApplicationLookup = {
+  name: string
+  projectUuid: string
+  serverUuid: string
+}
+
+const applicationProjectOf = (row: Record<string, unknown>): string =>
+  String(
+    row.project_uuid ??
+      row.projectUuid ??
+      (row.project as Record<string, unknown> | undefined)?.uuid ??
+      '',
+  )
+
+const applicationServerOf = (row: Record<string, unknown>): string =>
+  String(
+    row.destination_uuid ??
+      row.destinationUuid ??
+      row.server_uuid ??
+      row.serverUuid ??
+      (row.destination as Record<string, unknown> | undefined)?.uuid ??
+      '',
+  )
 
 export type CoolifyResult<T> =
   | { data: T; ok: true }
@@ -222,7 +277,17 @@ export class CoolifyClient {
    * then cannot see the server the operator typed, which is the mistake this catches
    * at configuration time instead of at a customer's first deploy.
    */
-  async selfTest(): Promise<CoolifyResult<{ serverFound: boolean; servers: number }>> {
+  async selfTest(): Promise<
+    CoolifyResult<{
+      applicationsListed: boolean
+      previewProjectFound: boolean
+      productionProjectFound: boolean
+      projectsDistinct: boolean
+      projectsListed: boolean
+      serverFound: boolean
+      servers: number
+    }>
+  > {
     const result = await this.call<unknown[]>('GET', '/servers')
     if (!result.ok) return result
 
@@ -231,7 +296,37 @@ export class CoolifyClient {
       (row) => String((row as Record<string, unknown>)?.uuid ?? '') === this.target.serverUuid,
     )
 
-    return { data: { serverFound, servers: servers.length }, ok: true }
+    const previewUuid = projectUuidForLane(this.target, 'preview')
+    const productionUuid = projectUuidForLane(this.target, 'production')
+
+    let projectsListed = false
+    let previewProjectFound = false
+    let productionProjectFound = false
+
+    const projectsResult = await this.call<unknown[]>('GET', '/projects')
+    if (projectsResult.ok) {
+      projectsListed = true
+      const projects = Array.isArray(projectsResult.data) ? projectsResult.data : []
+      const ids = new Set(projects.map((row) => String((row as Record<string, unknown>)?.uuid ?? '')))
+      previewProjectFound = Boolean(previewUuid && ids.has(previewUuid))
+      productionProjectFound = Boolean(productionUuid && ids.has(productionUuid))
+    }
+
+    const appsResult = await this.call<unknown[]>('GET', '/applications')
+    const applicationsListed = appsResult.ok
+
+    return {
+      data: {
+        applicationsListed,
+        previewProjectFound,
+        productionProjectFound,
+        projectsDistinct: Boolean(previewUuid && productionUuid && previewUuid !== productionUuid),
+        projectsListed,
+        serverFound,
+        servers: servers.length,
+      },
+      ok: true,
+    }
   }
 
   /**
@@ -308,11 +403,32 @@ export class CoolifyClient {
    * (`coolifyAppName`), which is what makes the lookup possible at all.
    */
   async findApplicationByName(name: string): Promise<CoolifyResult<null | { uuid: string }>> {
+    return this.findApplicationScoped({
+      name,
+      projectUuid: this.target.projectUuid,
+      serverUuid: this.target.serverUuid,
+    })
+  }
+
+  async findApplicationScoped(
+    lookup: ApplicationLookup,
+  ): Promise<CoolifyResult<null | { uuid: string }>> {
     const result = await this.call<unknown[]>('GET', '/applications')
     if (!result.ok) return result
 
     const rows = Array.isArray(result.data) ? result.data : []
-    const match = rows.find((row) => String((row as Record<string, unknown>)?.name ?? '') === name)
+    const match = rows.find((row) => {
+      const record = row as Record<string, unknown>
+      if (String(record.name ?? '') !== lookup.name) return false
+
+      const project = applicationProjectOf(record)
+      const server = applicationServerOf(record)
+
+      if (lookup.projectUuid && project && project !== lookup.projectUuid) return false
+      if (lookup.serverUuid && server && server !== lookup.serverUuid) return false
+
+      return true
+    })
 
     return { data: match ? { uuid: String((match as Record<string, unknown>).uuid) } : null, ok: true }
   }

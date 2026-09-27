@@ -185,6 +185,45 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
           type: 'row',
           fields: [
             {
+              name: 'projectUuid',
+              type: 'text',
+              label: 'شناسهٔ پروژه (قدیمی)',
+              admin: {
+                width: '50',
+                description:
+                  'فقط برای سازگاری با نسخهٔ قبل. مقدار به «پروژهٔ انتشار» منتقل شده است؛ برای استقرار جدید هر دو پروژه را پر کنید.',
+              },
+            },
+          ],
+        },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'previewProjectUuid',
+              type: 'text',
+              label: 'پروژهٔ پیش‌نمایش',
+              admin: {
+                width: '50',
+                description: 'UUID پروژهٔ Coolify برای استقرارهای پیش‌نمایش.',
+              },
+            },
+            {
+              name: 'productionProjectUuid',
+              type: 'text',
+              label: 'پروژهٔ انتشار',
+              admin: {
+                width: '50',
+                description:
+                  'UUID پروژهٔ Coolify برای انتشار روی دامنهٔ مشتری. ترجیحاً با پروژهٔ پیش‌نمایش متفاوت باشد.',
+              },
+            },
+          ],
+        },
+        {
+          type: 'row',
+          fields: [
+            {
               name: 'serverUuid',
               type: 'text',
               label: 'شناسهٔ سرور',
@@ -192,20 +231,14 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
               admin: { width: '50', description: 'UUID سرور در Coolify.' },
             },
             {
-              name: 'projectUuid',
+              name: 'environmentName',
               type: 'text',
-              label: 'شناسهٔ پروژه',
+              label: 'نام محیط',
+              defaultValue: 'production',
               required: true,
-              admin: { width: '50', description: 'UUID پروژه‌ای که سایت‌های مشتریان در آن ساخته می‌شوند.' },
+              admin: { width: '50' },
             },
           ],
-        },
-        {
-          name: 'environmentName',
-          type: 'text',
-          label: 'نام محیط',
-          defaultValue: 'production',
-          required: true,
         },
       ],
     },

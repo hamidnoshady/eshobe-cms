@@ -22,6 +22,7 @@ import {
   needsRedeploy,
   type DomainMode,
 } from '@/lib/deploy/status'
+import { DEPLOYMENT_LANES, isDeploymentLane, resolveDeployMode } from '@/lib/deploy/lane'
 import { emitPlatformEvent } from '@/platform/webhooks'
 
 import { json, param, requireOperator, siteById } from './platformShared'
@@ -93,6 +94,7 @@ const deploymentRow = (
   deployedAt: doc.deployedAt ?? null,
   domain: doc.domain ?? null,
   domainMode: doc.domainMode ?? 'preview',
+  lane: doc.lane ?? (doc.domainMode === 'preview' ? 'preview' : 'production'),
   healthCheckedAt: doc.healthCheckedAt ?? null,
   id: String(doc.id),
   lastError: doc.lastError ?? null,
@@ -420,22 +422,39 @@ export const siteDeploymentGetEndpoint: Endpoint = {
     const update = source && source.status === 'live' ? updateInfoFor(source, sourcePackage) : null
 
     return json({
+      assignedThemePackage: idOf(site.assignedThemePackage),
       current,
       deployments: rows,
+      domainVerified: site.domainVerified === true,
       needsRedeploy: rows.some((row) => row.needsRedeploy === true),
       ok: true,
+      primaryDomain: site.domain ?? null,
       renderedBy: site.renderedBy ?? 'platform',
       update,
     })
   },
 }
 
+const parseDeployModeBody = (
+  body: Record<string, unknown> | undefined,
+  fallback: { domainMode?: unknown; lane?: unknown } = {},
+):
+  | { domainMode: DomainMode; lane: (typeof DEPLOYMENT_LANES)[number] }
+  | { message: string; ok: false } => {
+  const resolved = resolveDeployMode({
+    domainMode: body?.domainMode ?? fallback.domainMode,
+    lane: body?.lane ?? fallback.lane,
+  })
+  if (!('lane' in resolved)) return resolved
+  return resolved
+}
+
 /**
- * `POST /api/platform/sites/:id/deployment` — adopt a theme.
+ * `POST /api/platform/sites/:id/deployment` — queue a preview or production deploy.
  *
- * `{ package, ref?, target?, domainMode? }` → 202 with the row id. Validation is
- * synchronous and complete: everything that can be refused without touching the
- * network is refused here, before a row exists.
+ * `{ package, ref?, target?, lane?, domainMode? }` → 202. Prefer `lane` (`preview` |
+ * `production`); `domainMode` remains for older callers (`preview` → preview,
+ * `direct` → production).
  */
 export const siteDeploymentCreateEndpoint: Endpoint = {
   path: '/platform/sites/:id/deployment',
@@ -453,16 +472,12 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
     const packageRef = String(body?.package ?? body?.themePackage ?? '')
     if (!packageRef) return json({ message: 'کلید یا شناسهٔ پوسته الزامی است.', ok: false }, 400)
 
-    const modeRaw = String(body?.domainMode ?? 'preview')
-    if (!(DOMAIN_MODES as readonly string[]).includes(modeRaw)) {
-      return json(
-        { message: `«domainMode» باید یکی از ${DOMAIN_MODES.join('، ')} باشد.`, ok: false },
-        400,
-      )
-    }
+    const mode = parseDeployModeBody(body, { domainMode: 'preview', lane: 'preview' })
+    if (!('lane' in mode)) return json({ message: mode.message, ok: false }, 409)
 
     const created = await createDeployment({
-      domainMode: modeRaw as DomainMode,
+      domainMode: mode.domainMode,
+      lane: mode.lane,
       packageRef,
       ref: body?.ref ? String(body.ref) : null,
       req,
@@ -472,8 +487,17 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
 
     if (!created.ok) return json({ message: created.message, ok: false }, created.status)
 
-    // The queue takes it from here; the row is the contract for everything after.
-    return json({ deployment: created.deploymentId, ok: true, ref: created.ref, status: 'queued' }, 202)
+    return json(
+      {
+        deployment: created.deploymentId,
+        domainMode: mode.domainMode,
+        lane: mode.lane,
+        ok: true,
+        ref: created.ref,
+        status: 'queued',
+      },
+      202,
+    )
   },
 }
 
@@ -517,6 +541,10 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
       )
     }
 
+    if (body?.lane && !isDeploymentLane(body.lane)) {
+      return json({ message: '«lane» باید preview یا production باشد.', ok: false }, 400)
+    }
+
     const source = redeploySource(site, await recentDeployments(req, String(site.id)))
     if (!source) {
       return json(
@@ -525,10 +553,15 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
       )
     }
 
-    const modeRaw = body?.domainMode ? String(body.domainMode) : String(source.domainMode ?? 'preview')
+    const mode = parseDeployModeBody(body, {
+      domainMode: source.domainMode,
+      lane: source.lane ?? (source.domainMode === 'preview' ? 'preview' : 'production'),
+    })
+    if (!('lane' in mode)) return json({ message: mode.message, ok: false }, 409)
 
     const created = await createDeployment({
-      domainMode: modeRaw as DomainMode,
+      domainMode: mode.domainMode,
+      lane: mode.lane,
       packageRef: String(idOf(source.themePackage)),
       ref,
       req,
@@ -541,7 +574,8 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
     return json(
       {
         deployment: created.deploymentId,
-        domainMode: modeRaw,
+        domainMode: mode.domainMode,
+        lane: mode.lane,
         ok: true,
         ref: created.ref,
         source: String(source.id),
@@ -667,6 +701,12 @@ export const siteDeploymentRollbackEndpoint: Endpoint = {
 
     const created = await createDeployment({
       domainMode: String(source.domainMode ?? 'preview') as DomainMode,
+      lane:
+        source.lane === 'preview' || source.lane === 'production'
+          ? source.lane
+          : source.domainMode === 'preview'
+            ? 'preview'
+            : 'production',
       packageRef: String(idOf(source.themePackage)),
       ref: commit,
       req,
@@ -712,6 +752,64 @@ export const siteDeploymentRevertEndpoint: Endpoint = {
   },
 }
 
+/** `PATCH /api/platform/sites/:id/theme-assignment` — record intent without deploying. */
+export const siteThemeAssignmentEndpoint: Endpoint = {
+  path: '/platform/sites/:id/theme-assignment',
+  method: 'post',
+  handler: async (req) => {
+    const denied = requireAdminSession(req)
+    if (denied) return denied
+
+    const site = await siteById(req, param(req, 'id'))
+    if (!site) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
+
+    const { body, error } = await readBody(req)
+    if (error) return error
+
+    const packageRef = String(body?.package ?? body?.themePackage ?? '')
+    if (!packageRef) return json({ message: 'کلید یا شناسهٔ پوسته الزامی است.', ok: false }, 400)
+
+    let packageId = packageRef
+    if (!isUuid(packageRef)) {
+      const { docs } = await req.payload.find({
+        collection: 'theme-packages',
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+        req,
+        where: { key: { equals: packageRef } },
+      })
+      if (!docs[0]) return json({ message: 'پوسته پیدا نشد.', ok: false }, 404)
+      packageId = String(docs[0].id)
+    }
+
+    const pkg = (await req.payload.findByID({
+      collection: 'theme-packages',
+      depth: 0,
+      disableErrors: true,
+      id: packageId,
+      overrideAccess: true,
+      req,
+    })) as null | Record<string, unknown>
+
+    if (!pkg) return json({ message: 'پوسته پیدا نشد.', ok: false }, 404)
+    if (pkg.status !== 'published') {
+      return json({ message: 'فقط پوستهٔ منتشرشده قابل اختصاص است.', ok: false }, 409)
+    }
+
+    await req.payload.update({
+      collection: 'sites',
+      data: { assignedThemePackage: packageId },
+      depth: 0,
+      id: String(site.id),
+      overrideAccess: true,
+      req,
+    })
+
+    return json({ assignedThemePackage: packageId, ok: true })
+  },
+}
+
 /**
  * `GET /api/platform/routing` — the upstream table Caddy needs.
  *
@@ -747,6 +845,7 @@ export const platformDeploymentEndpoints: Endpoint[] = [
   themePackagePublishEndpoint,
   routingTableEndpoint,
   // Site-scoped literals — all of these must precede `/platform/sites/:id`.
+  siteThemeAssignmentEndpoint,
   siteDeploymentRedeployEndpoint,
   siteDeploymentPollEndpoint,
   siteDeploymentVerifyEndpoint,

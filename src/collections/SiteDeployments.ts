@@ -8,6 +8,7 @@ import {
   DOMAIN_MODES,
   DOMAIN_MODE_LABELS,
 } from '@/lib/deploy/status'
+import { DEPLOYMENT_LANES, DEPLOYMENT_LANE_LABELS } from '@/lib/deploy/lane'
 
 /**
  * One running instance of a theme: (site × package × target) on a Coolify
@@ -102,17 +103,37 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
         {
           name: 'domainMode',
           type: 'select',
-          label: 'حالت دامنه',
+          label: 'حالت دامنه (قدیمی)',
           defaultValue: 'preview',
           required: true,
           options: DOMAIN_MODES.map((value) => ({ label: DOMAIN_MODE_LABELS[value], value })),
           admin: {
             width: '50',
             description:
-              'پیش‌نمایش: بدون دست زدن به DNS مشتری. Caddy: دامنه سر جایش می‌ماند و فقط صفحات به پوسته می‌روند. مستقیم: DNS مشتری به Coolify اشاره می‌کند و پوسته باید /api را پراکسی کند.',
+              'فقط برای تاریخچه و سازگاری. استقرار جدید از فیلد «مسیر» استفاده می‌کند.',
           },
         },
+        {
+          name: 'lane',
+          type: 'select',
+          label: 'مسیر',
+          defaultValue: 'preview',
+          index: true,
+          options: DEPLOYMENT_LANES.map((value) => ({
+            label: DEPLOYMENT_LANE_LABELS[value],
+            value,
+          })),
+          admin: { width: '50' },
+        },
       ],
+    },
+    {
+      name: 'themeBinding',
+      type: 'relationship',
+      relationTo: 'theme-bindings',
+      label: 'اتصال پوسته',
+      index: true,
+      admin: { readOnly: true },
     },
     {
       type: 'row',
@@ -246,4 +267,13 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
     },
   ],
   timestamps: true,
+  hooks: {
+    beforeValidate: [
+      ({ data }) => {
+        if (!data?.lane && data?.domainMode) {
+          data.lane = data.domainMode === 'preview' ? 'preview' : 'production'
+        }
+      },
+    ],
+  },
 }

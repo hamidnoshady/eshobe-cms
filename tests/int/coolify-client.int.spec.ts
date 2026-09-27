@@ -10,7 +10,9 @@ const target: DeployTarget = {
   gitSource: 'public',
   id: 'target-1',
   name: 'Test Coolify',
+  previewProjectUuid: 'project-1',
   privateKeyUuid: null,
+  productionProjectUuid: 'project-1',
   projectUuid: 'project-1',
   serverUuid: 'server-1',
 }

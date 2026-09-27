@@ -276,6 +276,7 @@ export const plugins: Plugin[] = [
       // and `storage-connections`. "Which customer owns the Tehran server?" has no
       // answer, and a required `site` column would make the row unsavable.
       'site-deployments': {},
+      'theme-bindings': {},
       'site-theme-settings': { isGlobal: true },
       'site-branding': { isGlobal: true },
       pages: {},

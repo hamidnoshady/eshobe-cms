@@ -45,6 +45,7 @@ type Deployment = {
   domain: null | string
   domainMode: string
   id: string
+  lane?: string
   lastError: null | string
   logTail: null | string
   needsRedeploy: boolean
@@ -88,10 +89,16 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const MODE_LABELS: Record<string, string> = {
-  direct: 'دامنه مستقیم روی Coolify',
-  edge: 'دامنه روی Caddy، پراکسی به پوسته',
-  preview: 'فقط زیردامنهٔ پیش‌نمایش',
+  direct: 'انتشار روی Coolify',
+  edge: 'Caddy (قدیمی)',
+  preview: 'پیش‌نمایش',
 }
+
+const isPreviewRow = (row: Deployment): boolean =>
+  row.lane === 'preview' || row.domainMode === 'preview'
+
+const isProductionRow = (row: Deployment): boolean =>
+  row.lane === 'production' || (row.domainMode !== 'preview' && row.domainMode !== '')
 
 /** Mirrors `isPending` in `src/lib/deploy/status.ts` — the states still expecting work. */
 const PENDING = new Set(['queued', 'creating', 'building', 'verifying'])
@@ -143,7 +150,7 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
   const [error, setError] = useState<null | string>(null)
 
   const [packageKey, setPackageKey] = useState('')
-  const [domainMode, setDomainMode] = useState('preview')
+  const [assignedThemePackage, setAssignedThemePackage] = useState<null | string>(null)
 
   // A ref, not state: the polling effect reads it without wanting to re-subscribe.
   const pollingRef = useRef(false)
@@ -154,9 +161,12 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
     try {
       const response = await fetch(base, { credentials: 'same-origin' })
       const json = (await response.json()) as {
+        assignedThemePackage?: null | string
         current?: Deployment | null
         deployments?: Deployment[]
+        domainVerified?: boolean
         message?: string
+        primaryDomain?: null | string
         renderedBy?: string
         update?: null | UpdateInfo
       }
@@ -171,6 +181,7 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
       setCurrent(json.current ?? null)
       setUpdate(json.update ?? null)
       setRenderedBy(json.renderedBy ?? 'platform')
+      setAssignedThemePackage(json.assignedThemePackage ?? null)
     } catch {
       setError('ارتباط با سرور برقرار نشد.')
     } finally {
@@ -245,12 +256,10 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
   }, [base, load, pending])
 
   const live = current?.status === 'live' ? current : null
-  const production = live && live.domainMode !== 'preview' ? live : null
+  const production = live && isProductionRow(live) ? live : null
   const previewRow =
-    deployments.find((row) => row.domainMode === 'preview' && row.status === 'live') ??
-    deployments.find(
-      (row) => row.domainMode === 'preview' && PENDING.has(row.status),
-    ) ??
+    deployments.find((row) => isPreviewRow(row) && row.status === 'live') ??
+    deployments.find((row) => isPreviewRow(row) && PENDING.has(row.status)) ??
     null
   const productionPackageKey =
     (production?.themePackage &&
@@ -267,30 +276,27 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
   )
 
   const selected = eligible.find((pkg) => pkg.key === packageKey) ?? null
+  const assignedPkg: ThemePackage | undefined =
+    assignedThemePackage ? packages.find((p) => p.id === assignedThemePackage) : undefined
 
-  const modeOptions: Option[] = [
-    { label: MODE_LABELS.preview, value: 'preview' },
-    { label: MODE_LABELS.edge, value: 'edge' },
-    { label: MODE_LABELS.direct, value: 'direct' },
-  ]
-
-  const modeBlocked = ((): null | string => {
-    if (domainMode === 'preview') return null
+  const productionBlocked = ((): null | string => {
     if (!domainVerified) {
-      return `دامنهٔ «${siteDomain}» هنوز تأیید نشده است. تا پیش از تأیید، فقط حالت پیش‌نمایش ممکن است.`
+      return `دامنهٔ «${siteDomain}» هنوز تأیید نشده است. تأیید DNS فقط اجازهٔ انتشار روی دامنهٔ اصلی را می‌دهد؛ تا «انتشار روی دامنه» انجام نشود، پوسته روی دامنهٔ اصلی فعال نمی‌شود.`
     }
-    if (domainMode === 'direct' && selected && !selected.proxiesApi) {
-      return 'این پوسته اعلام نکرده که درخواست‌های /api را پراکسی می‌کند. در حالت «دامنه مستقیم»، پرداخت و فرم‌ها از کار می‌افتند.'
+    if (selected && !selected.proxiesApi) {
+      return 'این پوسته مسیرهای /api را پراکسی نمی‌کند و برای انتشار مستقیم روی Coolify مناسب نیست.'
     }
     return null
   })()
+
+  const deployPackageKey = packageKey || assignedPkg?.key || ''
 
   if (loading) return <p>در حال بارگذاری…</p>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '60rem' }}>
       <div>
-        <h1>استقرار پوسته — {siteName}</h1>
+        <h1>پوسته و میزبانی سایت — {siteName}</h1>
         <p style={{ color: 'var(--theme-elevation-600)' }}>
           دامنه: <code dir="ltr">{siteDomain}</code>
           {!domainVerified && ' (تأیید نشده)'}
@@ -466,20 +472,26 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
       </section>
 
       {/* ---------------------------------------------------------------- */}
-      {/* Deploy something new */}
+      {/* Assign + deploy lanes */}
       {/* ---------------------------------------------------------------- */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <h2 style={{ margin: 0 }}>استقرار پوستهٔ جدید</h2>
+        <h2 style={{ margin: 0 }}>پوستهٔ اختصاص‌یافته</h2>
+        {assignedPkg ? (
+          <p>
+            {assignedPkg.name} (<code dir="ltr">{assignedPkg.key}</code>)
+          </p>
+        ) : (
+          <p style={{ color: 'var(--theme-elevation-600)' }}>هنوز پوسته‌ای برای این سایت انتخاب نشده است.</p>
+        )}
 
         {eligible.length === 0 ? (
           <div className="banner banner--type-default">
-            هیچ پوستهٔ منتشرشده‌ای برای سایت از نوع «{siteType}» وجود ندارد. ابتدا در بخش «پوسته‌های
-            قابل استقرار» یک پوسته را همگام‌سازی و منتشر کنید.
+            هیچ پوستهٔ منتشرشده‌ای برای سایت از نوع «{siteType}» وجود ندارد.
           </div>
         ) : (
           <>
             <SelectInput
-              label="پوسته"
+              label="انتخاب پوسته"
               name="package"
               onChange={(option) => setPackageKey(String((option as Option)?.value ?? ''))}
               options={eligible.map((pkg) => ({
@@ -487,52 +499,109 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
                 value: pkg.key,
               }))}
               path="package"
-              value={packageKey}
+              value={packageKey || assignedPkg?.key || ''}
             />
-
-            <SelectInput
-              description="حالت پیش‌نمایش هیچ تغییری در DNS مشتری نمی‌دهد و برای آزمایش امن است."
-              label="حالت دامنه"
-              name="domainMode"
-              onChange={(option) => setDomainMode(String((option as Option)?.value ?? 'preview'))}
-              options={modeOptions}
-              path="domainMode"
-              value={domainMode}
-            />
-
-            {modeBlocked && <div className="banner banner--type-error">{modeBlocked}</div>}
-
-            {domainMode === 'direct' && !modeBlocked && (
-              <div className="banner banner--type-default">
-                در این حالت DNS مشتری مستقیماً به Coolify اشاره می‌کند و دیگر از Caddy عبور نمی‌کند.
-                پرداخت، فرم‌ها و رسانه فقط در صورتی کار می‌کنند که خود پوسته آن‌ها را پراکسی کند.
-              </div>
-            )}
-
             <ActionButton
-              body={{ domainMode, package: packageKey }}
-              confirm={
-                domainMode === 'preview'
-                  ? undefined
-                  : 'این پوسته پس از بررسی سلامت روی دامنهٔ مشتری فعال می‌شود. ادامه می‌دهید؟'
-              }
-              disabled={!packageKey || Boolean(modeBlocked)}
-              label="شروع استقرار"
+              body={{ package: packageKey || assignedPkg?.key }}
+              disabled={!deployPackageKey}
+              label="ثبت اختصاص پوسته (بدون استقرار)"
               onSuccess={load}
-              style="primary"
-              successMessage="استقرار در صف قرار گرفت. وضعیت آن در همین صفحه به‌روز می‌شود."
-              url={base}
+              style="secondary"
+              successMessage="پوسته برای این سایت ثبت شد."
+              url={`/api/platform/sites/${siteId}/theme-assignment`}
             />
           </>
         )}
       </section>
 
-      {/* ---------------------------------------------------------------- */}
-      {/* History */}
-      {/* ---------------------------------------------------------------- */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <h2 style={{ margin: 0 }}>تاریخچهٔ استقرارها</h2>
+        <h2 style={{ margin: 0 }}>پیش‌نمایش</h2>
+        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
+          روی زیردامنهٔ سرور استقرار — DNS مشتری دست‌نخورده می‌ماند.
+        </p>
+        {previewRow && (
+          <p>
+            وضعیت: {STATUS_LABELS[previewRow.status] ?? previewRow.status}
+            {previewRow.previewOpenUrl ? (
+              <>
+                {' — '}
+                <code dir="ltr">{previewRow.previewOpenUrl}</code>
+              </>
+            ) : null}
+          </p>
+        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <ActionButton
+            body={{ lane: 'preview', package: deployPackageKey }}
+            disabled={!deployPackageKey}
+            label="استقرار پیش‌نمایش"
+            onSuccess={load}
+            style="primary"
+            url={base}
+          />
+          {previewRow && (
+            <>
+              <ActionButton label="استقرار مجدد پیش‌نمایش" onSuccess={load} url={`${base}/redeploy`} />
+              {previewRow.previewOpenUrl && (
+                <Button buttonStyle="secondary" el="anchor" newTab url={previewRow.previewOpenUrl}>
+                  باز کردن پیش‌نمایش
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </section>
 
+      <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <h2 style={{ margin: 0 }}>انتشار روی دامنه</h2>
+        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
+          دامنهٔ اصلی: <code dir="ltr">{siteDomain}</code>
+          {domainVerified ? ' (تأیید شده)' : ' (تأیید نشده)'}
+        </p>
+        {domainVerified && !production && (
+          <div className="banner banner--type-default">
+            DNS تأیید شده است، اما پوسته هنوز روی دامنه منتشر نشده است.
+          </div>
+        )}
+        {productionBlocked && <div className="banner banner--type-error">{productionBlocked}</div>}
+        <ActionButton
+          body={{ lane: 'production', package: deployPackageKey }}
+          confirm="پس از بررسی سلامت، پوسته روی دامنهٔ اصلی فعال می‌شود. ادامه می‌دهید؟"
+          disabled={!deployPackageKey || Boolean(productionBlocked)}
+          label="انتشار روی دامنه"
+          onSuccess={load}
+          style="primary"
+          url={base}
+        />
+        {production && (
+          <ActionButton
+            label="استقرار مجدد production"
+            onSuccess={load}
+            style="secondary"
+            url={`${base}/redeploy`}
+          />
+        )}
+      </section>
+
+      <details>
+        <summary>تشخیص زیرساخت (مدیر)</summary>
+        <div style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
+          {current?.id && (
+            <p>
+              استقرار جاری: <code dir="ltr">{current.id}</code>
+            </p>
+          )}
+          {production?.id && (
+            <p>
+              استقرار production: <code dir="ltr">{production.id}</code>
+            </p>
+          )}
+        </div>
+      </details>
+
+      <details>
+        <summary>تاریخچهٔ استقرارها</summary>
+        <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}>
         {pending.length > 0 && (
           <div className="banner banner--type-default">
             {pending.length} استقرار در جریان است. این صفحه هر {POLL_MS / 1000} ثانیه به‌روز می‌شود.
@@ -665,6 +734,7 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           </Button>
         </div>
       </section>
+      </details>
     </div>
   )
 }

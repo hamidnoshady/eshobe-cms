@@ -16,6 +16,8 @@ import * as migration_20260926_120000_theme_github_webhook from './20260926_1200
 import * as migration_20260926_180000_billing_execution_plane from './20260926_180000_billing_execution_plane'
 import * as migration_20260926_190000_billing_meter_storage_key from './20260926_190000_billing_meter_storage_key'
 import * as migration_20260926_200000_theme_runtime_contract from './20260926_200000_theme_runtime_contract'
+import * as migration_20260927_120000_order_reversal_events from './20260927_120000_order_reversal_events'
+import * as migration_20260927_160000_theme_bindings_lanes from './20260927_160000_theme_bindings_lanes'
 
 export const migrations = [
   {
@@ -107,5 +109,15 @@ export const migrations = [
     up: migration_20260926_200000_theme_runtime_contract.up,
     down: migration_20260926_200000_theme_runtime_contract.down,
     name: '20260926_200000_theme_runtime_contract',
+  },
+  {
+    up: migration_20260927_120000_order_reversal_events.up,
+    down: migration_20260927_120000_order_reversal_events.down,
+    name: '20260927_120000_order_reversal_events',
+  },
+  {
+    up: migration_20260927_160000_theme_bindings_lanes.up,
+    down: migration_20260927_160000_theme_bindings_lanes.down,
+    name: '20260927_160000_theme_bindings_lanes',
   },
 ]
