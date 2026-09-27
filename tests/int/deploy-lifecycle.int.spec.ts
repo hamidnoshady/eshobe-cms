@@ -195,6 +195,7 @@ const updateSite = (data: Record<string, unknown>) =>
 
 const resetSite = async () => {
   await payload.delete({ collection: 'site-deployments', overrideAccess: true, where: { site: { equals: siteId } } })
+  await payload.delete({ collection: 'theme-bindings', overrideAccess: true, where: { site: { equals: siteId } } })
   // Two writes: a changed domain resets verification in the same save.
   await updateSite({ activeDeployment: null, domain: String(original.domain), renderedBy: 'platform', status: 'active' })
   await updateSite({ domainVerified: true })
@@ -214,6 +215,7 @@ const getDeployment = async () =>
   bodyOf(await siteDeploymentGetEndpoint.handler!(await reqAsAdmin(withParams({ id: siteId }))))
 
 beforeAll(async () => {
+  vi.stubEnv('ESHOBE_LEGACY_CADDY_EDGE', '1')
   payload = await getPayload({ config })
   vi.stubGlobal('fetch', fakeFetch)
 
@@ -305,7 +307,9 @@ beforeEach(async () => {
 afterAll(async () => {
   await flushThemeRoutesRegeneration()
   delete process.env.THEME_ROUTES_FILE
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+  await payload.delete({ collection: 'theme-bindings', overrideAccess: true, where: { site: { equals: siteId } } })
   await payload.delete({ collection: 'site-deployments', overrideAccess: true, where: { site: { equals: siteId } } })
   await updateSite({ activeDeployment: null, domain: original.domain, renderedBy: 'platform', status: original.status })
   await updateSite({ domainVerified: original.domainVerified })

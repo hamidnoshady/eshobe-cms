@@ -137,7 +137,9 @@ test.describe('the deployment and theme-settings tabs', () => {
     const acme = sites.docs.find((doc: { domain: string }) => doc.domain === 'acme.localhost')
 
     await page.goto(`${base}/admin/collections/sites/${acme.id}/deployment`)
-    await expect(page.getByRole('heading', { name: /استقرار پوسته/ }).first()).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByRole('heading', { name: /پوسته و میزبانی سایت/ }).first()).toBeVisible({
+      timeout: 60_000,
+    })
     await expect(page.getByRole('heading', { name: 'اکنون چه چیزی سرویس می‌دهد؟' })).toBeVisible()
     await expect(page.getByText('با رندرکنندهٔ داخلی سرویس داده می‌شود')).toBeVisible()
 
