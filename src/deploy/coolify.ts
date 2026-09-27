@@ -36,9 +36,18 @@ export type DeployTarget = {
   previewProjectUuid: null | string
   privateKeyUuid: null | string
   productionProjectUuid: null | string
-  /** Legacy column; migrated into `productionProjectUuid`. Still used as production fallback. */
   projectUuid: string
   serverUuid: string
+  publicGitEnabled?: boolean
+  githubAppEnabled?: boolean
+  deployKeyEnabled?: boolean
+  publicRegistryPullEnabled?: boolean
+  ghcrEnabled?: boolean
+  ghcrCredentialUuid?: null | string
+  previewServerUuid?: null | string
+  productionServerUuid?: null | string
+  previewEnvironmentName?: null | string
+  productionEnvironmentName?: null | string
 }
 
 export type ProjectUuidSource = {
@@ -93,27 +102,39 @@ const applicationServerOf = (row: Record<string, unknown>): string =>
   )
 
 export type CoolifyResult<T> =
-  | { data: T; ok: true }
-  | { detail?: null | string; message: string; ok: false; status: number }
+  { data: T; ok: true } | { detail?: null | string; message: string; ok: false; status: number }
+
+export type ApplicationSource =
+  | {
+      type: 'git'
+      repository: string
+      branch: string
+      commitSha: null | string
+      buildPack: BuildPack
+      access: 'public' | 'github-app' | 'deploy-key'
+      githubAppUuid?: string
+      privateKeyUuid?: string
+      baseDirectory: string
+      buildCommand: null | string
+      dockerfileLocation: null | string
+      installCommand: null | string
+      isStatic: boolean
+      publishDirectory: null | string
+      startCommand: null | string
+    }
+  | {
+      type: 'registry-image'
+      image: string
+      digest: string
+      registryCredentialUuid?: string
+    }
 
 export type CreateApplicationInput = {
-  baseDirectory: string
-  buildCommand: null | string
-  buildPack: BuildPack
-  /** Every hostname this app should answer on, as origins. Coolify wants them comma-joined. */
+  source: ApplicationSource
   domains: string[]
-  dockerfileLocation: null | string
-  gitBranch: string
-  gitCommitSha: null | string
-  /** `https://github.com/owner/name` for public, `owner/name` for a GitHub App source. */
-  gitRepository: string
   healthCheckPath: null | string
-  installCommand: null | string
-  isStatic: boolean
   name: string
   port: number
-  publishDirectory: null | string
-  startCommand: null | string
 }
 
 export type DeploymentStatus = {
@@ -128,6 +149,7 @@ export type DeploymentStatus = {
 const SECRET_PATTERNS: RegExp[] = [
   /eshobe_live_[A-Za-z0-9]+/g,
   /esrv_[A-Za-z0-9]+/g,
+  /\b(?:ghp|github_pat|gho|ghu|ghs|ghr)_[A-Za-z0-9_]+/g,
   /\bBearer\s+\S+/gi,
   /"?(?:api[_-]?token|password|secret|authorization)"?\s*[:=]\s*"?[^\s",}]+/gi,
 ]
@@ -285,6 +307,8 @@ export class CoolifyClient {
       projectsDistinct: boolean
       projectsListed: boolean
       serverFound: boolean
+      previewServerFound: boolean
+      productionServerFound: boolean
       servers: number
     }>
   > {
@@ -292,8 +316,15 @@ export class CoolifyClient {
     if (!result.ok) return result
 
     const servers = Array.isArray(result.data) ? result.data : []
-    const serverFound = servers.some(
-      (row) => String((row as Record<string, unknown>)?.uuid ?? '') === this.target.serverUuid,
+    const serverIds = new Set(
+      servers.map((row) => String((row as Record<string, unknown>)?.uuid ?? '')),
+    )
+    const serverFound = serverIds.has(this.target.serverUuid)
+    const previewServerFound = serverIds.has(
+      this.target.previewServerUuid || this.target.serverUuid,
+    )
+    const productionServerFound = serverIds.has(
+      this.target.productionServerUuid || this.target.serverUuid,
     )
 
     const previewUuid = projectUuidForLane(this.target, 'preview')
@@ -307,7 +338,9 @@ export class CoolifyClient {
     if (projectsResult.ok) {
       projectsListed = true
       const projects = Array.isArray(projectsResult.data) ? projectsResult.data : []
-      const ids = new Set(projects.map((row) => String((row as Record<string, unknown>)?.uuid ?? '')))
+      const ids = new Set(
+        projects.map((row) => String((row as Record<string, unknown>)?.uuid ?? '')),
+      )
       previewProjectFound = Boolean(previewUuid && ids.has(previewUuid))
       productionProjectFound = Boolean(productionUuid && ids.has(productionUuid))
     }
@@ -323,6 +356,8 @@ export class CoolifyClient {
         projectsDistinct: Boolean(previewUuid && productionUuid && previewUuid !== productionUuid),
         projectsListed,
         serverFound,
+        previewServerFound,
+        productionServerFound,
         servers: servers.length,
       },
       ok: true,
@@ -334,64 +369,73 @@ export class CoolifyClient {
    * the one genuine branch in this client.
    */
   async createApplication(input: CreateApplicationInput): Promise<CoolifyResult<{ uuid: string }>> {
-    if (!isSafeGitRef(input.gitBranch)) {
-      return { message: 'شاخهٔ گیت نامعتبر است.', ok: false, status: 0 }
-    }
-
     const common: Record<string, unknown> = {
-      base_directory: input.baseDirectory,
-      build_pack: input.buildPack,
       description: 'ساخته‌شده توسط Eshobe CMS — دستی تغییر ندهید.',
-      destination_uuid: undefined,
       domains: input.domains.join(','),
       environment_name: this.target.environmentName,
-      git_branch: input.gitBranch,
-      git_repository: input.gitRepository,
       instant_deploy: false,
-      // Off, deliberately. A theme author pushing to `main` must not redeploy twenty
-      // customers' storefronts at once; an upgrade is a per-site decision. See
-      // docs/theme-deployments.md §7.
       is_auto_deploy_enabled: false,
       is_force_https_enabled: true,
-      is_static: input.isStatic,
       name: input.name,
       ports_exposes: String(input.port),
       project_uuid: this.target.projectUuid,
       server_uuid: this.target.serverUuid,
     }
-
-    if (input.gitCommitSha) common.git_commit_sha = input.gitCommitSha
-    if (input.installCommand) common.install_command = input.installCommand
-    if (input.buildCommand) common.build_command = input.buildCommand
-    if (input.startCommand) common.start_command = input.startCommand
-    if (input.publishDirectory) common.publish_directory = input.publishDirectory
-    if (input.dockerfileLocation) common.dockerfile_location = input.dockerfileLocation
     if (input.healthCheckPath) {
       common.health_check_enabled = true
       common.health_check_path = input.healthCheckPath
       common.health_check_port = String(input.port)
     }
 
-    if (this.target.gitSource === 'githubApp') {
-      if (!this.target.githubAppUuid) {
-        return { message: 'شناسهٔ GitHub App روی این سرور تنظیم نشده است.', ok: false, status: 0 }
+    if (input.source.type === 'registry-image') {
+      if (!/^sha256:[0-9a-f]{64}$/i.test(input.source.digest)) {
+        return { message: 'digest تصویر نامعتبر است.', ok: false, status: 0 }
       }
+      const body = {
+        ...common,
+        docker_registry_image_name: `${input.source.image}@${input.source.digest}`,
+        docker_registry_image_tag: '',
+        ...(input.source.registryCredentialUuid
+          ? { docker_registry_uuid: input.source.registryCredentialUuid }
+          : {}),
+      }
+      return this.call<{ uuid: string }>('POST', '/applications/dockerimage', body)
+    }
+
+    if (!isSafeGitRef(input.source.branch)) {
+      return { message: 'شاخهٔ گیت نامعتبر است.', ok: false, status: 0 }
+    }
+    const source = input.source
+    Object.assign(common, {
+      base_directory: source.baseDirectory,
+      build_pack: source.buildPack,
+      git_branch: source.branch,
+      git_repository: source.repository,
+      is_static: source.isStatic,
+    })
+    if (source.commitSha) common.git_commit_sha = source.commitSha
+    if (source.installCommand) common.install_command = source.installCommand
+    if (source.buildCommand) common.build_command = source.buildCommand
+    if (source.startCommand) common.start_command = source.startCommand
+    if (source.publishDirectory) common.publish_directory = source.publishDirectory
+    if (source.dockerfileLocation) common.dockerfile_location = source.dockerfileLocation
+
+    if (source.access === 'github-app') {
+      if (!source.githubAppUuid)
+        return { message: 'شناسهٔ GitHub App تنظیم نشده است.', ok: false, status: 0 }
       return this.call<{ uuid: string }>('POST', '/applications/private-github-app', {
         ...common,
-        github_app_uuid: this.target.githubAppUuid,
+        github_app_uuid: source.githubAppUuid,
       })
     }
-
-    if (this.target.gitSource === 'deployKey') {
-      if (!this.target.privateKeyUuid) {
-        return { message: 'کلید خصوصی روی این سرور تنظیم نشده است.', ok: false, status: 0 }
-      }
+    if (source.access === 'deploy-key') {
+      if (!source.privateKeyUuid)
+        return { message: 'کلید خصوصی تنظیم نشده است.', ok: false, status: 0 }
       return this.call<{ uuid: string }>('POST', '/applications/private-deploy-key', {
         ...common,
-        private_key_uuid: this.target.privateKeyUuid,
+        private_key_uuid: source.privateKeyUuid,
       })
     }
-
     return this.call<{ uuid: string }>('POST', '/applications/public', common)
   }
 
@@ -430,7 +474,10 @@ export class CoolifyClient {
       return true
     })
 
-    return { data: match ? { uuid: String((match as Record<string, unknown>).uuid) } : null, ok: true }
+    return {
+      data: match ? { uuid: String((match as Record<string, unknown>).uuid) } : null,
+      ok: true,
+    }
   }
 
   async setEnvironment(

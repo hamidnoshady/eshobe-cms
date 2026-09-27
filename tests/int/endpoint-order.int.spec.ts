@@ -49,9 +49,20 @@ describe('platform site endpoint ordering', () => {
     const paths = new Set((await siteEndpoints()).map((e) => e.path))
     // The exact routes the config header names as swallow-risks. If one is renamed,
     // this list is the reminder to update the ordering reasoning with it.
-    for (const tail of ['quota', 'usage', 'features', 'theme', 'entitlement', 'deployment', 'snapshot', 'billing']) {
+    for (const tail of [
+      'quota',
+      'usage',
+      'features',
+      'theme',
+      'entitlement',
+      'deployment',
+      'snapshot',
+      'billing',
+    ]) {
       expect(
-        [...paths].some((p) => p === `/platform/sites/:id/${tail}` || p.startsWith(`/platform/sites/:id/${tail}`)),
+        [...paths].some(
+          (p) => p === `/platform/sites/:id/${tail}` || p.startsWith(`/platform/sites/:id/${tail}`),
+        ),
         `expected a /platform/sites/:id/${tail} route to exist and be guarded`,
       ).toBe(true)
     }
@@ -60,6 +71,14 @@ describe('platform site endpoint ordering', () => {
   it('registers every deployment lifecycle literal, each ahead of the bare site route', async () => {
     const eps = await siteEndpoints()
     const bare = eps.filter((e) => e.path === '/platform/sites/:id')
+    const config = await configPromise
+    const artifact = (config.endpoints as Ep[]).find(
+      (e) =>
+        String(e.method).toLowerCase() === 'post' &&
+        e.path === '/platform/theme-packages/:id/artifacts',
+    )
+    expect(artifact, 'artifact registration literal must be registered').toBeTruthy()
+
     const expected: [string, string][] = [
       ['get', '/platform/sites/:id/deployment'],
       ['post', '/platform/sites/:id/deployment'],
@@ -75,7 +94,10 @@ describe('platform site endpoint ordering', () => {
       const found = eps.find((e) => e.method === method && e.path === path)
       expect(found, `${method.toUpperCase()} ${path} must be registered`).toBeTruthy()
       for (const b of bare) {
-        expect(found!.i, `${method.toUpperCase()} ${path} must precede the bare site route`).toBeLessThan(b.i)
+        expect(
+          found!.i,
+          `${method.toUpperCase()} ${path} must precede the bare site route`,
+        ).toBeLessThan(b.i)
       }
     }
   })

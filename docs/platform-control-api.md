@@ -384,3 +384,16 @@ from the repository and are not manually editable platform fields. Per-site valu
 tenant-scoped `site-theme-settings`, separate from encrypted deployment environment. Site
 keys never gain package/target/log/promotion access, and platform keys do not imply content
 editing rights.
+
+## Immutable theme artifact registration
+
+`POST /api/platform/theme-packages/:id/artifacts` is the CI-only callback for a successful
+GHCR build. It requires `X-Eshobe-Signature-256: sha256=<HMAC of exact raw body>` using
+`ESHOBE_THEME_ARTIFACT_SECRET`; neither platform keys nor site keys substitute for this
+signature. The source repository and image repository must exactly match the package, and
+commit/digest syntax is strict. A duplicate package + commit + digest is idempotent. See
+`docs/theme-artifacts.md` for the request and deployment semantics.
+
+Deployment create accepts optional `artifact`; redeploy accepts optional `artifact` and
+`upgrade: true`. Registry rollback always takes the source deployment's stored artifact.
+`GET /api/platform/sites/:id/deployment` reports source and artifact update state separately.

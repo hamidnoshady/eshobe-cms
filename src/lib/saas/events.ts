@@ -34,6 +34,8 @@ export const PLATFORM_EVENTS = {
   'apikey.revoked': 'کلید API باطل شد',
   'plugin.changed': 'افزونه تغییر کرد',
   'theme.published': 'پوستهٔ نصب‌شدنی منتشر شد',
+  'theme.artifact.ready': 'آرتیفکت پوسته آماده شد',
+  'theme.artifact.failed': 'ساخت آرتیفکت پوسته ناموفق بود',
   'deployment.started': 'استقرار پوسته آغاز شد',
   'deployment.live': 'پوسته در حال سرویس‌دهی است',
   'deployment.failed': 'استقرار پوسته ناموفق بود',

@@ -41,7 +41,10 @@ const treeOf = (groups: { entities: { slug: string }[]; label: string }[]) =>
  * are rendered inside an existing screen, not as a separate nav destination.
  */
 const CUSTOMER_TARGET = [
-  { entities: ['pages', 'header', 'footer', 'forms', 'form-submissions', 'search', 'redirects'], label: 'وب‌سایت' },
+  {
+    entities: ['pages', 'header', 'footer', 'forms', 'form-submissions', 'search', 'redirects'],
+    label: 'وب‌سایت',
+  },
   { entities: ['posts', 'categories', 'media'], label: 'محتوا' },
   { entities: ['products', 'orders', 'payment-gateways', 'store'], label: 'فروشگاه' },
   { entities: ['site-branding', 'theme'], label: 'طراحی و انتشار' },
@@ -70,7 +73,13 @@ const PLATFORM_TARGET = [
   },
   { entities: ['api-keys', 'webhooks', 'billing-service-credentials'], label: 'یکپارچه‌سازی' },
   {
-    entities: ['site-deployments', 'central-entitlement-projections', 'billing-usage-outbox', 'audit-log'],
+    entities: [
+      'site-deployments',
+      'theme-artifacts',
+      'central-entitlement-projections',
+      'billing-usage-outbox',
+      'audit-log',
+    ],
     label: 'عملیات',
   },
   { entities: ['platform-settings'], label: 'تنظیمات سکو' },
@@ -111,7 +120,8 @@ describe('sidebar information architecture', () => {
       user: customer,
       visible: everythingVisible(CUSTOMER_NAV),
     })
-    const label = (slug: string) => groups.flatMap((g) => g.entities).find((e) => e.slug === slug)?.label
+    const label = (slug: string) =>
+      groups.flatMap((g) => g.entities).find((e) => e.slug === slug)?.label
 
     expect(label('theme')).toBe('طراحی سایت')
     expect(label('users')).toBe('اعضای تیم')
@@ -149,7 +159,8 @@ describe('sidebar information architecture', () => {
       user: operator,
       visible: everythingVisible(PLATFORM_NAV),
     })
-    const label = (slug: string) => groups.flatMap((g) => g.entities).find((e) => e.slug === slug)?.label
+    const label = (slug: string) =>
+      groups.flatMap((g) => g.entities).find((e) => e.slug === slug)?.label
 
     expect(label('feature-flags')).toBe('قابلیت‌ها')
     expect(label('theme-templates')).toBe('پوسته‌ها')

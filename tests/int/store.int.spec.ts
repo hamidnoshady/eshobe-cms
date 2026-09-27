@@ -422,6 +422,7 @@ describe('store', () => {
          * catches a tenant collection quietly joining the exception.
          */
         'theme-packages',
+        'theme-artifacts',
         'deploy-targets',
         'webhooks',
         // A delivery attempt belongs to the webhook it was sent to, and that webhook

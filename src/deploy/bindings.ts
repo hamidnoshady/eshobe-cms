@@ -5,13 +5,9 @@ import type { DeploymentLane } from '@/lib/deploy/lane'
 import { bindingAppName, bindingKeyOf, legacyAppName } from '@/lib/deploy/appIdentity'
 import type { DomainMode } from '@/lib/deploy/status'
 import { laneFromDomainMode } from '@/lib/deploy/lane'
+import { placementForLane } from './plan'
 
-import {
-  CoolifyClient,
-  type DeployTarget,
-  projectUuidForLane,
-  targetPinnedToBinding,
-} from './coolify'
+import { CoolifyClient, type DeployTarget, targetPinnedToBinding } from './coolify'
 
 export type ThemeBindingRow = Record<string, unknown>
 
@@ -23,19 +19,15 @@ export const infrastructureFromTarget = (
   environmentName: string
   serverUuid: string
   targetId: string
-} => ({
-  coolifyProjectUuid: projectUuidForLane(
-    {
-      previewProjectUuid: targetDoc.previewProjectUuid,
-      productionProjectUuid: targetDoc.productionProjectUuid,
-      projectUuid: targetDoc.projectUuid,
-    },
-    lane,
-  ),
-  environmentName: String(targetDoc.environmentName ?? 'production'),
-  serverUuid: String(targetDoc.serverUuid ?? ''),
-  targetId: String(targetDoc.id),
-})
+} => {
+  const placement = placementForLane(targetDoc, lane)
+  return {
+    coolifyProjectUuid: placement.projectUuid,
+    environmentName: placement.environmentName,
+    serverUuid: placement.serverUuid,
+    targetId: String(targetDoc.id),
+  }
+}
 
 export const findBindingByKey = async (
   req: PayloadRequest,

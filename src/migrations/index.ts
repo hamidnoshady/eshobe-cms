@@ -19,6 +19,7 @@ import * as migration_20260926_200000_theme_runtime_contract from './20260926_20
 import * as migration_20260927_120000_order_reversal_events from './20260927_120000_order_reversal_events'
 import * as migration_20260927_160000_theme_bindings_lanes from './20260927_160000_theme_bindings_lanes'
 import * as migration_20260927_170000_theme_bindings_schema_repair from './20260927_170000_theme_bindings_schema_repair'
+import * as migration_20260927_210000_theme_artifact_architecture from './20260927_210000_theme_artifact_architecture'
 
 export const migrations = [
   {
@@ -125,5 +126,10 @@ export const migrations = [
     up: migration_20260927_170000_theme_bindings_schema_repair.up,
     down: migration_20260927_170000_theme_bindings_schema_repair.down,
     name: '20260927_170000_theme_bindings_schema_repair',
+  },
+  {
+    up: migration_20260927_210000_theme_artifact_architecture.up,
+    down: migration_20260927_210000_theme_artifact_architecture.down,
+    name: '20260927_210000_theme_artifact_architecture',
   },
 ]

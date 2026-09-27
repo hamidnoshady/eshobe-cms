@@ -27,6 +27,7 @@ import { emitPlatformEvent } from '@/platform/webhooks'
 
 import { json, param, requireOperator, siteById } from './platformShared'
 import { themeGithubWebhookEndpoint } from './themeGithubWebhook'
+import { themeArtifactRegistrationEndpoint } from './themeArtifacts'
 
 /**
  * `/api/platform/theme-packages/*` and `/api/platform/sites/:id/deployment*` — the
@@ -88,6 +89,11 @@ const deploymentRow = (
   names: { packages: Map<string, string>; targets: Map<string, string> },
 ): Record<string, unknown> => ({
   appUuid: doc.appUuid ?? null,
+  artifactSource: doc.artifactSource ?? 'source_build',
+  themeArtifact: idOf(doc.themeArtifact),
+  imageRepository: doc.imageRepository ?? null,
+  imageTag: doc.imageTag ?? null,
+  imageDigest: doc.imageDigest ?? null,
   attention: needsRedeploy(doc, site) ? STALE_DOMAIN_MESSAGE : null,
   commitSha: doc.commitSha ?? null,
   createdAt: doc.createdAt ?? null,
@@ -193,6 +199,11 @@ export const themePackagesListEndpoint: Endpoint = {
         buildPack: doc.buildPack ?? null,
         contractVersion: doc.contractVersion ?? null,
         defaultRef: doc.defaultRef ?? null,
+        deploymentStrategy: doc.deploymentStrategy ?? 'coolify_build',
+        repositoryVisibility: doc.visibility ?? 'public',
+        registryProvider: doc.registryProvider ?? null,
+        registryImageRepository: doc.registryImageRepository ?? null,
+        registryVisibility: doc.registryVisibility ?? null,
         defaultTarget: idOf(doc.defaultTarget),
         description: doc.description ?? null,
         // Only the declared shape, never stored values: this list is how a console
@@ -307,7 +318,12 @@ export const themePackagePublishEndpoint: Endpoint = {
     if (!pkg) return json({ message: 'پوسته پیدا نشد.', ok: false }, 404)
 
     const { body } = await readBody(req)
-    const status = body?.status === 'deprecated' ? 'deprecated' : body?.status === 'draft' ? 'draft' : 'published'
+    const status =
+      body?.status === 'deprecated'
+        ? 'deprecated'
+        : body?.status === 'draft'
+          ? 'draft'
+          : 'published'
 
     if (status === 'published') {
       const problems: string[] = []
@@ -378,7 +394,9 @@ export const siteDeploymentGetEndpoint: Endpoint = {
 
     const docs = await recentDeployments(req, String(site.id))
 
-    const packageIds = [...new Set(docs.map((doc) => idOf(doc.themePackage)).filter(Boolean))] as string[]
+    const packageIds = [
+      ...new Set(docs.map((doc) => idOf(doc.themePackage)).filter(Boolean)),
+    ] as string[]
     const targetIds = [...new Set(docs.map((doc) => idOf(doc.target)).filter(Boolean))] as string[]
 
     const packages = packageIds.length
@@ -419,7 +437,32 @@ export const siteDeploymentGetEndpoint: Endpoint = {
     const sourcePackage = source
       ? (packages.find((pkg) => String(pkg.id) === String(idOf(source.themePackage))) ?? null)
       : null
-    const update = source && source.status === 'live' ? updateInfoFor(source, sourcePackage) : null
+    const desiredCommit = sourcePackage?.pinnedCommit ?? sourcePackage?.syncedCommitSha
+    const latestArtifact =
+      sourcePackage?.deploymentStrategy === 'registry_image' && desiredCommit
+        ? (((
+            await req.payload.find({
+              collection: 'theme-artifacts',
+              depth: 0,
+              limit: 1,
+              overrideAccess: true,
+              pagination: false,
+              req,
+              sort: '-buildFinishedAt',
+              where: {
+                and: [
+                  { themePackage: { equals: String(sourcePackage.id) } },
+                  { commitSha: { equals: String(desiredCommit).toLowerCase() } },
+                  { status: { equals: 'ready' } },
+                ],
+              },
+            })
+          ).docs[0] as unknown as Record<string, unknown> | undefined) ?? null)
+        : null
+    const update =
+      source && source.status === 'live'
+        ? updateInfoFor(source, sourcePackage, latestArtifact)
+        : null
 
     return json({
       assignedThemePackage: idOf(site.assignedThemePackage),
@@ -491,6 +534,7 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
     if (!('lane' in mode)) return json({ message: mode.message, ok: false }, mode.status)
 
     const created = await createDeployment({
+      artifactRef: body?.artifact ? String(body.artifact) : null,
       domainMode: mode.domainMode,
       lane: mode.lane,
       packageRef,
@@ -544,12 +588,16 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
     const { body, error } = await readBody(req)
     if (error) return error
 
-    const ref = body?.ref === undefined || body.ref === null || body.ref === '' ? null : String(body.ref)
+    const ref =
+      body?.ref === undefined || body.ref === null || body.ref === '' ? null : String(body.ref)
     if (ref !== null && !isSafeGitRef(ref)) {
       return json({ message: 'نام شاخه یا تگ نامعتبر است.', ok: false }, 400)
     }
 
-    if (body?.domainMode && !(DOMAIN_MODES as readonly string[]).includes(String(body.domainMode))) {
+    if (
+      body?.domainMode &&
+      !(DOMAIN_MODES as readonly string[]).includes(String(body.domainMode))
+    ) {
       return json(
         { message: `«domainMode» باید یکی از ${DOMAIN_MODES.join('، ')} باشد.`, ok: false },
         400,
@@ -575,6 +623,11 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
     if (!('lane' in mode)) return json({ message: mode.message, ok: false }, mode.status)
 
     const created = await createDeployment({
+      artifactRef: body?.artifact
+        ? String(body.artifact)
+        : body?.upgrade === true
+          ? null
+          : idOf(source.themeArtifact),
       domainMode: mode.domainMode,
       lane: mode.lane,
       packageRef: String(idOf(source.themePackage)),
@@ -614,7 +667,8 @@ export const siteDeploymentPollEndpoint: Endpoint = {
 
     const { body } = await readBody(req)
     const deploymentId = String(body?.deployment ?? '')
-    if (!isUuid(deploymentId)) return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
+    if (!isUuid(deploymentId))
+      return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
     if (!(await deploymentOfSite(req, site, deploymentId))) {
       return json({ message: 'این استقرار برای این سایت نیست.', ok: false }, 404)
     }
@@ -622,7 +676,11 @@ export const siteDeploymentPollEndpoint: Endpoint = {
     // The same step the queue takes: a queued row starts, a build is polled, and a
     // build that just finished is verified in the same call.
     const advanced = await advanceDeployment(req, deploymentId)
-    return json({ message: advanced.message, ok: advanced.status !== 'failed', status: advanced.status })
+    return json({
+      message: advanced.message,
+      ok: advanced.status !== 'failed',
+      status: advanced.status,
+    })
   },
 }
 
@@ -639,7 +697,8 @@ export const siteDeploymentVerifyEndpoint: Endpoint = {
 
     const { body } = await readBody(req)
     const deploymentId = String(body?.deployment ?? '')
-    if (!isUuid(deploymentId)) return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
+    if (!isUuid(deploymentId))
+      return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
     if (!(await deploymentOfSite(req, site, deploymentId))) {
       return json({ message: 'این استقرار برای این سایت نیست.', ok: false }, 404)
     }
@@ -662,7 +721,8 @@ export const siteDeploymentStopEndpoint: Endpoint = {
 
     const { body } = await readBody(req)
     const deploymentId = String(body?.deployment ?? '')
-    if (!isUuid(deploymentId)) return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
+    if (!isUuid(deploymentId))
+      return json({ message: 'شناسهٔ استقرار نامعتبر است.', ok: false }, 400)
     if (!(await deploymentOfSite(req, site, deploymentId))) {
       return json({ message: 'این استقرار برای این سایت نیست.', ok: false }, 404)
     }
@@ -711,10 +771,14 @@ export const siteDeploymentRollbackEndpoint: Endpoint = {
 
     const commit = String(source.commitSha ?? '')
     if (!commit) {
-      return json({ message: 'این استقرار کامیت ثبت‌شده‌ای ندارد؛ بازگشت ممکن نیست.', ok: false }, 409)
+      return json(
+        { message: 'این استقرار کامیت ثبت‌شده‌ای ندارد؛ بازگشت ممکن نیست.', ok: false },
+        409,
+      )
     }
 
     const created = await createDeployment({
+      artifactRef: idOf(source.themeArtifact),
       domainMode: String(source.domainMode ?? 'preview') as DomainMode,
       lane:
         source.lane === 'preview' || source.lane === 'production'
@@ -752,7 +816,11 @@ export const siteDeploymentRevertEndpoint: Endpoint = {
     const site = await siteById(req, param(req, 'id'))
     if (!site) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
 
-    const { failed, stopped } = await stopSiteDeployments(req, String(site.id), 'بازگشت به رندرر داخلی.')
+    const { failed, stopped } = await stopSiteDeployments(
+      req,
+      String(site.id),
+      'بازگشت به رندرر داخلی.',
+    )
 
     await req.payload.update({
       collection: 'sites',
@@ -855,6 +923,7 @@ export const routingTableEndpoint: Endpoint = {
  */
 export const platformDeploymentEndpoints: Endpoint[] = [
   themeGithubWebhookEndpoint,
+  themeArtifactRegistrationEndpoint,
   themePackagesListEndpoint,
   themePackageSyncEndpoint,
   themePackagePublishEndpoint,

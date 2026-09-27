@@ -109,8 +109,7 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
           options: DOMAIN_MODES.map((value) => ({ label: DOMAIN_MODE_LABELS[value], value })),
           admin: {
             width: '50',
-            description:
-              'فقط برای تاریخچه و سازگاری. استقرار جدید از فیلد «مسیر» استفاده می‌کند.',
+            description: 'فقط برای تاریخچه و سازگاری. استقرار جدید از فیلد «مسیر» استفاده می‌کند.',
           },
         },
         {
@@ -143,7 +142,11 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
           type: 'text',
           label: 'میزبان',
           index: true,
-          admin: { width: '50', readOnly: true, description: 'نشانی‌ای که این اجرا روی آن پاسخ می‌دهد.' },
+          admin: {
+            width: '50',
+            readOnly: true,
+            description: 'نشانی‌ای که این اجرا روی آن پاسخ می‌دهد.',
+          },
         },
         {
           name: 'previewDomain',
@@ -181,6 +184,47 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
           ],
         },
         {
+          name: 'artifactSource',
+          type: 'select',
+          defaultValue: 'source_build',
+          options: [
+            { label: 'ساخت از سورس', value: 'source_build' },
+            { label: 'تصویر رجیستری', value: 'registry_image' },
+          ],
+          admin: { readOnly: true },
+        },
+        {
+          name: 'themeArtifact',
+          type: 'relationship',
+          relationTo: 'theme-artifacts',
+          index: true,
+          admin: { readOnly: true },
+        },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'imageRepository',
+              type: 'text',
+              label: 'مخزن تصویر',
+              admin: { readOnly: true, width: '50' },
+            },
+            {
+              name: 'imageTag',
+              type: 'text',
+              label: 'tag نمایشی',
+              admin: { readOnly: true, width: '50' },
+            },
+          ],
+        },
+        {
+          name: 'imageDigest',
+          type: 'text',
+          label: 'digest immutable',
+          index: true,
+          admin: { readOnly: true },
+        },
+        {
           type: 'row',
           fields: [
             {
@@ -191,7 +235,8 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
               admin: {
                 width: '50',
                 readOnly: true,
-                description: 'پیش از هر کار دیگری ذخیره می‌شود؛ یک اپلیکیشن بی‌صاحب گران‌ترین حالت ممکن است.',
+                description:
+                  'پیش از هر کار دیگری ذخیره می‌شود؛ یک اپلیکیشن بی‌صاحب گران‌ترین حالت ممکن است.',
               },
             },
             {

@@ -13,6 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import config from '@/payload.config'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
+import { themeArtifactRegistrationEndpoint } from '@/endpoints/themeArtifacts'
 import {
   platformDeploymentEndpoints,
   routingTableEndpoint,
@@ -334,7 +335,12 @@ describe('who may reach the deployment routes', () => {
       const anonymous = await endpoint.handler!(
         await createLocalReq({ req: { ...withParams({ id: siteId }), ...withBody({}) } as Partial<PayloadRequest> }, payload),
       )
-      expect(anonymous.status, `${endpoint.method} ${endpoint.path} anonymously`).toBe(403)
+      if (endpoint === themeArtifactRegistrationEndpoint) {
+        // This machine callback uses HMAC rather than the operator guard.
+        expect(anonymous.status, `${endpoint.method} ${endpoint.path} unsigned`).toBeGreaterThanOrEqual(400)
+      } else {
+        expect(anonymous.status, `${endpoint.method} ${endpoint.path} anonymously`).toBe(403)
+      }
     }
 
     // Nothing was created by any of those attempts.

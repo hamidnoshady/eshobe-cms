@@ -109,9 +109,9 @@ export const deployTargetSelfTest: Endpoint = {
       if (!result.data.productionProjectFound) {
         detailParts.push('پروژهٔ انتشار در Coolify دیده نشد — UUID را بررسی کنید.')
       }
-      if (result.data.previewProjectFound && result.data.productionProjectFound && !result.data.projectsDistinct) {
-        detailParts.push('پروژهٔ پیش‌نمایش و انتشار یکسان‌اند؛ ترجیحاً جدا باشند.')
-      }
+      // The same project is fully supported when lane environment names differ.
+      if (!result.data.previewServerFound) detailParts.push('سرور preview دیده نشد.')
+      if (!result.data.productionServerFound) detailParts.push('سرور production دیده نشد.')
     }
 
     if (!result.data.applicationsListed) {
@@ -121,6 +121,8 @@ export const deployTargetSelfTest: Endpoint = {
     const detail = detailParts.join(' ')
     const ok =
       result.data.serverFound &&
+      result.data.previewServerFound &&
+      result.data.productionServerFound &&
       result.data.previewProjectFound &&
       result.data.productionProjectFound
 
@@ -144,6 +146,16 @@ export const deployTargetSelfTest: Endpoint = {
         previewProjectFound: result.data.previewProjectFound,
         productionProjectFound: result.data.productionProjectFound,
         projectsDistinct: result.data.projectsDistinct,
+        checks: {
+          coolify: true,
+          previewServer: result.data.previewServerFound,
+          previewProject: result.data.previewProjectFound,
+          productionServer: result.data.productionServerFound,
+          productionProject: result.data.productionProjectFound,
+          githubApp: !target.githubAppEnabled || Boolean(target.githubAppUuid),
+          deployKey: !target.deployKeyEnabled || Boolean(target.privateKeyUuid),
+          ghcrPrivatePull: !target.ghcrEnabled || Boolean(target.ghcrCredentialUuid),
+        },
         servers: result.data.servers,
       },
       ok ? 200 : 422,

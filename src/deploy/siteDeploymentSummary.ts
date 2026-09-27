@@ -1,6 +1,7 @@
 import type { PayloadRequest } from 'payload'
 
-import { updateInfoFor } from '@/deploy/service'
+import { updateInfoFor, latestPackageCommit } from '@/deploy/service'
+import { readyArtifactForCommit } from '@/deploy/artifacts'
 import { idOf } from '@/lib/ids'
 import { previewHttpsUrl } from '@/lib/deploy/previewUrl'
 import { applicationHostOf, isProductionMode, needsRedeploy } from '@/lib/deploy/status'
@@ -69,7 +70,11 @@ export const siteDeploymentSummaryFor = async (
 
   const previewLive =
     docs.find((row) => row.status === 'live' && row.domainMode === 'preview') ??
-    docs.find((row) => row.domainMode === 'preview' && ['queued', 'creating', 'building', 'verifying'].includes(String(row.status))) ??
+    docs.find(
+      (row) =>
+        row.domainMode === 'preview' &&
+        ['queued', 'creating', 'building', 'verifying'].includes(String(row.status)),
+    ) ??
     null
 
   let packageDoc: null | Record<string, unknown> = null
@@ -85,7 +90,13 @@ export const siteDeploymentSummaryFor = async (
     })) as null | Record<string, unknown>
   }
 
-  const update = productionLive && packageDoc ? updateInfoFor(productionLive, packageDoc) : null
+  const desiredCommit = packageDoc ? latestPackageCommit(packageDoc) : null
+  const latestArtifact =
+    packageDoc?.deploymentStrategy === 'registry_image' && desiredCommit
+      ? await readyArtifactForCommit(req, String(packageDoc.id), desiredCommit)
+      : null
+  const update =
+    productionLive && packageDoc ? updateInfoFor(productionLive, packageDoc, latestArtifact) : null
 
   const previewHost = previewLive ? applicationHostOf(previewLive) : null
 

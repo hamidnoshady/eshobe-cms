@@ -104,6 +104,7 @@ export interface Config {
     plugins: Plugin;
     'theme-templates': ThemeTemplate;
     'theme-packages': ThemePackage;
+    'theme-artifacts': ThemeArtifact;
     'deploy-targets': DeployTarget;
     'site-deployments': SiteDeployment;
     'theme-bindings': ThemeBinding;
@@ -165,6 +166,7 @@ export interface Config {
     plugins: PluginsSelect<false> | PluginsSelect<true>;
     'theme-templates': ThemeTemplatesSelect<false> | ThemeTemplatesSelect<true>;
     'theme-packages': ThemePackagesSelect<false> | ThemePackagesSelect<true>;
+    'theme-artifacts': ThemeArtifactsSelect<false> | ThemeArtifactsSelect<true>;
     'deploy-targets': DeployTargetsSelect<false> | DeployTargetsSelect<true>;
     'site-deployments': SiteDeploymentsSelect<false> | SiteDeploymentsSelect<true>;
     'theme-bindings': ThemeBindingsSelect<false> | ThemeBindingsSelect<true>;
@@ -414,6 +416,17 @@ export interface ThemePackage {
    * اختیاری — اگر پر باشد، هر استقرار جدید دقیقاً همین کامیت را می‌گیرد.
    */
   pinnedCommit?: string | null;
+  /**
+   * تصویر آماده یک بار ساخته می‌شود و preview و production همان digest را اجرا می‌کنند.
+   */
+  deploymentStrategy?: ('coolify_build' | 'registry_image') | null;
+  allowedDeploymentStrategies?: ('coolify_build' | 'registry_image')[] | null;
+  registryProvider?: 'ghcr' | null;
+  /**
+   * فقط ghcr.io/owner/image؛ نام callback باید دقیقاً همین باشد.
+   */
+  registryImageRepository?: string | null;
+  registryVisibility?: ('public' | 'private') | null;
   contractVersion?: number | null;
   manifestSyncedAt?: string | null;
   /**
@@ -697,6 +710,21 @@ export interface DeployTarget {
   clearApiToken?: boolean | null;
   tokenSummary?: string | null;
   /**
+   * اگر مسیر override نداشته باشد از این سرور استفاده می‌کند.
+   */
+  defaultServerUuid?: string | null;
+  previewServerUuid?: string | null;
+  previewEnvironmentName?: string | null;
+  previewWildcardDomain?: string | null;
+  productionServerUuid?: string | null;
+  productionEnvironmentName?: string | null;
+  publicGitEnabled?: boolean | null;
+  githubAppEnabled?: boolean | null;
+  deployKeyEnabled?: boolean | null;
+  publicRegistryPullEnabled?: boolean | null;
+  ghcrEnabled?: boolean | null;
+  ghcrCredentialUuid?: string | null;
+  /**
    * فقط برای سازگاری با نسخهٔ قبل. مقدار به «پروژهٔ انتشار» منتقل شده است؛ برای استقرار جدید هر دو پروژه را پر کنید.
    */
   projectUuid?: string | null;
@@ -711,7 +739,7 @@ export interface DeployTarget {
   /**
    * UUID سرور در Coolify.
    */
-  serverUuid: string;
+  serverUuid?: string | null;
   environmentName: string;
   /**
    * برای پوسته‌های خصوصی باید در Coolify از قبل یک منبع ساخته باشید.
@@ -761,6 +789,11 @@ export interface SiteDeployment {
    * دقیقاً همان چیزی که ساخته شد — ورودی بازگشت به نسخهٔ قبل.
    */
   commitSha?: string | null;
+  artifactSource?: ('source_build' | 'registry_image') | null;
+  themeArtifact?: (string | null) | ThemeArtifact;
+  imageRepository?: string | null;
+  imageTag?: string | null;
+  imageDigest?: string | null;
   /**
    * پیش از هر کار دیگری ذخیره می‌شود؛ یک اپلیکیشن بی‌صاحب گران‌ترین حالت ممکن است.
    */
@@ -809,6 +842,40 @@ export interface ThemeBinding {
   state: 'active' | 'provisioning' | 'stopped' | 'conflict';
   conflictDetail?: string | null;
   provisioningDeployment?: (string | null) | SiteDeployment;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * خروجی‌های immutable ساخت پوسته؛ استقرار رجیستری همیشه با digest انجام می‌شود، نه tag.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-artifacts".
+ */
+export interface ThemeArtifact {
+  id: string;
+  immutableKey: string;
+  themePackage: string | ThemePackage;
+  source: 'github_actions' | 'coolify_build' | 'manual_registry';
+  repository: string;
+  ref: string;
+  commitSha: string;
+  registryProvider?: 'ghcr' | null;
+  imageRepository?: string | null;
+  /**
+   * فقط برای نمایش؛ هرگز هویت استقرار نیست.
+   */
+  imageTag?: string | null;
+  imageDigest?: string | null;
+  immutableImage?: string | null;
+  platform?: string | null;
+  status: 'queued' | 'building' | 'pushing' | 'verifying' | 'ready' | 'failed' | 'deprecated';
+  workflowRunId?: string | null;
+  workflowRunUrl?: string | null;
+  provenanceAvailable?: boolean | null;
+  sbomAvailable?: boolean | null;
+  buildStartedAt?: string | null;
+  buildFinishedAt?: string | null;
+  lastError?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -2917,6 +2984,8 @@ export interface Webhook {
     | 'apikey.revoked'
     | 'plugin.changed'
     | 'theme.published'
+    | 'theme.artifact.ready'
+    | 'theme.artifact.failed'
     | 'deployment.started'
     | 'deployment.live'
     | 'deployment.failed'
@@ -2981,6 +3050,8 @@ export interface WebhookDelivery {
     | 'apikey.revoked'
     | 'plugin.changed'
     | 'theme.published'
+    | 'theme.artifact.ready'
+    | 'theme.artifact.failed'
     | 'deployment.started'
     | 'deployment.live'
     | 'deployment.failed'
@@ -3048,6 +3119,8 @@ export interface AuditLog {
     | 'apikey.revoked'
     | 'plugin.changed'
     | 'theme.published'
+    | 'theme.artifact.ready'
+    | 'theme.artifact.failed'
     | 'deployment.started'
     | 'deployment.live'
     | 'deployment.failed'
@@ -3445,6 +3518,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'theme-packages';
         value: string | ThemePackage;
+      } | null)
+    | ({
+        relationTo: 'theme-artifacts';
+        value: string | ThemeArtifact;
       } | null)
     | ({
         relationTo: 'deploy-targets';
@@ -4813,6 +4890,11 @@ export interface ThemePackagesSelect<T extends boolean = true> {
   visibility?: T;
   defaultRef?: T;
   pinnedCommit?: T;
+  deploymentStrategy?: T;
+  allowedDeploymentStrategies?: T;
+  registryProvider?: T;
+  registryImageRepository?: T;
+  registryVisibility?: T;
   contractVersion?: T;
   manifestSyncedAt?: T;
   syncedCommitSha?: T;
@@ -4839,6 +4921,34 @@ export interface ThemePackagesSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "theme-artifacts_select".
+ */
+export interface ThemeArtifactsSelect<T extends boolean = true> {
+  immutableKey?: T;
+  themePackage?: T;
+  source?: T;
+  repository?: T;
+  ref?: T;
+  commitSha?: T;
+  registryProvider?: T;
+  imageRepository?: T;
+  imageTag?: T;
+  imageDigest?: T;
+  immutableImage?: T;
+  platform?: T;
+  status?: T;
+  workflowRunId?: T;
+  workflowRunUrl?: T;
+  provenanceAvailable?: T;
+  sbomAvailable?: T;
+  buildStartedAt?: T;
+  buildFinishedAt?: T;
+  lastError?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "deploy-targets_select".
  */
 export interface DeployTargetsSelect<T extends boolean = true> {
@@ -4850,6 +4960,18 @@ export interface DeployTargetsSelect<T extends boolean = true> {
   apiToken?: T;
   clearApiToken?: T;
   tokenSummary?: T;
+  defaultServerUuid?: T;
+  previewServerUuid?: T;
+  previewEnvironmentName?: T;
+  previewWildcardDomain?: T;
+  productionServerUuid?: T;
+  productionEnvironmentName?: T;
+  publicGitEnabled?: T;
+  githubAppEnabled?: T;
+  deployKeyEnabled?: T;
+  publicRegistryPullEnabled?: T;
+  ghcrEnabled?: T;
+  ghcrCredentialUuid?: T;
   projectUuid?: T;
   previewProjectUuid?: T;
   productionProjectUuid?: T;
@@ -4882,6 +5004,11 @@ export interface SiteDeploymentsSelect<T extends boolean = true> {
   previewDomain?: T;
   ref?: T;
   commitSha?: T;
+  artifactSource?: T;
+  themeArtifact?: T;
+  imageRepository?: T;
+  imageTag?: T;
+  imageDigest?: T;
   appUuid?: T;
   lastDeploymentUuid?: T;
   apiKey?: T;

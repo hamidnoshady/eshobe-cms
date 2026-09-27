@@ -26,6 +26,55 @@ const jsonResponse = (body: unknown, status = 200): Response =>
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Coolify action request contract', () => {
+  it('creates a public immutable image application without a mutable tag', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ uuid: 'application-1' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await new CoolifyClient(target).createApplication({
+      source: {
+        type: 'registry-image',
+        image: 'ghcr.io/owner/theme',
+        digest: `sha256:${'a'.repeat(64)}`,
+      },
+      domains: ['https://preview.example.test'],
+      healthCheckPath: '/health',
+      name: 'theme',
+      port: 3000,
+    })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('https://coolify.example.test/api/v1/applications/dockerimage')
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      docker_registry_image_name: `ghcr.io/owner/theme@sha256:${'a'.repeat(64)}`,
+      docker_registry_image_tag: '',
+      environment_name: 'production',
+      project_uuid: 'project-1',
+      server_uuid: 'server-1',
+    })
+  })
+
+  it('passes only a Coolify registry credential reference for private images', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ uuid: 'application-1' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await new CoolifyClient(target).createApplication({
+      source: {
+        type: 'registry-image',
+        image: 'ghcr.io/owner/theme',
+        digest: `sha256:${'a'.repeat(64)}`,
+        registryCredentialUuid: 'registry-1',
+      },
+      domains: [],
+      healthCheckPath: null,
+      name: 'theme',
+      port: 3000,
+    })
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toMatchObject({
+      docker_registry_uuid: 'registry-1',
+    })
+  })
+
   it('starts deployments with POST and the application UUID in JSON', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({ deployments: [{ deployment_uuid: 'deployment-1' }] }),
