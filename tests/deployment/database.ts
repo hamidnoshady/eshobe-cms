@@ -120,6 +120,89 @@ try {
       migrations.map((m) => m.name),
     )
 
+    // Payload selects every registered collection from this polymorphic relation
+    // while rendering the admin shell. The theme-bindings migration originally
+    // omitted this column, so `/admin` failed before it could render any page.
+    await pool.query('SELECT theme_bindings_id FROM payload_locked_documents_rels LIMIT 0')
+    const lockRelation = await pool.query(`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute a
+          WHERE a.attrelid = 'public.payload_locked_documents_rels'::regclass
+            AND a.attname = 'theme_bindings_id'
+            AND NOT a.attisdropped
+        ) AS column_exists,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint c
+          WHERE c.conrelid = 'public.payload_locked_documents_rels'::regclass
+            AND c.confrelid = 'public.theme_bindings'::regclass
+            AND c.conname = 'payload_locked_documents_rels_theme_bindings_fk'
+            AND c.contype = 'f'
+            AND c.confdeltype = 'c'
+        ) AS cascade_fk_exists,
+        to_regclass('public.payload_locked_documents_rels_theme_bindings_id_idx') IS NOT NULL
+          AS index_exists
+    `)
+    assert.deepEqual(lockRelation.rows, [
+      { cascade_fk_exists: true, column_exists: true, index_exists: true },
+    ])
+
+    // The repair also completes the indexes Payload's generated schema expects for
+    // the fields introduced by the hand-written binding migration.
+    const expectedBindingIndexes = [
+      'payload_locked_documents_rels_theme_bindings_id_idx',
+      'site_deployments_lane_idx',
+      'site_deployments_theme_binding_idx',
+      'sites_assigned_theme_package_idx',
+      'theme_bindings_app_uuid_idx',
+      'theme_bindings_created_at_idx',
+      'theme_bindings_provisioning_deployment_idx',
+      'theme_bindings_state_idx',
+      'theme_bindings_target_idx',
+      'theme_bindings_theme_package_idx',
+      'theme_bindings_updated_at_idx',
+    ].sort()
+    const bindingIndexes = await pool.query(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN (
+          'payload_locked_documents_rels_theme_bindings_id_idx',
+          'site_deployments_lane_idx',
+          'site_deployments_theme_binding_idx',
+          'sites_assigned_theme_package_idx',
+          'theme_bindings_app_uuid_idx',
+          'theme_bindings_created_at_idx',
+          'theme_bindings_provisioning_deployment_idx',
+          'theme_bindings_state_idx',
+          'theme_bindings_target_idx',
+          'theme_bindings_theme_package_idx',
+          'theme_bindings_updated_at_idx'
+        )
+      ORDER BY indexname
+    `)
+    assert.deepEqual(
+      bindingIndexes.rows.map((row) => row.indexname),
+      expectedBindingIndexes,
+    )
+
+    const repairedColumns = await pool.query(`
+      SELECT table_name, column_name, is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND (table_name, column_name) IN (
+          ('deploy_targets', 'project_uuid'),
+          ('site_deployments', 'lane')
+        )
+      ORDER BY table_name, column_name
+    `)
+    assert.equal(repairedColumns.rows[0]?.table_name, 'deploy_targets')
+    assert.equal(repairedColumns.rows[0]?.is_nullable, 'YES')
+    assert.equal(repairedColumns.rows[1]?.table_name, 'site_deployments')
+    assert.match(String(repairedColumns.rows[1]?.column_default), /preview/)
+
     // THE invariant this whole model exists for: after the one-shot, everything
     // in schema public — relations AND types (including the pre-existing enums
     // the migrator did not create itself) — is owned by the runtime role, with
