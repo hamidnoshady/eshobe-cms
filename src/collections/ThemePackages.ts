@@ -53,6 +53,13 @@ const validateSha: Validate = (value) => {
   return /^[0-9a-f]{40}$/i.test(String(value)) ? true : 'شناسهٔ کامیت باید ۴۰ رقم هگز باشد.'
 }
 
+const validateGhcrRepository: Validate = (value) => {
+  if (value === null || value === undefined || value === '') return true
+  return /^ghcr\.io\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._/-]*$/i.test(String(value))
+    ? true
+    : 'مخزن تصویر باید به شکل ghcr.io/owner/image باشد.'
+}
+
 /** Everything the sync writes. Grouped so the form reads as "what the repo said", not "what you may type". */
 const readOnly = { create: () => false as const, update: () => false as const }
 
@@ -220,6 +227,64 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
               },
             },
           ],
+        },
+      ],
+    },
+    {
+      type: 'collapsible',
+      label: 'روش استقرار و GHCR',
+      admin: { initCollapsed: false },
+      fields: [
+        {
+          name: 'deploymentStrategy',
+          type: 'select',
+          defaultValue: 'coolify_build',
+          label: 'روش استقرار',
+          options: [
+            { label: 'ساخت مستقیم در Coolify', value: 'coolify_build' },
+            { label: 'تصویر از پیش ساخته‌شده (پیشنهادی)', value: 'registry_image' },
+          ],
+          admin: {
+            description:
+              'تصویر آماده یک بار ساخته می‌شود و preview و production همان digest را اجرا می‌کنند.',
+          },
+        },
+        {
+          name: 'allowedDeploymentStrategies',
+          type: 'select',
+          hasMany: true,
+          defaultValue: ['coolify_build'],
+          options: [
+            { label: 'Coolify build', value: 'coolify_build' },
+            { label: 'Registry image', value: 'registry_image' },
+          ],
+        },
+        {
+          name: 'registryProvider',
+          type: 'select',
+          options: [{ label: 'GitHub Container Registry', value: 'ghcr' }],
+          admin: { condition: (_, sibling) => sibling?.deploymentStrategy === 'registry_image' },
+        },
+        {
+          name: 'registryImageRepository',
+          type: 'text',
+          label: 'مخزن تصویر',
+          validate: validateGhcrRepository,
+          admin: {
+            condition: (_, sibling) => sibling?.deploymentStrategy === 'registry_image',
+            description: 'فقط ghcr.io/owner/image؛ نام callback باید دقیقاً همین باشد.',
+          },
+        },
+        {
+          name: 'registryVisibility',
+          type: 'select',
+          defaultValue: 'public',
+          label: 'دسترسی تصویر',
+          options: [
+            { label: 'عمومی', value: 'public' },
+            { label: 'خصوصی', value: 'private' },
+          ],
+          admin: { condition: (_, sibling) => sibling?.deploymentStrategy === 'registry_image' },
         },
       ],
     },

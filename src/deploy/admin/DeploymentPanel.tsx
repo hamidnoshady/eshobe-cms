@@ -39,6 +39,9 @@ import { ActionButton } from './ActionButton'
 
 type Deployment = {
   attention: null | string
+  artifactSource?: string
+  themeArtifact?: null | string
+  imageDigest?: null | string
   commitSha: null | string
   createdAt: null | string
   deployedAt: null | string
@@ -61,6 +64,11 @@ type Deployment = {
 type UpdateInfo = {
   deployedCommit: null | string
   latestCommit: null | string
+  deployedDigest?: null | string
+  latestDigest?: null | string
+  sourceUpdateAvailable?: boolean
+  artifactReady?: boolean
+  deployableUpdateAvailable?: boolean
   packageRef: string
   updateAvailable: boolean
 }
@@ -262,8 +270,7 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
     deployments.find((row) => isPreviewRow(row) && PENDING.has(row.status)) ??
     null
   const productionPackageKey =
-    (production?.themePackage &&
-      packages.find((p) => p.id === production.themePackage)?.key) ||
+    (production?.themePackage && packages.find((p) => p.id === production.themePackage)?.key) ||
     packageKey
 
   /**
@@ -276,8 +283,9 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
   )
 
   const selected = eligible.find((pkg) => pkg.key === packageKey) ?? null
-  const assignedPkg: ThemePackage | undefined =
-    assignedThemePackage ? packages.find((p) => p.id === assignedThemePackage) : undefined
+  const assignedPkg: ThemePackage | undefined = assignedThemePackage
+    ? packages.find((p) => p.id === assignedThemePackage)
+    : undefined
 
   const productionBlocked = ((): null | string => {
     if (!domainVerified) {
@@ -313,13 +321,14 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
         {renderedBy === 'deployment' && production ? (
           <div className="banner banner--type-success">
-            پوستهٔ «{production.packageName ?? '—'}» روی <code dir="ltr">{production.domain}</code> فعال است
-            — {MODE_LABELS[production.domainMode] ?? production.domainMode}.
+            پوستهٔ «{production.packageName ?? '—'}» روی <code dir="ltr">{production.domain}</code>{' '}
+            فعال است — {MODE_LABELS[production.domainMode] ?? production.domainMode}.
           </div>
         ) : (
           <div className="banner banner--type-default">
             دامنهٔ اصلی این سایت با رندرکنندهٔ داخلی سرویس داده می‌شود.
-            {live?.domainMode === 'preview' && ' یک پوسته فقط روی زیردامنهٔ پیش‌نمایش در حال اجراست.'}
+            {live?.domainMode === 'preview' &&
+              ' یک پوسته فقط روی زیردامنهٔ پیش‌نمایش در حال اجراست.'}
           </div>
         )}
 
@@ -372,12 +381,19 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           </div>
         )}
 
+        {update?.sourceUpdateAvailable && update.artifactReady === false && (
+          <div className="banner banner--type-default" role="status">
+            <strong>کامیت تازه شناسایی شد</strong>، اما آرتیفکت immutable آن هنوز آماده نیست؛ تا
+            پایان build امکان ارتقا وجود ندارد.
+          </div>
+        )}
+
         {update?.updateAvailable && (
           <div className="banner banner--type-info" role="status">
-            <strong>نسخهٔ جدید پوسته موجود است</strong> — کامیت <code dir="ltr">{shortSha(update.deployedCommit)}</code>{' '}
-            در production در حال اجراست؛ همگام‌سازی گیت‌هاب اکنون{' '}
-            <code dir="ltr">{shortSha(update.latestCommit)}</code> (از <code dir="ltr">{update.packageRef}</code>) را
-            پیشنهاد می‌دهد.
+            <strong>نسخهٔ جدید پوسته موجود است</strong> — کامیت{' '}
+            <code dir="ltr">{shortSha(update.deployedCommit)}</code> در production در حال اجراست؛
+            همگام‌سازی گیت‌هاب اکنون <code dir="ltr">{shortSha(update.latestCommit)}</code> (از{' '}
+            <code dir="ltr">{update.packageRef}</code>) را پیشنهاد می‌دهد.
             {previewRow?.commitSha === update.latestCommit && previewRow.status === 'live' ? (
               <> یک پیش‌نمایش با این کامیت آماده است.</>
             ) : null}
@@ -386,12 +402,7 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
         {previewRow?.previewOpenUrl && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-            <Button
-              buttonStyle="secondary"
-              el="anchor"
-              newTab
-              url={previewRow.previewOpenUrl}
-            >
+            <Button buttonStyle="secondary" el="anchor" newTab url={previewRow.previewOpenUrl}>
               باز کردن پیش‌نمایش
             </Button>
             <span style={{ color: 'var(--theme-elevation-600)', fontSize: '0.85rem' }}>
@@ -419,8 +430,13 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
                   url={base}
                 />
                 <ActionButton
-                  confirm="پس از بررسی سلامت، نسخهٔ جدید جایگزین production روی دامنهٔ مشتری می‌شود. ادامه می‌دهید؟"
-                  label="استقرار نسخهٔ جدید در production"
+                  body={
+                    previewRow?.themeArtifact
+                      ? { artifact: previewRow.themeArtifact, lane: 'production' }
+                      : { upgrade: true, lane: 'production' }
+                  }
+                  confirm="پس از بررسی سلامت، همان آرتیفکت آزموده‌شده جایگزین production روی دامنهٔ مشتری می‌شود. ادامه می‌دهید؟"
+                  label="انتشار آرتیفکت آزموده‌شده"
                   onSuccess={load}
                   style="secondary"
                   successMessage="استقرار production در صف قرار گرفت."
@@ -481,7 +497,9 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
             {assignedPkg.name} (<code dir="ltr">{assignedPkg.key}</code>)
           </p>
         ) : (
-          <p style={{ color: 'var(--theme-elevation-600)' }}>هنوز پوسته‌ای برای این سایت انتخاب نشده است.</p>
+          <p style={{ color: 'var(--theme-elevation-600)' }}>
+            هنوز پوسته‌ای برای این سایت انتخاب نشده است.
+          </p>
         )}
 
         {eligible.length === 0 ? (
@@ -541,7 +559,11 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           />
           {previewRow && (
             <>
-              <ActionButton label="استقرار مجدد پیش‌نمایش" onSuccess={load} url={`${base}/redeploy`} />
+              <ActionButton
+                label="استقرار مجدد پیش‌نمایش"
+                onSuccess={load}
+                url={`${base}/redeploy`}
+              />
               {previewRow.previewOpenUrl && (
                 <Button buttonStyle="secondary" el="anchor" newTab url={previewRow.previewOpenUrl}>
                   باز کردن پیش‌نمایش
@@ -565,7 +587,11 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
         )}
         {productionBlocked && <div className="banner banner--type-error">{productionBlocked}</div>}
         <ActionButton
-          body={{ lane: 'production', package: deployPackageKey }}
+          body={{
+            artifact: previewRow?.themeArtifact ?? undefined,
+            lane: 'production',
+            package: deployPackageKey,
+          }}
           confirm="پس از بررسی سلامت، پوسته روی دامنهٔ اصلی فعال می‌شود. ادامه می‌دهید؟"
           disabled={!deployPackageKey || Boolean(productionBlocked)}
           label="انتشار روی دامنه"
@@ -601,139 +627,154 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
       <details>
         <summary>تاریخچهٔ استقرارها</summary>
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}>
-        {pending.length > 0 && (
-          <div className="banner banner--type-default">
-            {pending.length} استقرار در جریان است. این صفحه هر {POLL_MS / 1000} ثانیه به‌روز می‌شود.
-          </div>
-        )}
+        <section
+          style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}
+        >
+          {pending.length > 0 && (
+            <div className="banner banner--type-default">
+              {pending.length} استقرار در جریان است. این صفحه هر {POLL_MS / 1000} ثانیه به‌روز
+              می‌شود.
+            </div>
+          )}
 
-        {deployments.length === 0 ? (
-          <p>هنوز هیچ استقراری برای این سایت انجام نشده است.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {deployments.map((row) => (
-              <div
-                key={row.id}
-                style={{
-                  backgroundColor: 'var(--theme-elevation-50)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem',
-                  padding: '1rem',
-                }}
-              >
-                <div className={`banner banner--type-${bannerFor(row.status)}`} style={{ margin: 0 }}>
-                  {STATUS_LABELS[row.status] ?? row.status} — {row.packageName ?? '—'} روی{' '}
-                  <code dir="ltr">{row.domain ?? '—'}</code> ({MODE_LABELS[row.domainMode] ?? row.domainMode})
-                </div>
-
-                {row.attention && (
-                  <div className="banner banner--type-error" style={{ margin: 0 }}>
-                    {row.attention}
+          {deployments.length === 0 ? (
+            <p>هنوز هیچ استقراری برای این سایت انجام نشده است.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {deployments.map((row) => (
+                <div
+                  key={row.id}
+                  style={{
+                    backgroundColor: 'var(--theme-elevation-50)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    padding: '1rem',
+                  }}
+                >
+                  <div
+                    className={`banner banner--type-${bannerFor(row.status)}`}
+                    style={{ margin: 0 }}
+                  >
+                    {STATUS_LABELS[row.status] ?? row.status} — {row.packageName ?? '—'} روی{' '}
+                    <code dir="ltr">{row.domain ?? '—'}</code> (
+                    {MODE_LABELS[row.domainMode] ?? row.domainMode})
                   </div>
-                )}
 
-                <div style={{ color: 'var(--theme-elevation-600)', fontSize: '0.85rem' }}>
-                  کامیت <code dir="ltr">{shortSha(row.commitSha)}</code>
-                  {row.ref ? (
-                    <>
-                      {' '}
-                      از <code dir="ltr">{row.ref}</code>
-                    </>
-                  ) : null}
-                  {' — ساخته‌شده: '}
-                  {formatWhen(row.createdAt)}
-                  {row.deployedAt ? ` — فعال‌شده: ${formatWhen(row.deployedAt)}` : ''}
-                </div>
+                  {row.attention && (
+                    <div className="banner banner--type-error" style={{ margin: 0 }}>
+                      {row.attention}
+                    </div>
+                  )}
 
-                {row.lastError && (
-                  <div className="banner banner--type-error" style={{ margin: 0 }}>
-                    {row.lastError}
+                  <div style={{ color: 'var(--theme-elevation-600)', fontSize: '0.85rem' }}>
+                    کامیت <code dir="ltr">{shortSha(row.commitSha)}</code>
+                    {row.ref ? (
+                      <>
+                        {' '}
+                        از <code dir="ltr">{row.ref}</code>
+                      </>
+                    ) : null}
+                    {row.imageDigest ? (
+                      <>
+                        {' '}
+                        — digest: <code dir="ltr">{row.imageDigest.slice(0, 22)}…</code>
+                      </>
+                    ) : null}
+                    {' — ساخته‌شده: '}
+                    {formatWhen(row.createdAt)}
+                    {row.deployedAt ? ` — فعال‌شده: ${formatWhen(row.deployedAt)}` : ''}
                   </div>
-                )}
 
-                {row.logTail && (
-                  <details>
-                    <summary>گزارش ساخت</summary>
-                    <pre
-                      dir="ltr"
-                      style={{
-                        backgroundColor: 'var(--theme-elevation-100)',
-                        fontSize: '0.8rem',
-                        maxHeight: '18rem',
-                        overflow: 'auto',
-                        padding: '0.75rem',
-                        whiteSpace: 'pre-wrap',
-                      }}
-                    >
-                      {row.logTail}
-                    </pre>
-                  </details>
-                )}
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                  {row.previewOpenUrl && row.domainMode === 'preview' && row.status === 'live' && (
-                    <Button buttonStyle="secondary" el="anchor" newTab url={row.previewOpenUrl}>
-                      باز کردن پیش‌نمایش
-                    </Button>
+                  {row.lastError && (
+                    <div className="banner banner--type-error" style={{ margin: 0 }}>
+                      {row.lastError}
+                    </div>
                   )}
 
-                  {PENDING.has(row.status) && (
-                    <ActionButton
-                      body={{ deployment: row.id }}
-                      label="بررسی وضعیت"
-                      onSuccess={load}
-                      url={`${base}/poll`}
-                    />
+                  {row.logTail && (
+                    <details>
+                      <summary>گزارش ساخت</summary>
+                      <pre
+                        dir="ltr"
+                        style={{
+                          backgroundColor: 'var(--theme-elevation-100)',
+                          fontSize: '0.8rem',
+                          maxHeight: '18rem',
+                          overflow: 'auto',
+                          padding: '0.75rem',
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {row.logTail}
+                      </pre>
+                    </details>
                   )}
 
-                  {row.status === 'verifying' && (
-                    <ActionButton
-                      body={{ deployment: row.id }}
-                      label="بررسی سلامت و فعال‌سازی"
-                      onSuccess={load}
-                      url={`${base}/verify`}
-                    />
-                  )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    {row.previewOpenUrl &&
+                      row.domainMode === 'preview' &&
+                      row.status === 'live' && (
+                        <Button buttonStyle="secondary" el="anchor" newTab url={row.previewOpenUrl}>
+                          باز کردن پیش‌نمایش
+                        </Button>
+                      )}
 
-                  {/*
-                   * A rollback is offered from any row that recorded a commit and is
-                   * not the one already serving. It does not mutate the running
-                   * application — it creates a new deployment pinned to that commit,
-                   * so the history stays a history.
-                   */}
-                  {row.commitSha && row.status !== 'live' && (
-                    <ActionButton
-                      body={{ deployment: row.id }}
-                      confirm={`یک استقرار تازه با کامیت ${shortSha(row.commitSha)} ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی خواهد شد. ادامه می‌دهید؟`}
-                      label="بازگشت به این نسخه"
-                      onSuccess={load}
-                      url={`${base}/rollback`}
-                    />
-                  )}
+                    {PENDING.has(row.status) && (
+                      <ActionButton
+                        body={{ deployment: row.id }}
+                        label="بررسی وضعیت"
+                        onSuccess={load}
+                        url={`${base}/poll`}
+                      />
+                    )}
 
-                  {row.status === 'live' && row.id !== live?.id && (
-                    <ActionButton
-                      body={{ deployment: row.id }}
-                      label="توقف"
-                      onSuccess={load}
-                      style="danger"
-                      url={`${base}/stop`}
-                    />
-                  )}
+                    {row.status === 'verifying' && (
+                      <ActionButton
+                        body={{ deployment: row.id }}
+                        label="بررسی سلامت و فعال‌سازی"
+                        onSuccess={load}
+                        url={`${base}/verify`}
+                      />
+                    )}
+
+                    {/*
+                     * A rollback is offered from any row that recorded a commit and is
+                     * not the one already serving. It does not mutate the running
+                     * application — it creates a new deployment pinned to that commit,
+                     * so the history stays a history.
+                     */}
+                    {row.commitSha && row.status !== 'live' && (
+                      <ActionButton
+                        body={{ deployment: row.id }}
+                        confirm={`یک استقرار تازه با کامیت ${shortSha(row.commitSha)} ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی خواهد شد. ادامه می‌دهید؟`}
+                        label="بازگشت به این نسخه"
+                        onSuccess={load}
+                        url={`${base}/rollback`}
+                      />
+                    )}
+
+                    {row.status === 'live' && row.id !== live?.id && (
+                      <ActionButton
+                        body={{ deployment: row.id }}
+                        label="توقف"
+                        onSuccess={load}
+                        style="danger"
+                        url={`${base}/stop`}
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
 
-        <div>
-          <Button buttonStyle="secondary" onClick={() => void load()} type="button">
-            به‌روزرسانی فهرست
-          </Button>
-        </div>
-      </section>
+          <div>
+            <Button buttonStyle="secondary" onClick={() => void load()} type="button">
+              به‌روزرسانی فهرست
+            </Button>
+          </div>
+        </section>
       </details>
     </div>
   )

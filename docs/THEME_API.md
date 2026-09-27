@@ -1581,6 +1581,19 @@ GET /next/exit-preview                                    → exit
 
 ---
 
+## 19. Recommended immutable-image CI
+
+`eshobe.theme.json` remains required. A `Dockerfile` and `.github/workflows/theme-image.yml`
+are recommended for production. The workflow should validate the manifest, install, lint,
+typecheck, test, build, smoke-test the container, push to GHCR with Buildx, inspect the
+registry digest, and call Eshobe's signed artifact endpoint. See
+[`theme-artifacts.md`](./theme-artifacts.md) for the callback contract.
+
+Tags (`latest`, branch, semantic version, commit) are labels only. Eshobe executes
+`ghcr.io/owner/image@sha256:…`, so never assume a tag identifies what a site runs. Site IDs,
+API keys, revalidation secrets, domains, and tenant settings must be runtime environment
+values; do not put customer data into a reusable image layer.
+
 ## Appendix: Do & Don't
 
 **Do**

@@ -126,10 +126,7 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     // settings screen. The group carries the product name so the section reads as
     // the customer's design & publishing home even though it fronts one collection.
     label: 'طراحی و انتشار',
-    entities: [
-      collection('site-branding', 'هویت بصری'),
-      collection('theme', 'طراحی سایت'),
-    ],
+    entities: [collection('site-branding', 'هویت بصری'), collection('theme', 'طراحی سایت')],
   },
   {
     label: 'تیم',
@@ -214,6 +211,7 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     label: 'عملیات',
     entities: [
       collection('site-deployments', 'انتشارها'),
+      collection('theme-artifacts', 'ساخت‌های پوسته'),
       collection('central-entitlement-projections', 'وضعیت تجاری'),
       collection('billing-usage-outbox', 'خروجی مصرف'),
       collection('audit-log', 'Audit'),
@@ -254,7 +252,8 @@ export const resolveNavGroups = ({
     e.type === 'collection' ? visibleCollections.has(e.slug) : visibleGlobals.has(e.slug)
 
   const hrefFor = (e: NavEntityRef): string => entityHref(adminRoute, e)
-  const idFor = (e: NavEntityRef) => (e.type === 'collection' ? `nav-${e.slug}` : `nav-global-${e.slug}`)
+  const idFor = (e: NavEntityRef) =>
+    e.type === 'collection' ? `nav-${e.slug}` : `nav-global-${e.slug}`
 
   const placed = new Set<string>()
   const key = (e: NavEntityRef) => `${e.type}:${e.slug}`

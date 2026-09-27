@@ -45,6 +45,7 @@ import { Store } from './collections/Store'
 import { Subscriptions } from './collections/Subscriptions'
 import { Theme } from './collections/Theme'
 import { ThemePackages } from './collections/ThemePackages'
+import { ThemeArtifacts } from './collections/ThemeArtifacts'
 import { ThemeTemplates } from './collections/ThemeTemplates'
 import { UsageRecords } from './collections/UsageRecords'
 import { Users } from './collections/Users'
@@ -313,6 +314,7 @@ export default buildConfig({
      * them would mean editing a colour catalogue could redeploy production.
      */
     ThemePackages,
+    ThemeArtifacts,
     DeployTargets,
     SiteDeployments,
     ThemeBindings,

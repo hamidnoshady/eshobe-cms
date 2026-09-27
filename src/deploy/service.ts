@@ -1,9 +1,18 @@
 import type { PayloadRequest } from 'payload'
 
 import { generateApiKey } from '@/lib/api-keys'
-import { encryptDeploySecret, decryptDeploySecret, generateRevalidateSecret } from '@/lib/deploy/crypto'
+import {
+  encryptDeploySecret,
+  decryptDeploySecret,
+  generateRevalidateSecret,
+} from '@/lib/deploy/crypto'
 import { isUuid, idOf } from '@/lib/ids'
-import { isSafeGitRef, parseRepository, parseThemeManifest, type ThemeManifest } from '@/lib/deploy/manifest'
+import {
+  isSafeGitRef,
+  parseRepository,
+  parseThemeManifest,
+  type ThemeManifest,
+} from '@/lib/deploy/manifest'
 import {
   ACTIVE_DEPLOYMENT_STATUSES,
   STALE_DOMAIN_MESSAGE,
@@ -32,6 +41,8 @@ import {
 } from './bindings'
 import { bindingAppName } from '@/lib/deploy/appIdentity'
 import { resolveDeployMode, type DeploymentLane } from '@/lib/deploy/lane'
+import { artifactByIdForPackage, readyArtifactForCommit } from './artifacts'
+import { resolveDeploymentPlan } from './plan'
 
 /**
  * The deploy service — everything between "an operator picked a theme for a site"
@@ -151,10 +162,7 @@ const fail = async (
 }
 
 /** Load a target with its token decrypted. The only caller of `readDeployTargetToken`. */
-export const loadTarget = async (
-  req: PayloadRequest,
-  id: string,
-): Promise<null | DeployTarget> => {
+export const loadTarget = async (req: PayloadRequest, id: string): Promise<null | DeployTarget> => {
   if (!isUuid(id)) return null
 
   const doc = (await req.payload.findByID({
@@ -177,13 +185,25 @@ export const loadTarget = async (
     environmentName: String(doc.environmentName ?? 'production'),
     githubAppUuid: doc.githubAppUuid ? String(doc.githubAppUuid) : null,
     gitSource: (doc.gitSource as DeployTarget['gitSource']) ?? 'public',
+    publicGitEnabled: doc.publicGitEnabled !== false || doc.gitSource === 'public',
+    githubAppEnabled: doc.githubAppEnabled === true || doc.gitSource === 'githubApp',
+    deployKeyEnabled: doc.deployKeyEnabled === true || doc.gitSource === 'deployKey',
+    publicRegistryPullEnabled: doc.publicRegistryPullEnabled !== false,
+    ghcrEnabled: doc.ghcrEnabled === true,
+    ghcrCredentialUuid: doc.ghcrCredentialUuid ? String(doc.ghcrCredentialUuid) : null,
+    previewServerUuid: doc.previewServerUuid ? String(doc.previewServerUuid) : null,
+    productionServerUuid: doc.productionServerUuid ? String(doc.productionServerUuid) : null,
+    previewEnvironmentName: doc.previewEnvironmentName ? String(doc.previewEnvironmentName) : null,
+    productionEnvironmentName: doc.productionEnvironmentName
+      ? String(doc.productionEnvironmentName)
+      : null,
     id,
     name: String(doc.name ?? ''),
     previewProjectUuid: doc.previewProjectUuid ? String(doc.previewProjectUuid) : null,
     privateKeyUuid: doc.privateKeyUuid ? String(doc.privateKeyUuid) : null,
     productionProjectUuid: doc.productionProjectUuid ? String(doc.productionProjectUuid) : null,
     projectUuid: String(doc.productionProjectUuid ?? doc.projectUuid ?? ''),
-    serverUuid: String(doc.serverUuid ?? ''),
+    serverUuid: String(doc.defaultServerUuid ?? doc.serverUuid ?? ''),
   }
 }
 
@@ -194,10 +214,7 @@ export const manifestOf = (pkg: Record<string, unknown>): null | ThemeManifest =
   // Re-validated against *this* deployment's contract version, not the one that was
   // current at sync time: a CMS downgrade must not silently keep deploying a theme
   // whose contract it no longer serves.
-  const parsed = parseThemeManifest(
-    raw,
-    Number(pkg.contractVersion ?? 1) || 1,
-  )
+  const parsed = parseThemeManifest(raw, Number(pkg.contractVersion ?? 1) || 1)
   return parsed.ok ? parsed.manifest : null
 }
 
@@ -228,8 +245,16 @@ export const latestPackageCommit = (pkg: Record<string, unknown>): null | string
 export type UpdateInfo = {
   deployedCommit: null | string
   latestCommit: null | string
-  packageRef: string
+  deployedArtifactId: null | string
+  deployedDigest: null | string
+  latestArtifactId: null | string
+  latestDigest: null | string
+  sourceUpdateAvailable: boolean
+  artifactReady: boolean
+  deployableUpdateAvailable: boolean
+  /** Backwards-compatible alias of deployableUpdateAvailable. */
   updateAvailable: boolean
+  packageRef: string
 }
 
 /**
@@ -244,14 +269,34 @@ export type UpdateInfo = {
 export const updateInfoFor = (
   deployment: Record<string, unknown>,
   pkg: null | Record<string, unknown>,
+  latestArtifact: null | Record<string, unknown> = null,
 ): UpdateInfo => {
-  const deployedCommit = isCommitSha(deployment.commitSha) ? String(deployment.commitSha).toLowerCase() : null
+  const deployedCommit = isCommitSha(deployment.commitSha)
+    ? String(deployment.commitSha).toLowerCase()
+    : null
   const latestCommit = pkg ? latestPackageCommit(pkg) : null
+  const registry = pkg?.deploymentStrategy === 'registry_image'
+  const sourceUpdateAvailable = Boolean(
+    deployedCommit && latestCommit && deployedCommit !== latestCommit,
+  )
+  const artifactReady = !registry || Boolean(latestArtifact && latestArtifact.status === 'ready')
+  const latestDigest = latestArtifact?.imageDigest ? String(latestArtifact.imageDigest) : null
+  const deployedDigest = deployment.imageDigest ? String(deployment.imageDigest) : null
+  const deployableUpdateAvailable = registry
+    ? Boolean(artifactReady && latestDigest && deployedDigest !== latestDigest)
+    : sourceUpdateAvailable
   return {
     deployedCommit,
     latestCommit,
+    deployedArtifactId: idOf(deployment.themeArtifact),
+    deployedDigest,
+    latestArtifactId: latestArtifact ? String(latestArtifact.id) : null,
+    latestDigest,
+    sourceUpdateAvailable,
+    artifactReady,
+    deployableUpdateAvailable,
+    updateAvailable: deployableUpdateAvailable,
     packageRef: pkg ? effectiveRefFor(pkg) : '',
-    updateAvailable: Boolean(deployedCommit && latestCommit && deployedCommit !== latestCommit),
   }
 }
 
@@ -270,7 +315,9 @@ export const previewHostname = (
   themeKey: string,
   variant?: null | string,
 ): null | string => {
-  const base = String(wildcardDomain ?? '').replace(/^\*\./, '').trim()
+  const base = String(wildcardDomain ?? '')
+    .replace(/^\*\./, '')
+    .trim()
   if (!base) return null
   const label = boundedLabel(`${String(site.id)}-${themeKey}`, 50, variant)
   return label ? `${label}.${base}` : null
@@ -280,6 +327,7 @@ export const previewHostname = (
 const variantFor = (mode: DomainMode): null | string => (mode === 'preview' ? 'preview' : null)
 
 export type StartDeploymentInput = {
+  artifactRef?: null | string
   domainMode?: DomainMode
   lane?: DeploymentLane
   packageRef: string
@@ -298,12 +346,18 @@ export type StartDeploymentInput = {
  */
 export const createDeployment = async (
   input: StartDeploymentInput,
-): Promise<{ deploymentId: string; ok: true; ref: string } | { message: string; ok: false; status: number }> => {
+): Promise<
+  { deploymentId: string; ok: true; ref: string } | { message: string; ok: false; status: number }
+> => {
   const { packageRef, req, site } = input
   const siteId = String(site.id)
 
   if (site.status !== 'active') {
-    return { message: 'سایت فعال نیست؛ ابتدا وضعیت آن را به «فعال» تغییر دهید.', ok: false, status: 409 }
+    return {
+      message: 'سایت فعال نیست؛ ابتدا وضعیت آن را به «فعال» تغییر دهید.',
+      ok: false,
+      status: 409,
+    }
   }
 
   const pkg = await packageByRef(req, packageRef)
@@ -320,7 +374,8 @@ export const createDeployment = async (
   const manifest = manifestOf(pkg)
   if (!manifest) {
     return {
-      message: 'مانیفست این پوسته خوانده نشده یا نامعتبر است. «همگام‌سازی از گیت‌هاب» را اجرا کنید.',
+      message:
+        'مانیفست این پوسته خوانده نشده یا نامعتبر است. «همگام‌سازی از گیت‌هاب» را اجرا کنید.',
       ok: false,
       status: 409,
     }
@@ -411,7 +466,8 @@ export const createDeployment = async (
   })
 
   const preview = previewHostname(
-    (target as null | Record<string, unknown>)?.wildcardDomain as null | string,
+    ((target as null | Record<string, unknown>)?.previewWildcardDomain ??
+      (target as null | Record<string, unknown>)?.wildcardDomain) as null | string,
     site,
     String(pkg.key ?? 'theme'),
     variantFor(domainMode),
@@ -426,9 +482,42 @@ export const createDeployment = async (
     }
   }
 
+  let artifact: null | Record<string, unknown> = null
+  if (pkg.deploymentStrategy === 'registry_image') {
+    if (input.artifactRef && isUuid(input.artifactRef)) {
+      artifact = await artifactByIdForPackage(req, input.artifactRef, String(pkg.id))
+    }
+    const desiredCommit = isCommitSha(input.ref)
+      ? String(input.ref).toLowerCase()
+      : artifact?.commitSha
+        ? String(artifact.commitSha).toLowerCase()
+        : latestPackageCommit(pkg)
+    if (!artifact && desiredCommit) {
+      artifact = await readyArtifactForCommit(req, String(pkg.id), desiredCommit)
+    }
+    if (!artifact) {
+      return {
+        message: desiredCommit
+          ? 'کامیت انتخاب‌شده هنوز آرتیفکت immutable آماده ندارد.'
+          : 'ابتدا مخزن را همگام و آرتیفکت immutable را ثبت کنید.',
+        ok: false,
+        status: 409,
+      }
+    }
+    if (desiredCommit && String(artifact.commitSha).toLowerCase() !== desiredCommit) {
+      return { message: 'آرتیفکت انتخاب‌شده متعلق به کامیت درخواستی نیست.', ok: false, status: 409 }
+    }
+  }
+
   const created = await req.payload.create({
     collection: 'site-deployments',
     data: {
+      artifactSource: artifact ? 'registry_image' : 'source_build',
+      themeArtifact: artifact ? String(artifact.id) : null,
+      imageRepository: artifact?.imageRepository ? String(artifact.imageRepository) : null,
+      imageTag: artifact?.imageTag ? String(artifact.imageTag) : null,
+      imageDigest: artifact?.imageDigest ? String(artifact.imageDigest) : null,
+      commitSha: artifact?.commitSha ? String(artifact.commitSha) : null,
       domain: domainMode === 'preview' ? preview : String(site.domain ?? ''),
       domainMode,
       lane,
@@ -613,7 +702,10 @@ export const runDeployment = async (
   if (!deployment) return { message: 'استقرار پیدا نشد.', ok: false }
 
   if (deployment.status !== 'queued') {
-    return { message: `استقرار در وضعیت «${String(deployment.status)}» است و اجرا نمی‌شود.`, ok: false }
+    return {
+      message: `استقرار در وضعیت «${String(deployment.status)}» است و اجرا نمی‌شود.`,
+      ok: false,
+    }
   }
   if (!(await claimQueued(req, deploymentId))) {
     return { message: 'این استقرار را فرایند دیگری آغاز کرده است.', ok: false }
@@ -715,7 +807,31 @@ export const runDeployment = async (
   // A sha is a commit, not a branch: Coolify clones `git_branch` and then checks out
   // `git_commit_sha`, so a pinned or rolled-back deployment clones the default branch.
   const branch = isCommitSha(ref) ? String(pkg.defaultRef || 'main') : ref
-  const commitSha = isCommitSha(ref) ? ref.toLowerCase() : await resolveCommitSha(String(pkg.repository), ref)
+  const sourceCommitSha = isCommitSha(ref)
+    ? ref.toLowerCase()
+    : await resolveCommitSha(String(pkg.repository), ref)
+  const artifact = idOf(deployment.themeArtifact)
+    ? ((await req.payload.findByID({
+        collection: 'theme-artifacts',
+        depth: 0,
+        disableErrors: true,
+        id: String(idOf(deployment.themeArtifact)),
+        overrideAccess: true,
+        req,
+      })) as null | Record<string, unknown>)
+    : null
+  const commitSha = artifact?.commitSha ? String(artifact.commitSha).toLowerCase() : sourceCommitSha
+  const planResult = resolveDeploymentPlan({
+    artifact,
+    binding,
+    branch,
+    commitSha,
+    deployTarget: targetDoc,
+    lane,
+    themePackage: pkg,
+  })
+  if (!planResult.ok) return fail(req, deploymentId, planResult.message)
+  const plan = planResult.plan
 
   /**
    * Which hostnames the application answers on.
@@ -763,29 +879,49 @@ export const runDeployment = async (
       return fail(req, deploymentId, 'استقرار دیگری در حال ایجاد اپلیکیشن برای همین مسیر است.')
     }
 
+    const applicationSource =
+      plan.source.type === 'registry-image'
+        ? {
+            type: 'registry-image' as const,
+            image: plan.source.image,
+            digest: plan.source.digest,
+            registryCredentialUuid: plan.access.registryCredentialUuid,
+          }
+        : {
+            type: 'git' as const,
+            repository:
+              plan.access.gitMethod === 'public'
+                ? `https://github.com/${repo.owner}/${repo.name}`
+                : `${repo.owner}/${repo.name}`,
+            branch: plan.source.branch,
+            commitSha: plan.source.commitSha ?? null,
+            buildPack: plan.source.buildPack,
+            access: plan.access.gitMethod!,
+            githubAppUuid: plan.access.githubAppUuid,
+            privateKeyUuid: plan.access.privateKeyUuid,
+            baseDirectory: manifest.build.baseDirectory,
+            buildCommand: manifest.build.buildCommand,
+            dockerfileLocation: manifest.build.dockerfileLocation,
+            installCommand: manifest.build.installCommand,
+            isStatic: manifest.build.isStatic,
+            publishDirectory: manifest.build.publishDirectory,
+            startCommand: manifest.build.startCommand,
+          }
     const created = await client.createApplication({
-      baseDirectory: manifest.build.baseDirectory,
-      buildCommand: manifest.build.buildCommand,
-      buildPack: manifest.build.buildPack,
-      dockerfileLocation: manifest.build.dockerfileLocation,
+      source: applicationSource,
       domains,
-      gitBranch: branch,
-      gitCommitSha: commitSha,
-      gitRepository:
-        target.gitSource === 'public'
-          ? `https://github.com/${repo.owner}/${repo.name}`
-          : `${repo.owner}/${repo.name}`,
       healthCheckPath: manifest.build.healthCheckPath,
-      installCommand: manifest.build.installCommand,
-      isStatic: manifest.build.isStatic,
       name: appName,
       port: manifest.build.port,
-      publishDirectory: manifest.build.publishDirectory,
-      startCommand: manifest.build.startCommand,
     })
 
     if (!created.ok) {
-      return fail(req, deploymentId, `ساخت اپلیکیشن در Coolify ناموفق بود: ${created.message}`, created.detail)
+      return fail(
+        req,
+        deploymentId,
+        `ساخت اپلیکیشن در Coolify ناموفق بود: ${created.message}`,
+        created.detail,
+      )
     }
 
     appUuid = String(created.data.uuid ?? '')
@@ -821,13 +957,48 @@ export const runDeployment = async (
       await persistBindingApp(req, bindingId, { appUuid, applicationHostname: previewDomain })
     }
 
+    const sourcePatch =
+      plan.source.type === 'registry-image'
+        ? {
+            docker_registry_image_name: `${plan.source.image}@${plan.source.digest}`,
+            docker_registry_image_tag: '',
+            docker_registry_uuid: plan.access.registryCredentialUuid ?? null,
+          }
+        : {
+            git_repository:
+              plan.access.gitMethod === 'public'
+                ? `https://github.com/${repo.owner}/${repo.name}`
+                : `${repo.owner}/${repo.name}`,
+            git_branch: plan.source.branch,
+            git_commit_sha: plan.source.commitSha ?? 'HEAD',
+            build_pack: plan.source.buildPack,
+            base_directory: manifest.build.baseDirectory,
+            build_command: manifest.build.buildCommand,
+            install_command: manifest.build.installCommand,
+            start_command: manifest.build.startCommand,
+            publish_directory: manifest.build.publishDirectory,
+            dockerfile_location: manifest.build.dockerfileLocation,
+            github_app_uuid: plan.access.githubAppUuid ?? null,
+            private_key_uuid: plan.access.privateKeyUuid ?? null,
+          }
     const repointed = await client.updateApplication(appUuid, {
+      ...sourcePatch,
       domains: domains.join(','),
-      git_branch: branch,
-      git_commit_sha: commitSha ?? 'HEAD',
+      environment_name: plan.placement.environmentName,
+      project_uuid: plan.placement.projectUuid,
+      server_uuid: plan.placement.serverUuid,
+      ports_exposes: String(manifest.build.port),
+      health_check_enabled: Boolean(manifest.build.healthCheckPath),
+      health_check_path: manifest.build.healthCheckPath,
+      health_check_port: String(manifest.build.port),
     })
     if (!repointed.ok) {
-      return fail(req, deploymentId, `به‌روزرسانی اپلیکیشن در Coolify ناموفق بود: ${repointed.message}`, repointed.detail)
+      return fail(
+        req,
+        deploymentId,
+        `به‌روزرسانی اپلیکیشن در Coolify ناموفق بود: ${repointed.message}`,
+        repointed.detail,
+      )
     }
   }
 
@@ -862,7 +1033,12 @@ export const runDeployment = async (
 
   const envResult = await client.setEnvironment(appUuid, environment.variables)
   if (!envResult.ok) {
-    return fail(req, deploymentId, `نوشتن متغیرهای محیطی ناموفق بود: ${envResult.message}`, envResult.detail)
+    return fail(
+      req,
+      deploymentId,
+      `نوشتن متغیرهای محیطی ناموفق بود: ${envResult.message}`,
+      envResult.detail,
+    )
   }
 
   await req.payload.update({
@@ -882,7 +1058,12 @@ export const runDeployment = async (
   // ---------------------------------------------------------------------------
   const deployStarted = await client.deploy(appUuid)
   if (!deployStarted.ok) {
-    return fail(req, deploymentId, `شروع استقرار ناموفق بود: ${deployStarted.message}`, deployStarted.detail)
+    return fail(
+      req,
+      deploymentId,
+      `شروع استقرار ناموفق بود: ${deployStarted.message}`,
+      deployStarted.detail,
+    )
   }
 
   await setDeploymentStatus(req, deploymentId, 'building', {
@@ -998,7 +1179,10 @@ export const verifyDeployment = async (
 
   if (!deployment) return { message: 'استقرار پیدا نشد.', ok: false }
   if (deployment.status !== 'verifying') {
-    return { message: `استقرار در وضعیت «${String(deployment.status)}» است، نه «در حال بررسی سلامت».`, ok: false }
+    return {
+      message: `استقرار در وضعیت «${String(deployment.status)}» است، نه «در حال بررسی سلامت».`,
+      ok: false,
+    }
   }
 
   const site = (await req.payload.findByID({
@@ -1041,7 +1225,10 @@ export const verifyDeployment = async (
   } catch (error) {
     await req.payload.update({
       collection: 'site-deployments',
-      data: { healthCheckedAt: new Date().toISOString(), lastError: logLine((error as Error).message) },
+      data: {
+        healthCheckedAt: new Date().toISOString(),
+        lastError: logLine((error as Error).message),
+      },
       depth: 0,
       id: deploymentId,
       overrideAccess: true,
@@ -1101,7 +1288,10 @@ export const promoteDeployment = async (
       siteId,
     })
   } catch (error) {
-    req.payload.logger.error({ err: error as Error, msg: `deployment ${deploymentId}: usage measurement failed` })
+    req.payload.logger.error({
+      err: error as Error,
+      msg: `deployment ${deploymentId}: usage measurement failed`,
+    })
   }
 
   const { docs: previous } = await req.payload.find({
@@ -1355,7 +1545,10 @@ export const stopSiteDeployments = async (
       ;(outcome.ok ? stopped : failed).push(id)
     } catch (error) {
       failed.push(id)
-      req.payload.logger.error({ err: error as Error, msg: `deployment ${id}: stop failed (${reason})` })
+      req.payload.logger.error({
+        err: error as Error,
+        msg: `deployment ${id}: stop failed (${reason})`,
+      })
     }
   }
 
@@ -1403,7 +1596,11 @@ export const advanceDeployment = async (
   if (status === 'queued') {
     const outcome = await runDeployment(req, deploymentId)
     const now = await statusNow()
-    return { changed: now !== status, message: outcome.ok ? undefined : outcome.message, status: now }
+    return {
+      changed: now !== status,
+      message: outcome.ok ? undefined : outcome.message,
+      status: now,
+    }
   }
 
   if (status === 'verifying') {

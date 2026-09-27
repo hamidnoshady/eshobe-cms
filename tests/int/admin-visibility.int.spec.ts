@@ -64,10 +64,47 @@ describe('admin nav visibility (config-level)', () => {
     const cfg = await loadConfig()
     const visible = visibleFor(cfg, editor)
 
-    for (const slug of ['pages', 'posts', 'media', 'categories', 'products', 'orders', 'store', 'site-branding', 'theme', 'header', 'footer', 'forms', 'form-submissions', 'redirects', 'search', 'payment-gateways']) {
+    for (const slug of [
+      'pages',
+      'posts',
+      'media',
+      'categories',
+      'products',
+      'orders',
+      'store',
+      'site-branding',
+      'theme',
+      'header',
+      'footer',
+      'forms',
+      'form-submissions',
+      'redirects',
+      'search',
+      'payment-gateways',
+    ]) {
       expect(visible.collections, slug).toContain(slug)
     }
-    for (const slug of ['plans', 'subscriptions', 'invoices', 'usage-records', 'site-entitlements', 'feature-flags', 'plugins', 'theme-templates', 'theme-packages', 'deploy-targets', 'site-deployments', 'webhooks', 'webhook-deliveries', 'audit-log', 'api-keys', 'storage-connections', 'cdn-zones', 'cdn-events']) {
+    for (const slug of [
+      'plans',
+      'subscriptions',
+      'invoices',
+      'usage-records',
+      'site-entitlements',
+      'feature-flags',
+      'plugins',
+      'theme-templates',
+      'theme-packages',
+      'theme-artifacts',
+      'deploy-targets',
+      'site-deployments',
+      'webhooks',
+      'webhook-deliveries',
+      'audit-log',
+      'api-keys',
+      'storage-connections',
+      'cdn-zones',
+      'cdn-events',
+    ]) {
       expect(visible.collections, slug).not.toContain(slug)
     }
   })
@@ -76,10 +113,28 @@ describe('admin nav visibility (config-level)', () => {
     const cfg = await loadConfig()
     const visible = visibleFor(cfg, operator)
 
-    for (const slug of ['webhooks', 'audit-log', 'api-keys', 'storage-connections', 'site-deployments', 'billing-usage-outbox', 'central-entitlement-projections']) {
+    for (const slug of [
+      'webhooks',
+      'audit-log',
+      'api-keys',
+      'storage-connections',
+      'site-deployments',
+      'theme-artifacts',
+      'billing-usage-outbox',
+      'central-entitlement-projections',
+    ]) {
       expect(visible.collections, slug).toContain(slug)
     }
-    for (const slug of ['pages', 'posts', 'media', 'products', 'orders', 'store', 'theme', 'redirects']) {
+    for (const slug of [
+      'pages',
+      'posts',
+      'media',
+      'products',
+      'orders',
+      'store',
+      'theme',
+      'redirects',
+    ]) {
       expect(visible.collections, slug).not.toContain(slug)
     }
   })
@@ -212,7 +267,16 @@ describe('admin nav resolution against the real config', () => {
 
   it('every control-plane collection carries a non-empty admin.group for its breadcrumb', async () => {
     const cfg = await loadConfig()
-    const controlPlane = ['plans', 'subscriptions', 'invoices', 'webhooks', 'audit-log', 'api-keys', 'storage-connections', 'cdn-zones']
+    const controlPlane = [
+      'plans',
+      'subscriptions',
+      'invoices',
+      'webhooks',
+      'audit-log',
+      'api-keys',
+      'storage-connections',
+      'cdn-zones',
+    ]
     for (const slug of controlPlane) {
       const entry = cfg.collections.find((c) => c.slug === slug)
       const group = entry?.admin?.group

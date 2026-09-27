@@ -178,7 +178,86 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
     },
     {
       type: 'collapsible',
-      label: 'جایگاه در Coolify',
+      label: 'جایگاه‌های preview و production',
+      admin: { initCollapsed: false },
+      fields: [
+        {
+          name: 'defaultServerUuid',
+          type: 'text',
+          label: 'سرور پیش‌فرض',
+          admin: { description: 'اگر مسیر override نداشته باشد از این سرور استفاده می‌کند.' },
+        },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'previewServerUuid',
+              type: 'text',
+              label: 'سرور preview (اختیاری)',
+              admin: { width: '33' },
+            },
+            {
+              name: 'previewEnvironmentName',
+              type: 'text',
+              label: 'محیط preview',
+              defaultValue: 'preview',
+              admin: { width: '33' },
+            },
+            {
+              name: 'previewWildcardDomain',
+              type: 'text',
+              label: 'دامنهٔ preview',
+              validate: validateWildcard,
+              admin: { width: '34' },
+            },
+          ],
+        },
+        {
+          type: 'row',
+          fields: [
+            {
+              name: 'productionServerUuid',
+              type: 'text',
+              label: 'سرور production (اختیاری)',
+              admin: { width: '50' },
+            },
+            {
+              name: 'productionEnvironmentName',
+              type: 'text',
+              label: 'محیط production',
+              defaultValue: 'production',
+              admin: { width: '50' },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      type: 'collapsible',
+      label: 'قابلیت‌های Git و Registry',
+      admin: { initCollapsed: false },
+      fields: [
+        { name: 'publicGitEnabled', type: 'checkbox', defaultValue: true, label: 'مخزن Git عمومی' },
+        { name: 'githubAppEnabled', type: 'checkbox', defaultValue: false, label: 'GitHub App' },
+        {
+          name: 'deployKeyEnabled',
+          type: 'checkbox',
+          defaultValue: false,
+          label: 'Deploy key fallback',
+        },
+        {
+          name: 'publicRegistryPullEnabled',
+          type: 'checkbox',
+          defaultValue: true,
+          label: 'Pull رجیستری عمومی',
+        },
+        { name: 'ghcrEnabled', type: 'checkbox', defaultValue: false, label: 'GHCR خصوصی' },
+        { name: 'ghcrCredentialUuid', type: 'text', label: 'UUID اعتبارنامهٔ رجیستری در Coolify' },
+      ],
+    },
+    {
+      type: 'collapsible',
+      label: 'فیلدهای سازگاری زیرساخت قدیمی',
       admin: { initCollapsed: false },
       fields: [
         {
@@ -227,7 +306,6 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
               name: 'serverUuid',
               type: 'text',
               label: 'شناسهٔ سرور',
-              required: true,
               admin: { width: '50', description: 'UUID سرور در Coolify.' },
             },
             {

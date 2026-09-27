@@ -3,7 +3,9 @@
 **Status: implemented (Wave 11).** This document describes the system as it runs. The
 author's side of the contract — `eshobe.theme.json`, the environment a theme receives,
 the revalidation webhook — is [`docs/THEME_API.md`](./THEME_API.md) §17 and §17b. The
-HTTP surface is [`docs/platform-control-api.md`](./platform-control-api.md) §9.
+HTTP surface is [`docs/platform-control-api.md`](./platform-control-api.md) §9. Immutable
+GHCR builds, placement layouts, CI registration, promotion, and digest rollback are documented
+in [`docs/theme-artifacts.md`](./theme-artifacts.md).
 
 A theme built against the Theme API lives in its own GitHub repository. The operator
 registers it, assigns it to a site, deploys a **preview** on the operator's preview Coolify
@@ -34,8 +36,9 @@ A customer's staff decide exactly one thing: the answers to the variables the th
 |---|---|---|---|
 | Per-site tokens | `theme` | site | Colours/radius — unchanged by any of this. |
 | Token presets | `theme-templates` | platform | Paint only. A package may name one to copy onto a site when it goes live. |
-| **Deployable theme** | `theme-packages` | platform | A repository + the manifest its last sync read + the commit that sync resolved. |
-| **Coolify connection** | `deploy-targets` | platform | Base URL, encrypted API token, server/project, wildcard preview domain. |
+| **Deployable theme** | `theme-packages` | platform | Repository visibility, strategy, manifest, synced/pinned commit, and optional allowed GHCR repository/visibility. |
+| **Immutable build** | `theme-artifacts` | platform | One commit's verified image repository + digest, workflow provenance, and build state. |
+| **Coolify connection** | `deploy-targets` | platform | Encrypted API token, lane placements, Git capabilities, and registry capabilities. |
 | **One attempt** | `site-deployments` | site | Auditable history: status, lane/mode, hostnames, ref/commit, log tail. |
 | **Coolify identity** | `theme-bindings` | site | One row per (site × package × lane): `appUuid`, pinned project/server, app name. |
 | **Intent** | `sites.assignedThemePackage` | site | Which published package is assigned before any container exists. |
