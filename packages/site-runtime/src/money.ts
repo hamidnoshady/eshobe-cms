@@ -32,7 +32,7 @@
  * data here and not a `currency` option.
  */
 
-import { toAsciiDigits } from './digits'
+import { toAsciiDigits } from './digits.js'
 
 export type CurrencyCode = 'IRT' | 'IRR' | 'USD' | 'EUR'
 

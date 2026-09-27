@@ -4,6 +4,7 @@ import { authenticated } from '../access/authenticated'
 import { isHexColor } from '../lib/theme'
 import { scopedPublicRead } from '../access/siteRead'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 
 /**
  * A colour that will be interpolated into a `<style>` tag. Rejected in the admin as
@@ -109,4 +110,8 @@ export const Theme: CollectionConfig = {
       ],
     },
   ],
+  hooks: {
+    afterChange: [revalidateSiteGlobal('theme')],
+    afterDelete: [revalidateSiteGlobalDelete('theme')],
+  },
 }

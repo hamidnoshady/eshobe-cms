@@ -49,7 +49,7 @@ describe('block library', () => {
         .filter((field) => !('localized' in field && field.localized))
         // A phone number is the same number in every language.
         .map((field) => ('name' in field ? field.name : '')),
-    ).toEqual(['phones'])
+    ).toEqual(['mapUrl', 'phones'])
   })
 
   it('offers a store no gallery or team, and a portfolio no price list', () => {

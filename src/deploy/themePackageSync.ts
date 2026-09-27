@@ -22,10 +22,19 @@ export const syncThemePackage = async (
   meta?: { auto?: boolean; deliveryId?: null | string },
 ): Promise<ThemePackageSyncResult> => {
   const id = String(pkg.id ?? '')
-  if (!id) return { errors: ['شناسهٔ پوسته نامعتبر است.'], message: 'شناسهٔ پوسته نامعتبر است.', ok: false }
+  if (!id)
+    return {
+      errors: ['شناسهٔ پوسته نامعتبر است.'],
+      message: 'شناسهٔ پوسته نامعتبر است.',
+      ok: false,
+    }
 
   if (!isSafeGitRef(requestedRef)) {
-    return { errors: ['نام شاخه یا تگ نامعتبر است.'], message: 'نام شاخه یا تگ نامعتبر است.', ok: false }
+    return {
+      errors: ['نام شاخه یا تگ نامعتبر است.'],
+      message: 'نام شاخه یا تگ نامعتبر است.',
+      ok: false,
+    }
   }
 
   const result = await fetchThemeManifest(String(pkg.repository ?? ''), requestedRef)
@@ -72,6 +81,8 @@ export const syncThemePackage = async (
       contractVersion: manifest.contractVersion,
       defaultRef: requestedRef,
       envSchema: manifest.env,
+      runtimeSettingsSchema: manifest.settings,
+      contentSlotsSchema: manifest.contentSlots,
       healthCheckPath: manifest.build.healthCheckPath,
       manifest: manifest as unknown as Record<string, unknown>,
       manifestSyncedAt: new Date().toISOString(),

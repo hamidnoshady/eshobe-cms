@@ -33,22 +33,21 @@ let acmeSiteKey = ''
 
 const SECRET = 'map-secret-value-1'
 
+const rawManifest = {
+  build: { pack: 'nixpacks', port: 3000 },
+  contractVersion: 1,
+  env: [
+    { key: 'MAP_API_KEY', labelFa: 'کلید نقشه', required: true, secret: true, source: 'tenant' },
+    { help: 'شناسهٔ گوگل آنالیتیکس', key: 'ANALYTICS_ID', labelFa: 'شناسهٔ آمار', source: 'tenant' },
+    { key: 'ESHOBE_CMS_URL', source: 'platform' },
+  ],
+  key: 'settings-theme',
+  name: 'Settings Theme',
+  siteTypes: ['business', 'portfolio', 'store'],
+}
+
 const manifest = (): ThemeManifest => {
-  const parsed = parseThemeManifest(
-    {
-      build: { pack: 'nixpacks', port: 3000 },
-      contractVersion: 1,
-      env: [
-        { key: 'MAP_API_KEY', labelFa: 'کلید نقشه', required: true, secret: true, source: 'tenant' },
-        { help: 'شناسهٔ گوگل آنالیتیکس', key: 'ANALYTICS_ID', labelFa: 'شناسهٔ آمار', source: 'tenant' },
-        { key: 'ESHOBE_CMS_URL', source: 'platform' },
-      ],
-      key: 'settings-theme',
-      name: 'Settings Theme',
-      siteTypes: ['business', 'portfolio', 'store'],
-    },
-    1,
-  )
+  const parsed = parseThemeManifest(rawManifest, 1)
   if (!parsed.ok) throw new Error(parsed.errors.join(' '))
   return parsed.manifest
 }
@@ -118,7 +117,7 @@ beforeAll(async () => {
       defaultRef: 'main',
       envSchema: manifest().env,
       key: 'settings-theme',
-      manifest: manifest() as unknown as Record<string, unknown>,
+      manifest: rawManifest,
       name: 'پوستهٔ تنظیمات',
       provider: 'github',
       repository: 'hamidnoshady/settings-theme',

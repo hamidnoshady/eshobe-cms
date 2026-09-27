@@ -37,6 +37,7 @@ import { Posts } from './collections/Posts'
 import { SiteDeployments } from './collections/SiteDeployments'
 import { SiteEntitlements } from './collections/SiteEntitlements'
 import { SiteThemeSettings } from './collections/SiteThemeSettings'
+import { SiteBranding } from './collections/SiteBranding'
 import { Sites } from './collections/Sites'
 import { StorageConnections } from './collections/StorageConnections'
 import { Store } from './collections/Store'
@@ -246,6 +247,7 @@ export default buildConfig({
     // not a site's own content.
     StorageConnections,
     Theme,
+    SiteBranding,
     Header,
     Footer,
     // Wave 7 — the store. `products` and `orders` are ordinary tenant-scoped

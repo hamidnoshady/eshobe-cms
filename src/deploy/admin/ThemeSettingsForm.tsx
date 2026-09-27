@@ -1,12 +1,19 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { Button } from '@payloadcms/ui/elements/Button'
 import { CheckboxInput } from '@payloadcms/ui/fields/Checkbox'
 import { TextInput } from '@payloadcms/ui/fields/Text'
 
 import type { ThemeSettingsView } from '@/deploy/tenantSettings'
+import {
+  contentSlotCollectionSlug,
+  contentSlotSearchWhere,
+  fetchAllContentSlotOptions,
+  type ContentOption,
+  type ContentSlotType,
+} from '@/deploy/admin/contentSlotOptions'
 
 /**
  * The form behind «تنظیمات پوسته»: one box per variable the site's theme asked the
@@ -28,29 +35,103 @@ export type ThemeSettingsFormProps = {
 
 type Result = { ok: boolean; text: string }
 
-export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, siteId, siteName }) => {
+export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
+  initial,
+  siteId,
+  siteName,
+}) => {
   const [view, setView] = useState<ThemeSettingsView>(initial)
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(initial.fields.filter((field) => !field.secret).map((field) => [field.key, field.value ?? ''])),
+    Object.fromEntries(
+      initial.fields
+        .filter((field) => !field.secret)
+        .map((field) => [field.key, field.value ?? '']),
+    ),
   )
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [clear, setClear] = useState<Record<string, boolean>>({})
+  const [runtimeSettings, setRuntimeSettings] = useState<Record<string, boolean | number | string>>(
+    initial.runtimeSettings,
+  )
+  const [bindings, setBindings] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries(initial.bindings).flatMap(([key, value]) => {
+        const id = value && typeof value === 'object' ? (value as { id?: unknown }).id : value
+        return typeof id === 'string' ? [[key, id]] : []
+      }),
+    ),
+  )
+  const [contentOptions, setContentOptions] = useState<Record<string, ContentOption[]>>({})
+  const [contentSearch, setContentSearch] = useState<Record<string, string>>({})
+  const [contentLoadError, setContentLoadError] = useState<Record<string, boolean>>({})
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<null | Result>(null)
+
+  const slotTypes = [...new Set(initial.contentSlots.map((slot) => slot.type))] as ContentSlotType[]
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const fetchPage =
+      (type: ContentSlotType) =>
+      async ({ page, search }: { page: number; search?: string }) => {
+        const slug = contentSlotCollectionSlug[type]
+        const where = contentSlotSearchWhere(type, search ?? '')
+        const params = new URLSearchParams({ depth: '0', limit: '100', page: String(page) })
+        if (where) params.set('where', JSON.stringify(where))
+        const response = await fetch(`/api/${slug}?${params}`, {
+          credentials: 'same-origin',
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error(String(response.status))
+        return (await response.json()) as {
+          docs?: Record<string, unknown>[]
+          hasNextPage?: boolean
+          nextPage?: null | number
+        }
+      }
+
+    void Promise.all(
+      slotTypes.map(async (type) => {
+        try {
+          const options = await fetchAllContentSlotOptions(fetchPage(type), type, contentSearch[type])
+          return [type, options, false] as const
+        } catch {
+          return [type, [], true] as const
+        }
+      }),
+    )
+      .then((entries) => {
+        setContentOptions(
+          Object.fromEntries(entries.map(([type, options]) => [type, options])) as Record<
+            string,
+            ContentOption[]
+          >,
+        )
+        setContentLoadError(Object.fromEntries(entries.map(([type, , failed]) => [type, failed])))
+      })
+      .catch(() => undefined)
+
+    return () => controller.abort()
+  }, [initial.contentSlots, contentSearch, slotTypes.join(',')])
 
   if (!view.package) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '40rem' }}>
         <h1>تنظیمات پوسته — {siteName}</h1>
         <div className="banner banner--type-default">
-          این سایت با رندرکنندهٔ داخلی سکو نمایش داده می‌شود و پوستهٔ نصب‌شدنی‌ای ندارد که تنظیماتی بخواهد.
-          انتخاب و استقرار پوسته با پشتیبانی سکو است.
+          این سایت با رندرکنندهٔ داخلی سکو نمایش داده می‌شود و پوستهٔ نصب‌شدنی‌ای ندارد که تنظیماتی
+          بخواهد. انتخاب و استقرار پوسته با پشتیبانی سکو است.
         </div>
       </div>
     )
   }
 
-  if (view.fields.length === 0) {
+  if (
+    view.fields.length === 0 &&
+    view.runtimeSchema.length === 0 &&
+    view.contentSlots.length === 0
+  ) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '40rem' }}>
         <h1>تنظیمات پوسته — {siteName}</h1>
@@ -78,6 +159,8 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
             .filter(([, checked]) => checked)
             .map(([key]) => key),
           site: siteId,
+          bindings: Object.fromEntries(Object.entries(bindings).filter(([, id]) => id)),
+          runtimeSettings,
           values: submitted,
         }),
         credentials: 'same-origin',
@@ -94,7 +177,8 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
       }
 
       if (payload.fields && payload.package !== undefined) {
-        setView({ canEdit: Boolean(payload.canEdit), fields: payload.fields, package: payload.package })
+        setView(payload as ThemeSettingsView)
+        setRuntimeSettings(payload.runtimeSettings ?? {})
       }
       setSecrets({})
       setClear({})
@@ -114,8 +198,8 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
       <div>
         <h1>تنظیمات پوسته — {siteName}</h1>
         <p style={{ color: 'var(--theme-elevation-600)' }}>
-          پوستهٔ فعال: «{view.package.name}». این مقادیر را خود پوسته از شما خواسته است و در استقرار بعدی
-          روی آن اعمال می‌شوند.
+          پوستهٔ فعال: «{view.package.name}». گزینه‌های نمایش و نگاشت محتوا بدون استقرار مجدد اعمال
+          می‌شوند؛ متغیرهای زیر در استقرار بعدی وارد محیط اجرا می‌شوند.
         </p>
       </div>
 
@@ -154,7 +238,9 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
                 checked={clear[field.key] === true}
                 label="حذف مقدار ذخیره‌شده"
                 name={`clear-${field.key}`}
-                onToggle={(event) => setClear((prev) => ({ ...prev, [field.key]: event.target.checked }))}
+                onToggle={(event) =>
+                  setClear((prev) => ({ ...prev, [field.key]: event.target.checked }))
+                }
               />
             )}
           </div>
@@ -175,8 +261,155 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({ initial, s
         ),
       )}
 
+      {view.runtimeSchema.length > 0 && (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <h2>گزینه‌های فعال پوسته</h2>
+          {view.runtimeSchema.map((setting) => {
+            const label = setting.labelFa ?? setting.labelEn ?? setting.key
+            if (setting.type === 'boolean') {
+              return (
+                <CheckboxInput
+                  checked={runtimeSettings[setting.key] === true}
+                  key={setting.key}
+                  label={label}
+                  name={`runtime-${setting.key}`}
+                  onToggle={(event) =>
+                    setRuntimeSettings((previous) => ({
+                      ...previous,
+                      [setting.key]: event.target.checked,
+                    }))
+                  }
+                />
+              )
+            }
+            if (setting.type === 'select') {
+              return (
+                <label
+                  key={setting.key}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}
+                >
+                  <span>{label}</span>
+                  <select
+                    disabled={!view.canEdit}
+                    onChange={(event) =>
+                      setRuntimeSettings((previous) => {
+                        const next = { ...previous }
+                        if (event.target.value) next[setting.key] = event.target.value
+                        else delete next[setting.key]
+                        return next
+                      })
+                    }
+                    value={String(runtimeSettings[setting.key] ?? '')}
+                  >
+                    <option value="">انتخاب کنید</option>
+                    {setting.options?.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.labelFa ?? option.labelEn ?? option.value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            }
+            if (setting.type === 'number') {
+              return (
+                <label
+                  key={setting.key}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}
+                >
+                  <span>{label}</span>
+                  <input
+                    disabled={!view.canEdit}
+                    max={setting.max}
+                    min={setting.min}
+                    onChange={(event) =>
+                      setRuntimeSettings((previous) => {
+                        const next = { ...previous }
+                        if (event.target.value) next[setting.key] = Number(event.target.value)
+                        else delete next[setting.key]
+                        return next
+                      })
+                    }
+                    type="number"
+                    value={String(runtimeSettings[setting.key] ?? '')}
+                  />
+                  {setting.help && <small>{setting.help}</small>}
+                </label>
+              )
+            }
+            return (
+              <TextInput
+                description={setting.help ?? undefined}
+                key={setting.key}
+                label={label}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setRuntimeSettings((previous) => ({
+                    ...previous,
+                    [setting.key]: event.target.value,
+                  }))
+                }
+                path={`runtime-${setting.key}`}
+                readOnly={!view.canEdit}
+                value={String(runtimeSettings[setting.key] ?? '')}
+              />
+            )
+          })}
+        </section>
+      )}
+
+      {view.contentSlots.length > 0 && (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <h2>نگاشت محتوای پوسته</h2>
+          {view.contentSlots.map((slot) => (
+            <label
+              key={slot.key}
+              style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}
+            >
+              <span>{slot.labelFa ?? slot.labelEn ?? slot.key}</span>
+              <input
+                disabled={!view.canEdit}
+                onChange={(event) =>
+                  setContentSearch((previous) => ({ ...previous, [slot.type]: event.target.value }))
+                }
+                placeholder="جستجو در فهرست…"
+                type="search"
+                value={contentSearch[slot.type] ?? ''}
+              />
+              {contentLoadError[slot.type] && (
+                <small style={{ color: 'var(--theme-error-500)' }}>
+                  بارگذاری فهرست ناموفق بود؛ دوباره تلاش کنید.
+                </small>
+              )}
+              <select
+                disabled={!view.canEdit}
+                onChange={(event) =>
+                  setBindings((previous) => {
+                    const next = { ...previous }
+                    if (event.target.value) next[slot.key] = event.target.value
+                    else delete next[slot.key]
+                    return next
+                  })
+                }
+                required={slot.required}
+                value={bindings[slot.key] ?? ''}
+              >
+                <option value="">{slot.required ? 'انتخاب کنید' : 'بدون نگاشت'}</option>
+                {(contentOptions[slot.type] ?? []).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {slot.help && <small>{slot.help}</small>}
+            </label>
+          ))}
+        </section>
+      )}
+
       {result && (
-        <div className={`banner banner--type-${result.ok ? 'success' : 'error'}`}>{result.text}</div>
+        <div className={`banner banner--type-${result.ok ? 'success' : 'error'}`}>
+          {result.text}
+        </div>
       )}
 
       {view.canEdit && (

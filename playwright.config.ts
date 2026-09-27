@@ -48,7 +48,9 @@ export default defineConfig({
        */
       PLATFORM_ADMIN_SHOW_SITE_COLLECTIONS: 'true',
     },
-    reuseExistingServer: true,
+    // A reused `pnpm dev` started without PLATFORM_ADMIN_SHOW_SITE_COLLECTIONS makes
+    // `admin.e2e.spec.ts` navigate to hidden collections and time out (see gotchas).
+    reuseExistingServer: !process.env.CI,
     // A cold Next 16 + Payload dev boot compiles `/admin` on demand and blows
     // straight through Playwright's 60s default.
     timeout: 180_000,

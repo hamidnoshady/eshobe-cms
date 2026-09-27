@@ -1,8 +1,4 @@
-import type {
-  CollectionAfterChangeHook,
-  CollectionAfterDeleteHook,
-  PayloadRequest,
-} from 'payload'
+import type { CollectionAfterChangeHook, CollectionAfterDeleteHook, PayloadRequest } from 'payload'
 
 import { revalidatePath } from 'next/cache'
 
@@ -86,7 +82,16 @@ const revalidate = async (
   // never makes a request.
   const siteId = doc.site && typeof doc.site === 'object' ? doc.site.id : doc.site
 
-  if (siteId) notifyRenderers({ paths, req, siteId: String(siteId) })
+  if (siteId) {
+    const resource = base ? base.replace(/^\//, '').replace(/s$/, '') : 'page'
+    notifyRenderers({
+      paths,
+      req,
+      resources: [resource],
+      siteId: String(siteId),
+      tags: [`site:${siteId}:${resource}`],
+    })
+  }
 }
 
 export const revalidateSiteDoc =

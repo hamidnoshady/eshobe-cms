@@ -9,6 +9,7 @@ import {
   parseThemeManifest,
   parseThemeManifestText,
   validateTenantEnv,
+  validateRuntimeSettings,
   type ThemeManifest,
 } from '@/lib/deploy/manifest'
 import {
@@ -39,7 +40,9 @@ const valid = {
     startCommand: 'pnpm start',
   },
   contractVersion: 1,
-  env: [{ key: 'MAP_API_KEY', labelFa: 'کلید نقشه', required: false, secret: true, source: 'tenant' }],
+  env: [
+    { key: 'MAP_API_KEY', labelFa: 'کلید نقشه', required: false, secret: true, source: 'tenant' },
+  ],
   key: 'bazaar-store',
   name: 'Bazaar Store',
   siteTypes: ['store'],
@@ -82,22 +85,19 @@ describe('parseThemeManifest', () => {
     expect(parse({ ...valid, contractVersion: 1 }, 3).ok).toBe(true)
   })
 
-  it.each(PLATFORM_ENV_KEYS)(
-    'refuses %s as a tenant-supplied variable',
-    (key) => {
-      // The refusal that matters most: a theme must not be able to nominate the
-      // customer — or itself — as the author of the CMS URL or the API key it
-      // authenticates with.
-      const result = parse({
-        ...valid,
-        env: [{ key, source: 'tenant' }],
-      })
+  it.each(PLATFORM_ENV_KEYS)('refuses %s as a tenant-supplied variable', (key) => {
+    // The refusal that matters most: a theme must not be able to nominate the
+    // customer — or itself — as the author of the CMS URL or the API key it
+    // authenticates with.
+    const result = parse({
+      ...valid,
+      env: [{ key, source: 'tenant' }],
+    })
 
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.errors.join(' ')).toContain(key)
-    },
-  )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.join(' ')).toContain(key)
+  })
 
   it('allows a platform variable to be declared, since declaring is not supplying', () => {
     const manifest = manifestOf({
@@ -128,9 +128,7 @@ describe('parseThemeManifest', () => {
   })
 
   it('refuses a duplicated or malformed env key', () => {
-    expect(
-      parse({ ...valid, env: [{ key: 'A_KEY' }, { key: 'A_KEY' }] }).ok,
-    ).toBe(false)
+    expect(parse({ ...valid, env: [{ key: 'A_KEY' }, { key: 'A_KEY' }] }).ok).toBe(false)
     expect(parse({ ...valid, env: [{ key: 'lowercase' }] }).ok).toBe(false)
   })
 
@@ -195,10 +193,70 @@ describe('validateTenantEnv', () => {
   })
 
   it('caps a value length — this string is heading into a build environment', () => {
-    const result = validateTenantEnv(manifest, { MAP_API_KEY: 'x'.repeat(MAX_ENV_VALUE_LENGTH + 1) })
+    const result = validateTenantEnv(manifest, {
+      MAP_API_KEY: 'x'.repeat(MAX_ENV_VALUE_LENGTH + 1),
+    })
 
     expect(result.values.MAP_API_KEY).toBeUndefined()
     expect(result.errors.join(' ')).toContain('MAP_API_KEY')
+  })
+})
+
+describe('manifest runtime contract', () => {
+  const manifest = manifestOf({
+    ...valid,
+    settings: {
+      showNumbers: { type: 'boolean', default: true },
+      density: {
+        type: 'select',
+        default: 'roomy',
+        options: [{ value: 'roomy' }, { value: 'compact' }],
+      },
+      columns: { type: 'number', min: 1, max: 4 },
+    },
+    contentSlots: [
+      { key: 'home', type: 'page', required: true },
+      { key: 'projects', type: 'category' },
+    ],
+  })
+
+  it('accepts strict settings and content slots without bumping contract v1', () => {
+    expect(manifest.contractVersion).toBe(1)
+    expect(manifest.settings.map((setting) => setting.key)).toEqual([
+      'showNumbers',
+      'density',
+      'columns',
+    ])
+    expect(manifest.contentSlots[0]).toMatchObject({ key: 'home', type: 'page', required: true })
+  })
+
+  it('applies defaults and rejects unknown, out-of-range and invalid select values', () => {
+    expect(validateRuntimeSettings(manifest, { columns: 3, density: 'compact' })).toEqual({
+      errors: [],
+      values: { showNumbers: true, density: 'compact', columns: 3 },
+    })
+    expect(
+      validateRuntimeSettings(manifest, { columns: 20, density: 'evil', css: '</style>' }).errors,
+    ).toHaveLength(3)
+  })
+
+  it('refuses executable/open settings shapes and duplicate content slot keys', () => {
+    expect(parse({ ...valid, settings: { custom: { type: 'html' } } }).ok).toBe(false)
+    expect(
+      parse({
+        ...valid,
+        contentSlots: [
+          { key: 'home', type: 'page' },
+          { key: 'home', type: 'post' },
+        ],
+      }).ok,
+    ).toBe(false)
+  })
+
+  it('keeps old manifests backward compatible', () => {
+    const old = manifestOf(valid)
+    expect(old.settings).toEqual([])
+    expect(old.contentSlots).toEqual([])
   })
 })
 
@@ -291,7 +349,9 @@ describe('coolify client helpers', () => {
 
   it('builds a deterministic container name so a lost create can be reconciled', () => {
     expect(coolifyAppName('acme.ir', 'bazaar-store')).toBe('acme-ir-bazaar-store')
-    expect(coolifyAppName('acme.ir', 'bazaar-store')).toBe(coolifyAppName('acme.ir', 'bazaar-store'))
+    expect(coolifyAppName('acme.ir', 'bazaar-store')).toBe(
+      coolifyAppName('acme.ir', 'bazaar-store'),
+    )
   })
 
   it('scrubs credentials out of anything Coolify echoes back', () => {

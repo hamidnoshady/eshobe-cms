@@ -133,19 +133,18 @@ let targetId = ''
 let packageId = ''
 let siteKey = ''
 
+const rawManifest = (overrides: Record<string, unknown> = {}) => ({
+  build: { buildCommand: 'pnpm build', healthCheckPath: '/health', pack: 'nixpacks', port: 3000 },
+  contractVersion: 1,
+  key: 'lifecycle-theme',
+  name: 'Lifecycle Theme',
+  proxiesApi: true,
+  siteTypes: ['business', 'portfolio', 'store'],
+  ...overrides,
+})
+
 const manifest = (overrides: Record<string, unknown> = {}): ThemeManifest => {
-  const parsed = parseThemeManifest(
-    {
-      build: { buildCommand: 'pnpm build', healthCheckPath: '/health', pack: 'nixpacks', port: 3000 },
-      contractVersion: 1,
-      key: 'lifecycle-theme',
-      name: 'Lifecycle Theme',
-      proxiesApi: true,
-      siteTypes: ['business', 'portfolio', 'store'],
-      ...overrides,
-    },
-    1,
-  )
+  const parsed = parseThemeManifest(rawManifest(overrides), 1)
   if (!parsed.ok) throw new Error(parsed.errors.join(' '))
   return parsed.manifest
 }
@@ -253,7 +252,7 @@ beforeAll(async () => {
       envSchema: [],
       healthCheckPath: '/health',
       key: 'lifecycle-theme',
-      manifest: manifest() as unknown as Record<string, unknown>,
+      manifest: rawManifest(),
       manifestSyncedAt: new Date().toISOString(),
       name: 'پوستهٔ چرخهٔ عمر',
       port: 3000,

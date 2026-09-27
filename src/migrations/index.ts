@@ -1,19 +1,20 @@
-import * as migration_20260826_215740_initial_schema from './20260826_215740_initial_schema';
-import * as migration_20260827_113713_wave6_media_prefix from './20260827_113713_wave6_media_prefix';
-import * as migration_20260827_143142_wave7_store from './20260827_143142_wave7_store';
-import * as migration_20260831_180943_fix_media_prefix_drift from './20260831_180943_fix_media_prefix_drift';
-import * as migration_20260831_181044_add_api_keys from './20260831_181044_add_api_keys';
-import * as migration_20260905_003232_wave10_payment_gateways from './20260905_003232_wave10_payment_gateways';
-import * as migration_20260905_120000_tenant_domain_aliases from './20260905_120000_tenant_domain_aliases';
-import * as migration_20260905_130000_cdn_integration from './20260905_130000_cdn_integration';
-import * as migration_20260905_150000_domain_reseller from './20260905_150000_domain_reseller';
-import * as migration_20260907_000000_storage_connections from './20260907_000000_storage_connections';
-import * as migration_20260912_100401_saas_control_plane from './20260912_100401_saas_control_plane';
-import * as migration_20260922_170603_wave11_theme_deployments from './20260922_170603_wave11_theme_deployments';
-import * as migration_20260925_215628_wave11_deploy_gaps from './20260925_215628_wave11_deploy_gaps';
-import * as migration_20260926_120000_storage_health from './20260926_120000_storage_health';
-import * as migration_20260926_120000_theme_github_webhook from './20260926_120000_theme_github_webhook';
-import * as migration_20260926_180000_billing_execution_plane from './20260926_180000_billing_execution_plane';
+import * as migration_20260826_215740_initial_schema from './20260826_215740_initial_schema'
+import * as migration_20260827_113713_wave6_media_prefix from './20260827_113713_wave6_media_prefix'
+import * as migration_20260827_143142_wave7_store from './20260827_143142_wave7_store'
+import * as migration_20260831_180943_fix_media_prefix_drift from './20260831_180943_fix_media_prefix_drift'
+import * as migration_20260831_181044_add_api_keys from './20260831_181044_add_api_keys'
+import * as migration_20260905_003232_wave10_payment_gateways from './20260905_003232_wave10_payment_gateways'
+import * as migration_20260905_120000_tenant_domain_aliases from './20260905_120000_tenant_domain_aliases'
+import * as migration_20260905_130000_cdn_integration from './20260905_130000_cdn_integration'
+import * as migration_20260905_150000_domain_reseller from './20260905_150000_domain_reseller'
+import * as migration_20260907_000000_storage_connections from './20260907_000000_storage_connections'
+import * as migration_20260912_100401_saas_control_plane from './20260912_100401_saas_control_plane'
+import * as migration_20260922_170603_wave11_theme_deployments from './20260922_170603_wave11_theme_deployments'
+import * as migration_20260925_215628_wave11_deploy_gaps from './20260925_215628_wave11_deploy_gaps'
+import * as migration_20260926_120000_storage_health from './20260926_120000_storage_health'
+import * as migration_20260926_120000_theme_github_webhook from './20260926_120000_theme_github_webhook'
+import * as migration_20260926_180000_billing_execution_plane from './20260926_180000_billing_execution_plane'
+import * as migration_20260926_200000_theme_runtime_contract from './20260926_200000_theme_runtime_contract'
 
 export const migrations = [
   {
@@ -96,4 +97,9 @@ export const migrations = [
     down: migration_20260926_180000_billing_execution_plane.down,
     name: '20260926_180000_billing_execution_plane',
   },
-];
+  {
+    up: migration_20260926_200000_theme_runtime_contract.up,
+    down: migration_20260926_200000_theme_runtime_contract.down,
+    name: '20260926_200000_theme_runtime_contract',
+  },
+]

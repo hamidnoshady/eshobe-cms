@@ -72,7 +72,13 @@ export const themeCss = (theme: null | Theme): string => {
   if (!theme) return ''
 
   const radius = RADIUS[theme.radius ?? 'md'] ?? RADIUS.md
-  const leading = typeof theme.lineHeight === 'number' ? theme.lineHeight : 1.8
+  const leading =
+    typeof theme.lineHeight === 'number' &&
+    Number.isFinite(theme.lineHeight) &&
+    theme.lineHeight >= 1.4 &&
+    theme.lineHeight <= 2.4
+      ? theme.lineHeight
+      : 1.8
 
   const brand = `${pair('primary', theme.primary)}${pair('accent', theme.accent)}--radius:${radius};--line-height:${leading};`
 
