@@ -2791,6 +2791,8 @@ export interface Webhook {
     | 'storage.changed'
     | 'cdn.synced'
     | 'order.paid'
+    | 'order.refunded'
+    | 'order.cancelled'
     | 'backup.completed'
     | 'platform.settingsChanged'
   )[];
@@ -2853,6 +2855,8 @@ export interface WebhookDelivery {
     | 'storage.changed'
     | 'cdn.synced'
     | 'order.paid'
+    | 'order.refunded'
+    | 'order.cancelled'
     | 'backup.completed'
     | 'platform.settingsChanged';
   ok: boolean;
@@ -2918,6 +2922,8 @@ export interface AuditLog {
     | 'storage.changed'
     | 'cdn.synced'
     | 'order.paid'
+    | 'order.refunded'
+    | 'order.cancelled'
     | 'backup.completed'
     | 'platform.settingsChanged';
   /**

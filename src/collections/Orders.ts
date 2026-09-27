@@ -10,6 +10,7 @@ import { isGatewayProvider, paymentProviderOptions } from '../payments'
 import { restrictApiKeyOrderWrite } from './hooks/restrictApiKeyOrderWrite'
 import { snapshotOrder } from './hooks/snapshotOrder'
 import { emitOrderPaid } from './hooks/emitOrderPaid'
+import { emitOrderReversal } from './hooks/emitOrderReversal'
 import { settleStock } from './hooks/settleStock'
 
 /**
@@ -267,7 +268,7 @@ export const Orders: CollectionConfig<'orders'> = {
     },
   ],
   hooks: {
-    afterChange: [settleStock, emitOrderPaid],
+    afterChange: [settleStock, emitOrderPaid, emitOrderReversal],
     beforeChange: [restrictApiKeyOrderWrite],
     beforeValidate: [snapshotOrder],
   },
