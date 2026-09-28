@@ -10,7 +10,7 @@ import { emitPlatformEvent } from '@/platform/webhooks'
 import { recordUsage } from '@/platform/usage'
 import { applyThemeDesignDefaults, pluginsForSite, saasOverview } from '@/platform/saas-report'
 
-import { json, param, requireOperator, search, siteById } from './platformShared'
+import { json, param, readJsonBody, requireOperator, search, siteById } from './platformShared'
 
 /**
  * `/api/platform/*` — the SaaS half of the control surface.
@@ -54,17 +54,7 @@ const requireAdminSession = (req: PayloadRequest): null | Response => {
   return json({ message: 'این عملیات فقط با نشست مدیر پلتفرم انجام می‌شود.', ok: false }, 403)
 }
 
-const readBody = async (req: PayloadRequest): Promise<{ body?: Record<string, unknown>; error?: Response }> => {
-  try {
-    const parsed = (await req.json?.()) ?? {}
-    if (!parsed || typeof parsed !== 'object') {
-      return { error: json({ message: 'بدنهٔ درخواست باید یک شیء JSON باشد.', ok: false }, 400) }
-    }
-    return { body: parsed as Record<string, unknown> }
-  } catch {
-    return { error: json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400) }
-  }
-}
+const readBody = readJsonBody
 
 // ---------------------------------------------------------------------------
 // Overview

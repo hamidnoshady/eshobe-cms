@@ -33,6 +33,38 @@ export const requireOperator = async (req: PayloadRequest): Promise<null | Respo
   return json({ message: 'این بخش فقط برای مدیر پلتفرم است.', ok: false }, 403)
 }
 
+/**
+ * The JSON body of a `/api/platform/*` POST.
+ *
+ * An **empty body is `{}`**, not an error. Most of these routes take no required input
+ * ("redeploy", "stop the last one", "sync") and a console button that has nothing to say
+ * simply posts nothing; `Request.json()` throws on zero bytes, which made every such
+ * button answer «بدنهٔ درخواست باید JSON باشد». Anything that *is* present must still be a
+ * JSON object, so a malformed body stays a 400.
+ *
+ * Prefers `req.text()` (a real request) and falls back to `req.json()` (a handler called
+ * with a hand-built request, as the specs do).
+ */
+export const readJsonBody = async (
+  req: PayloadRequest,
+): Promise<{ body?: Record<string, unknown>; error?: Response }> => {
+  try {
+    let parsed: unknown
+    if (typeof req.text === 'function') {
+      const raw = await req.text()
+      parsed = raw.trim() === '' ? {} : JSON.parse(raw)
+    } else {
+      parsed = (await req.json?.()) ?? {}
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return { error: json({ message: 'بدنهٔ درخواست باید یک شیء JSON باشد.', ok: false }, 400) }
+    }
+    return { body: parsed as Record<string, unknown> }
+  } catch {
+    return { error: json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400) }
+  }
+}
+
 /** A route param as a string, empty when absent. */
 export const param = (req: PayloadRequest, name: string): string =>
   String((req.routeParams as Record<string, unknown> | undefined)?.[name] ?? '')
