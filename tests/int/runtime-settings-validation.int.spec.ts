@@ -47,4 +47,33 @@ describe('validateRuntimeSettings', () => {
     const bad = validateRuntimeSettings(manifest(), { label: 'x'.repeat(501) })
     expect(bad.errors.length).toBeGreaterThan(0)
   })
+
+  it('parses and validates home intro settings from a theme manifest', () => {
+    const parsed = parseThemeManifest(
+      {
+        build: { buildPack: 'dockerfile', port: 3000 },
+        contractVersion: 1,
+        key: 'graphite',
+        name: 'Graphite',
+        settings: {
+          introAnimation: { type: 'boolean', default: true },
+          introDuration: { type: 'number', default: 7000, min: 0, max: 20_000 },
+        },
+        siteTypes: ['portfolio'],
+      },
+      1,
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const withOverride = validateRuntimeSettings(parsed.manifest, {
+      introAnimation: false,
+      introDuration: 5000,
+    })
+    expect(withOverride.errors).toEqual([])
+    expect(withOverride.values).toEqual({ introAnimation: false, introDuration: 5000 })
+    const badDuration = validateRuntimeSettings(parsed.manifest, { introDuration: 25_000 })
+    expect(badDuration.errors.length).toBeGreaterThan(0)
+    const unknown = validateRuntimeSettings(parsed.manifest, { mysteryFlag: true })
+    expect(unknown.errors.some((line) => line.includes('mysteryFlag'))).toBe(true)
+  })
 })
