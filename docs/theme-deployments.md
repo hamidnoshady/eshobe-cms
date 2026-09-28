@@ -15,6 +15,31 @@ is Coolify-first. Legacy `edge` remains behind `ESHOBE_LEGACY_CADDY_EDGE=1` for 
 
 ---
 
+## 0. The short version
+
+Eight tables exist so that each thing has one owner. You do not need to think about most of
+them. A site goes live in six steps, and the **«آمادگی پوسته»** checklist at the top of the
+site's «استقرار پوسته» tab tells you which one is open (`GET …/deployment/readiness`):
+
+| # | Step | Who | Where |
+|---|---|---|---|
+| 1 | Register the theme repo, **sync**, **publish** | operator | `theme-packages` |
+| 2 | CI builds the image and registers its digest (registry strategy) | automatic | `theme-artifacts` |
+| 3 | **Assign** the theme to the site | operator | site → «استقرار پوسته» |
+| 4 | Choose the theme's pages/categories and fill its variables | customer or operator | site → «تنظیمات پوسته» |
+| 5 | **Deploy preview**, look at it | operator | site → «استقرار پوسته» |
+| 6 | Verify DNS, then **publish** to the domain | operator | site → «استقرار پوسته» |
+
+Steps 4 and 6 can be done in either order; a preview never needs a verified domain. If
+something looks wrong on the live site, «بازگشت به رندرکنندهٔ داخلی» (revert) always works.
+Everything else in this document is what those six steps do underneath.
+
+A page the theme shows is **never found by its slug** once the customer has chosen it in step
+4 — the theme's URLs are fixed, the content behind them is bound. See `THEME_API.md`
+(«How a theme should consume bindings»).
+
+---
+
 ## 1. Who decides what
 
 Deployable themes are **operator-managed**. Which package a site runs, on which server, in

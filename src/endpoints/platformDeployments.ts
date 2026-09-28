@@ -1,6 +1,7 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { loadThemeReadiness } from '@/deploy/readinessLoader'
 import { syncThemePackage } from '@/deploy/themePackageSync'
 import { previewHttpsUrl } from '@/lib/deploy/previewUrl'
 import { buildRoutingTable } from '@/deploy/routing'
@@ -690,6 +691,27 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
   },
 }
 
+/**
+ * `GET /api/platform/sites/:id/deployment/readiness` — everything still open before this
+ * site's theme can be previewed or published, in the order somebody should do it.
+ *
+ * Read-only and advisory: it reports, it never gates (`src/deploy/readiness.ts`). Answers
+ * the question the console otherwise leaves to a failed deploy or an empty home page.
+ */
+export const siteDeploymentReadinessEndpoint: Endpoint = {
+  path: '/platform/sites/:id/deployment/readiness',
+  method: 'get',
+  handler: async (req) => {
+    const denied = await requireOperator(req)
+    if (denied) return denied
+
+    const site = await siteById(req, param(req, 'id'))
+    if (!site) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
+
+    return json({ ok: true, ...(await loadThemeReadiness(req, site)) })
+  },
+}
+
 /** `POST /api/platform/sites/:id/deployment/poll` — advance a building deployment. */
 export const siteDeploymentPollEndpoint: Endpoint = {
   path: '/platform/sites/:id/deployment/poll',
@@ -968,6 +990,7 @@ export const platformDeploymentEndpoints: Endpoint[] = [
   siteThemeAssignmentEndpoint,
   siteDeploymentRedeployEndpoint,
   siteDeploymentPollEndpoint,
+  siteDeploymentReadinessEndpoint,
   siteDeploymentVerifyEndpoint,
   siteDeploymentStopEndpoint,
   siteDeploymentRollbackEndpoint,

@@ -81,6 +81,7 @@ describe('platform site endpoint ordering', () => {
 
     const expected: [string, string][] = [
       ['get', '/platform/sites/:id/deployment'],
+      ['get', '/platform/sites/:id/deployment/readiness'],
       ['post', '/platform/sites/:id/deployment'],
       ['post', '/platform/sites/:id/deployment/redeploy'],
       ['post', '/platform/sites/:id/deployment/rollback'],
