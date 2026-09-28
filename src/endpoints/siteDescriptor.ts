@@ -160,15 +160,55 @@ export const siteDescriptor: Endpoint = {
         url: typeof media.url === 'string' ? media.url : null,
       }
     }
-    const packageDoc =
+    const loadThemePackage = async (id: null | string): Promise<null | Record<string, unknown>> => {
+      if (!id) return null
+      return (await req.payload.findByID({
+        collection: 'theme-packages',
+        depth: 0,
+        disableErrors: true,
+        id,
+        overrideAccess: true,
+        req,
+        select: { key: true, manifest: true },
+      })) as unknown as null | Record<string, unknown>
+    }
+
+    const settingsPackageId = idOf(themeSettings?.themePackage)
+    const settingsPackageDoc =
       themeSettings?.themePackage && typeof themeSettings.themePackage === 'object'
         ? (themeSettings.themePackage as Record<string, unknown>)
         : null
+    let activePackageId: null | string = null
+
+    if (idOf(site.activeDeployment)) {
+      const deployment = (await req.payload.findByID({
+        collection: 'site-deployments',
+        depth: 0,
+        disableErrors: true,
+        id: String(idOf(site.activeDeployment)),
+        overrideAccess: true,
+        req,
+        select: { themePackage: true },
+      })) as unknown as null | Record<string, unknown>
+      activePackageId = idOf(deployment?.themePackage)
+    }
+
+    const assignedPackageId = idOf(site.assignedThemePackage)
+    // Resolve the package the runtime should read first, then apply stored settings
+    // only if they were saved for that same package. A stale settings row from a
+    // previous theme must not make the descriptor describe the wrong runtime.
+    const runtimePackageId = assignedPackageId ?? activePackageId ?? settingsPackageId
+    let packageDoc = await loadThemePackage(runtimePackageId)
+    if (!packageDoc && runtimePackageId === settingsPackageId) packageDoc = settingsPackageDoc
+
+    const packageId = idOf(packageDoc?.id)
+    const settingsBelongToPackage = Boolean(packageId && settingsPackageId === packageId)
     const parsedManifest = packageDoc?.manifest
       ? parseThemeManifest(packageDoc.manifest, contractVersion)
       : null
     const manifest = parsedManifest?.ok ? parsedManifest.manifest : null
     const submittedRuntime =
+      settingsBelongToPackage &&
       themeSettings?.runtimeSettings &&
       typeof themeSettings.runtimeSettings === 'object' &&
       !Array.isArray(themeSettings.runtimeSettings)
@@ -178,6 +218,7 @@ export const siteDescriptor: Endpoint = {
       ? validateRuntimeSettings(manifest, submittedRuntime).values
       : {}
     const contentBindings =
+      settingsBelongToPackage &&
       themeSettings?.contentBindings &&
       typeof themeSettings.contentBindings === 'object' &&
       !Array.isArray(themeSettings.contentBindings)
@@ -320,6 +361,9 @@ export const siteDescriptor: Endpoint = {
         : null,
       themeRuntime: manifest
         ? {
+            theme: { key: packageDoc?.key ?? null },
+            // Backward compatibility for already-deployed themes that read
+            // `themeRuntime.package.key` before the UI terminology was simplified.
             package: { key: packageDoc?.key ?? null },
             settings: runtimeSettings,
             bindings: resolvedBindings,

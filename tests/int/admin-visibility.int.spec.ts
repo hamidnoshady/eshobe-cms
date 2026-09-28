@@ -15,7 +15,13 @@
 import { describe, expect, it } from 'vitest'
 
 import configPromise from '@/payload.config'
-import { CUSTOMER_NAV, OTHER_GROUP_LABEL, PLATFORM_NAV, resolveNavGroups } from '@/admin/navigation'
+import {
+  CUSTOMER_NAV,
+  INTERNAL_SUPPORT_COLLECTIONS,
+  OTHER_GROUP_LABEL,
+  PLATFORM_NAV,
+  resolveNavGroups,
+} from '@/admin/navigation'
 
 type Entity = { admin?: { group?: unknown; hidden?: unknown }; slug: string }
 
@@ -165,7 +171,8 @@ describe('admin nav visibility (config-level)', () => {
     // (they are not primary products), so "orphan against the map" is now expected
     // for those. The invariant that still must hold is *reachability*: after
     // `resolveNavGroups` sweeps unmapped-but-visible entities into «سایر», every
-    // operator-visible entity appears in exactly one resolved group.
+    // operator-visible entity appears in exactly one resolved group, except explicit
+    // internal support tables that are intentionally deep-link/contextual only.
     const cfg = await loadConfig()
     const visible = visibleFor(cfg, operator)
     const groups = resolveNavGroups({ adminRoute: '/admin', user: operator, visible })
@@ -173,7 +180,10 @@ describe('admin nav visibility (config-level)', () => {
     const unreachable = [
       ...visible.collections.map((s) => `collection:${s}`),
       ...visible.globals.map((s) => `global:${s}`),
-    ].filter((k) => !reachable.has(k))
+    ].filter((k) => {
+      const [, slug] = k.split(':')
+      return slug && !INTERNAL_SUPPORT_COLLECTIONS.has(slug) && !reachable.has(k)
+    })
     expect(unreachable, 'an operator-visible entity resolves into no nav group at all').toEqual([])
   })
 
@@ -187,13 +197,14 @@ describe('admin nav visibility (config-level)', () => {
 
   it('demotes platform supporting/history tables out of every primary group', async () => {
     // The platform equivalent: per-site override and history/event tables are not
-    // primary products. They must not appear in any PLATFORM_NAV group (they land in
-    // «سایر» at resolve time instead — proven in navigation.int.spec.ts).
+    // primary products. Non-internal support rows fall into «سایر»; raw theme runtime
+    // tables are deep-link/contextual only — both are proven in navigation.int.spec.ts.
     const primary = new Set(PLATFORM_NAV.flatMap((g) => g.entities.map((e) => e.slug)))
     for (const slug of [
       'usage-records',
       'site-entitlements',
       'site-theme-settings',
+      'theme-artifacts',
       'theme-bindings',
       'cdn-events',
       'webhook-deliveries',
@@ -246,7 +257,7 @@ describe('admin nav resolution against the real config', () => {
     const allSlugs = groups.flatMap((g) => g.entities.map((e) => e.slug))
     expect(allSlugs).not.toContain('pages')
     expect(allSlugs).not.toContain('posts')
-    // The demoted tables are exactly what «سایر» holds — reachable, never primary.
+    // Non-internal demoted tables are exactly what «سایر» holds — reachable, never primary.
     const other = groups.find((g) => g.label === OTHER_GROUP_LABEL)
     expect(other?.entities.map((e) => e.slug).sort()).toEqual(
       [
@@ -256,8 +267,6 @@ describe('admin nav resolution against the real config', () => {
         'reseller-domain-events',
         'reseller-domain-operations',
         'site-entitlements',
-        'site-theme-settings',
-        'theme-bindings',
         'usage-records',
         'webhook-deliveries',
       ].sort(),

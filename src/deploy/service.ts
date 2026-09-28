@@ -1294,6 +1294,35 @@ export const promoteDeployment = async (
     })
   }
 
+  const siteBeforePromotion = (await req.payload.findByID({
+    collection: 'sites',
+    depth: 0,
+    disableErrors: true,
+    id: siteId,
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+
+  /**
+   * Capture the currently serving theme before superseding rows. `stopDeployment`
+   * deliberately moves a site back to the built-in renderer when it stops the active
+   * row; using the site after that would make every redeploy look like a first
+   * adoption and would repaint customer branding with package defaults.
+   */
+  const previousActiveDeployment =
+    siteBeforePromotion && idOf(siteBeforePromotion.activeDeployment)
+      ? ((await req.payload.findByID({
+          collection: 'site-deployments',
+          depth: 0,
+          disableErrors: true,
+          id: String(idOf(siteBeforePromotion.activeDeployment)),
+          overrideAccess: true,
+          req,
+        })) as unknown as null | Record<string, unknown>)
+      : null
+  const previousThemePackageId = idOf(previousActiveDeployment?.themePackage)
+  const nextThemePackageId = idOf(deployment.themePackage)
+
   const { docs: previous } = await req.payload.find({
     collection: 'site-deployments',
     depth: 0,
@@ -1318,23 +1347,15 @@ export const promoteDeployment = async (
     })
   }
 
-  const site = (await req.payload.findByID({
-    collection: 'sites',
-    depth: 0,
-    disableErrors: true,
-    id: siteId,
-    overrideAccess: true,
-    req,
-  })) as unknown as null | Record<string, unknown>
-
   if (isProductionMode(mode)) {
     // Copy only on first successful adoption of a different theme. Redeploying the
-    // same package must never reset customer branding.
-    const previous = site && idOf(site.activeDeployment)
-      ? await req.payload.findByID({ collection: 'site-deployments', depth: 0, disableErrors: true, id: String(idOf(site.activeDeployment)), overrideAccess: true, req })
-      : null
-    if (site && String(idOf((previous as Record<string, unknown> | null)?.themePackage) ?? '') !== String(idOf(deployment.themePackage))) {
-      await applyThemeDesignDefaults(req, site, String(idOf(deployment.themePackage)))
+    // same package or upgrading its commit must never reset customer branding.
+    if (
+      siteBeforePromotion &&
+      nextThemePackageId &&
+      previousThemePackageId !== nextThemePackageId
+    ) {
+      await applyThemeDesignDefaults(req, siteBeforePromotion, nextThemePackageId)
     }
 
     await req.payload.update({
@@ -1346,6 +1367,18 @@ export const promoteDeployment = async (
       req,
     })
   }
+
+  const site =
+    (siteBeforePromotion &&
+      ((await req.payload.findByID({
+        collection: 'sites',
+        depth: 0,
+        disableErrors: true,
+        id: siteId,
+        overrideAccess: true,
+        req,
+      })) as unknown as null | Record<string, unknown>)) ??
+    siteBeforePromotion
 
   if (mode === 'edge') requestThemeRoutesRegeneration(req, `deployment ${deploymentId} live (edge)`)
 

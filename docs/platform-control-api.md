@@ -144,10 +144,10 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
 | `GET /api/platform/sites/:id/quota` | Local usage against projected limits. No call to central Billing. |
 | `POST /api/platform/sites/:id/usage` | Approximate quota counter only. A billing meter key is refused. |
 | `POST /api/platform/sites/:id/features` | Technical hold (`enabled: false`) only. `enabled: true` is **409**. |
-| `POST /api/platform/sites/:id/theme` | Apply a catalogue template (`{ theme }` — key or uuid). A copy, not a link. |
+| `POST /api/platform/sites/:id/theme` | Deprecated compatibility action: explicitly copy a Theme package's `designDefaults` (`{ theme }` — key or uuid) into the site's design tokens. A copy, not a link. |
 | `GET /api/platform/plugins?site=` | Installed plugins. **Never their credentials.** |
 | `PATCH /api/platform/plugins/:id` | Enable, disable, reconfigure. |
-| `GET /api/platform/themes` | The template catalogue with its tokens. |
+| `GET /api/platform/themes` | Compatibility Theme catalogue backed by `theme-packages`, exposing design-default tokens only. |
 | `GET /api/platform/features` | The feature-flag catalogue and its defaults. |
 | `GET /api/platform/audit?action=&site=&limit=&page=` | Who did what, when, from where. |
 | `GET /api/platform/settings` | Platform policy, plus `supportedEvents`. |
@@ -196,11 +196,11 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
 - **Entitlement resolves in one place.** A central projection, then a technical
   hold that can only disable. The legacy plan/subscription merge is a read-only
   fallback when no projection has arrived.
-- **A theme template is copied, never linked.** Editing the catalogue must not
-  repaint twenty live customers, and after a copy nobody could tell which sites had
-  been customised since. `applyThemeDesignDefaults` writes an explicit token allowlist, so
-  a token added to `theme` in a later release is left alone on templates stored
-  today rather than blanked.
+- **A Theme package's design defaults are copied, never linked.** Editing the
+  catalogue must not repaint twenty live customers, and after a copy nobody could tell
+  which sites had been customised since. `applyThemeDesignDefaults` writes an explicit
+  token allowlist, so a token added to `theme` in a later release is left alone on
+  existing packages rather than blanked.
 - **Secrets leave the process exactly once.** A webhook signing secret is readable
   only in the `rotate-secret` response; a plugin credential is never returned at all.
   Both list endpoints are built field by field rather than passing a document
@@ -232,14 +232,16 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
   `sanitizeChanges` drops any key matching
   `/secret|password|token|credential|apikey|api_key|keyhash|privatekey|authorization/i`,
   truncates strings to 200 chars and keeps at most 40 fields.
-- **Catalogue collections are not tenant-scoped.** `plans`, `feature-flags`,
-  `plugins`, `theme-packages`, `webhooks` and `webhook-deliveries` are deliberately
-  absent from the multi-tenant plugin's map: the plugin's injected `site` field is
-  *required* by construction, so a platform-level row would be unsavable, and "which
-  customer owns the Pro plan?" has no answer. The per-customer half —
-  `subscriptions`, `invoices`, `site-entitlements`, `usage-records` — **is**
-  registered, and `tests/int/store.int.spec.ts` asserts the split so a new collection
-  cannot quietly join the wrong side.
+- **Catalogue/build/infrastructure collections are not tenant-scoped.** `plans`,
+  `feature-flags`, `plugins`, `theme-packages`, `theme-artifacts`, `deploy-targets`,
+  `webhooks` and `webhook-deliveries` are deliberately absent from the multi-tenant
+  plugin's map: the plugin's injected `site` field is *required* by construction, so a
+  platform-level row would be unsavable, and "which customer owns the Pro plan or the
+  Tehran deploy server?" has no answer. The per-customer half — `subscriptions`,
+  `invoices`, `site-entitlements`, `usage-records`, `site-deployments`,
+  `theme-bindings` and `site-theme-settings` — **is** registered, and
+  `tests/int/store.int.spec.ts` asserts the split so a new collection cannot quietly
+  join the wrong side.
 
 ---
 
@@ -274,11 +276,12 @@ Every response is `cache-control: no-store` JSON with `ok` and, on refusal, a Pe
 | Route | Body | Answers |
 |---|---|---|
 | `GET /api/platform/theme-packages` | — | `{ packages: [{ id, key, name, status, repository, defaultRef, pinnedCommit, syncedCommitSha, syncedAt, syncError, siteTypes, proxiesApi, contractVersion, buildPack, envSchema, requiredFeature, defaultTarget, description }] }`. `envSchema` is the declared shape only — never a site's values. |
-| `POST /api/platform/theme-packages/:id/sync` | `{ ref? }` (default: the package's `defaultRef`) | Reads `eshobe.theme.json` from GitHub **now** (synchronous; 10 s timeout per request). 200 `{ commit, manifest, package }`; stores the manifest, `defaultRef = ref` and `syncedCommitSha = commit`. 400 unsafe ref, 404 unknown package, 422 `{ errors }` when GitHub or the manifest refuses (the previous manifest is kept, `syncError` recorded). |
+| `POST /api/platform/theme-packages/:id/sync` | `{ ref? }` (default: the package's `defaultRef`) | Reads `eshobe.theme.json` from GitHub **now** (synchronous; 10 s timeout per request). 200 `{ commit, manifest, package }`; stores the manifest, design defaults, `defaultRef = ref` and `syncedCommitSha = commit`. 400 unsafe ref, 404 unknown package, 422 `{ errors }` when GitHub or the manifest refuses (the previous manifest/defaults are kept, `syncError` recorded). |
 | `POST /api/platform/theme-packages/:id/publish` | `{ status?: 'published' \| 'deprecated' \| 'draft' }` | **Admin session only.** 200 `{ status }`; 409 `{ problems }` when publishing a package with no manifest, no contract version or no active target. |
 | `POST /api/deploy-targets/self-test` | `{ id }` (the target's document id) | Collection endpoint. Validates server, preview/production projects (when listable), and application listing. 200 or 422 with Persian detail; never returns the token. |
 | `GET /api/platform/sites/:id/deployment` | — | `{ assignedThemePackage, primaryDomain, domainVerified, current, deployments[], needsRedeploy, renderedBy, update }`. |
 | `POST /api/platform/sites/:id/theme-assignment` | `{ package }` | **Admin session only.** Records `sites.assignedThemePackage` without deploying. 200 `{ assignedThemePackage }`. |
+| `POST /api/platform/sites/:id/theme` | `{ theme: '<key-or-id>' }` | **Deprecated compatibility route.** Explicitly copies `theme-packages.designDefaults` into the site's `theme` document. It does not deploy and does not use `theme-templates`. Prefer the site deployment console action “Apply theme defaults”. |
 | `POST /api/platform/sites/:id/deployment` | `{ package, lane?: 'preview' \| 'production', domainMode?: 'preview' \| 'edge' \| 'direct', ref?, target? }` | **202** `{ deployment, lane, domainMode, ref, status: 'queued' }`. Prefer `lane`. Legacy `edge` only when `ESHOBE_LEGACY_CADDY_EDGE=1`. |
 | `POST /api/platform/sites/:id/deployment/redeploy` | `{ ref?, lane?, domainMode? }` | **202** — new attempt row, same binding/app on success. |
 | `POST /api/platform/sites/:id/deployment/rollback` | `{ deployment }` | **202** `{ commit, deployment, status: 'queued' }` — a new row pinned to that row's `commitSha` (beats the package's pin). 404 unknown row, 409 row of another site / row without a commit / any create refusal. |
@@ -304,7 +307,8 @@ queue (`advanceDeployments`, once a minute) does the Coolify work, and the conso
     "id": "…", "status": "live", "domainMode": "edge",
     "domain": "acme.ir", "previewDomain": "acme-ir-bazaar.sites.example.com",
     "packageName": "بازار", "themePackage": "…", "targetName": "تهران ۱", "target": "…",
-    "ref": "main", "commitSha": "…", "appUuid": "…",
+    "ref": "main", "commitSha": "…", "appUuid": "…", "themeBinding": "…",
+    "runtime": { "appName": "…", "appUuid": "…", "serverUuid": "…", "coolifyProjectUuid": "…", "environmentName": "production", "applicationHostname": "…", "bindingState": "active" },
     "needsRedeploy": false, "attention": null,   // Persian message when needsRedeploy
     "lastError": null, "logTail": "…", "createdAt": "…", "deployedAt": "…", "healthCheckedAt": "…"
   },

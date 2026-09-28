@@ -35,7 +35,7 @@ export const ThemeArtifacts: CollectionConfig<'theme-artifacts'> = {
     hidden: hiddenFromCustomers,
     useAsTitle: 'immutableKey',
   },
-  labels: { plural: 'آرتیفکت‌های پوسته', singular: 'آرتیفکت پوسته' },
+  labels: { plural: 'ساخت‌های پوسته', singular: 'ساخت پوسته' },
   fields: [
     {
       name: 'immutableKey',

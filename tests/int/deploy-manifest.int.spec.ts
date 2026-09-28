@@ -127,6 +127,15 @@ describe('parseThemeManifest', () => {
     expect(parse({ ...valid, build: { ...valid.build, port: 70000 } }).ok).toBe(false)
   })
 
+  it('rejects unknown execution-adjacent build keys and unsafe command strings', () => {
+    expect(parse({ ...valid, build: { ...valid.build, command: 'rm -rf /' } }).ok).toBe(false)
+    expect(parse({ ...valid, build: { ...valid.build, buildCommand: 'rm -rf /' } }).ok).toBe(false)
+    expect(
+      parse({ ...valid, build: { ...valid.build, buildCommand: 'pnpm build\ncat /etc/passwd' } })
+        .ok,
+    ).toBe(false)
+  })
+
   it('refuses a duplicated or malformed env key', () => {
     expect(parse({ ...valid, env: [{ key: 'A_KEY' }, { key: 'A_KEY' }] }).ok).toBe(false)
     expect(parse({ ...valid, env: [{ key: 'lowercase' }] }).ok).toBe(false)

@@ -12,7 +12,7 @@
 
 ## Table of Contents
 
-1. [Quick Start for an AI Agent](#1-quick-start-for-an-ai-agent-5-calls-to-a-working-store)
+1. [Theme Repository Quick Start for an AI Agent](#1-theme-repository-quick-start-for-an-ai-agent)
 2. [Core Concepts](#2-core-concepts)
 3. [Request Fundamentals](#3-request-fundamentals)
 4. [Site Descriptor — `GET /api/site`](#4-site-descriptor--get-apisite)
@@ -29,53 +29,105 @@
 15. [Rendering a Theme — Complete Example](#15-rendering-a-theme--complete-example)
 16. [Headless Checklist & Build Order for an AI Agent](#16-headless-checklist--build-order-for-an-ai-agent)
 17. [Errors, Rate Limits & Webhooks](#17-errors-rate-limits--webhooks)
-18. [Reference: Constants & Types](#18-reference-constants--types)
+18. [Deployable Themes and `eshobe.theme.json`](#17b-deployable-themes-and-eshobethemejson)
 
 ---
 
-## 1. Quick Start for an AI Agent (5 calls to a working store)
+## 1. Theme Repository Quick Start for an AI Agent
 
-You are an AI theme builder. Do this in order:
+Build a compatible theme repository in this order. Eshobe does **not** require a
+specific frontend framework; these steps work for Next, Remix, SvelteKit, Astro, a
+plain Node server, or any app that can answer HTTP.
+
+1. Create an application that can render HTML for a site.
+2. Install the runtime helpers: `pnpm add @eshobe/site-runtime`.
+3. Add `eshobe.theme.json` at the repository root (full spec in §17b).
+4. Implement a CMS client that uses either same-origin `/api/*`, or `ESHOBE_CMS_URL`
+   plus `Authorization: Bearer $ESHOBE_API_KEY`.
+5. Call `GET /api/site` before first paint.
+6. Render pages and blocks from `/api/pages`, `/api/posts`, `/api/products`, etc.
+7. Resolve media from `site.media.origin + site.media.basePath`.
+8. For stores, implement product, cart/checkout, and payment-method flows against the
+   documented ecommerce endpoints.
+9. Implement `GET /api/health` (or the manifest's `build.healthCheckPath`).
+10. Implement `POST /api/revalidate` and verify the signed request.
+11. If `proxiesApi: true`, proxy CMS-owned `/api/site`, `/api/pages`, `/api/posts`,
+    `/api/products`, `/api/checkout`, `/api/payments/*`, `/api/media/file/*`, and
+    other CMS endpoints back to `ESHOBE_CMS_URL` while keeping theme-owned routes
+    such as your page renderer and `/api/revalidate` local.
+12. Add a Dockerfile or build-pack-compatible package scripts.
+13. Push the repository to GitHub.
+14. Register the repository as a Theme in Eshobe CMS.
+15. Sync the manifest.
+16. Build an immutable GHCR artifact or let Coolify build from source.
+17. Deploy preview.
+18. Publish production only after health verification.
+
+Minimal repository layout:
+
+```text
+my-eshobe-theme/
+├── eshobe.theme.json
+├── package.json
+├── Dockerfile
+├── src/
+│   ├── cms/
+│   │   ├── client.ts
+│   │   ├── site.ts
+│   │   └── types.ts
+│   ├── app/
+│   └── components/
+└── README.md
+```
+
+Minimal bootstrap client:
 
 ```ts
-// 0. Install the runtime — it is the contract, not a copy-paste
-// pnpm add @eshobe/site-runtime
-import { formatPrice, formatDate, formatNumber, themeCss, blockSlugsForSiteType, slugify, toLocaleDigits } from '@eshobe/site-runtime'
-import { currencies } from '@eshobe/site-runtime/money'
+import { formatPrice, themeCss } from '@eshobe/site-runtime'
 
-// 1. Bootstrap — one call tells you everything
-const site = await fetch('https://CUSTOMER_DOMAIN/api/site', {
-  headers: { /* Host is set by the fetch itself */ },
-}).then(r => r.json())
-// → { domain, name, type:"store", availableLocales:["fa","en"], defaultLocale:"fa",
-//     blocks:["content","mediaBlock",...,"productGrid"], currency via site.store.currency,
-//     theme:{primary,accent,background,foreground,radius}, media:{origin,basePath} }
+const cms = process.env.ESHOBE_CMS_URL ?? ''
+const site = await fetch(`${cms || ''}/api/site`, {
+  headers: process.env.ESHOBE_API_KEY
+    ? { Authorization: `Bearer ${process.env.ESHOBE_API_KEY}` }
+    : {},
+}).then((r) => r.json())
 
-// 2. List products (public, Host-scoped, published only)
+const pages = await fetch(`${cms || ''}/api/pages?where[slug][equals]=home&locale=${site.defaultLocale}&depth=2`, {
+  headers: process.env.ESHOBE_API_KEY
+    ? { Authorization: `Bearer ${process.env.ESHOBE_API_KEY}` }
+    : {},
+}).then((r) => r.json())
+
+const css = themeCss(site.theme)
+const price = formatPrice(180000, site.store.currency, site.defaultLocale)
+```
+
+### Five calls to a working store
+
+```ts
+// 1. Bootstrap — one call tells you tenant, locales, blocks, theme tokens and runtime settings.
+const site = await fetch('https://CUSTOMER_DOMAIN/api/site').then(r => r.json())
+
+// 2. List products (public, Host-scoped, published only).
 const products = await fetch(
   `https://CUSTOMER_DOMAIN/api/products?locale=${site.defaultLocale}&limit=12&sort=-createdAt&depth=1`,
-  { headers: {} }
 ).then(r => r.json())
-// Each product: { title, slug, summary, image:{url}, price:180000, trackInventory, inventory }
 
-// 3. Render a price — NEVER interpolate product.price directly
-formatPrice(180000, site.store.currency, site.defaultLocale) // → "۱۸۰٬۰۰۰ تومان" on fa
+// 3. Render a price — NEVER interpolate product.price directly.
+formatPrice(products.docs[0].price, site.store.currency, site.defaultLocale)
 
-// 4. Render a page's blocks (see §8). One page fetch gives you layout:
-const page = await fetch(`https://CUSTOMER_DOMAIN/api/pages?where[slug][equals]=home&locale=fa&depth=2`).then(r=>r.json())
-// page.docs[0].layout = [{blockType:"productGrid", populateBy:"collection", limit:6, showBuyButton:true}, ...]
+// 4. Fetch and render a page's blocks.
+const page = await fetch(`https://CUSTOMER_DOMAIN/api/pages?where[slug][equals]=home&locale=${site.defaultLocale}&depth=2`).then(r=>r.json())
 
-// 5. Checkout — collect name/phone, POST to /api/checkout (Host-scoped)
+// 5. Checkout — collect name/phone and POST to the Host-scoped endpoint.
 const checkout = await fetch('https://CUSTOMER_DOMAIN/api/checkout', {
   method:'POST',
   headers:{'content-type':'application/json'},
-  body: JSON.stringify({ product: products.docs[0].id, quantity:1, name:"علی رضایی", phone:"09121234567" })
+  body: JSON.stringify({ product: products.docs[0].id, quantity:1, name:'علی رضایی', phone:'09121234567' }),
 }).then(r=>r.json())
-// → { ok:true, redirectUrl: "https://psp.example/pay/..." | null, confirmationUrl:"/checkout/<orderId>?r=<sig>" }
-// Redirect browser to redirectUrl if present, otherwise to confirmationUrl
 ```
 
-**That's a shippable store theme.** The rest of this doc explains every field, edge case, and invariant behind those 5 calls.
+The rest of this document explains every field, edge case, and invariant behind those calls.
 
 ---
 
@@ -204,6 +256,12 @@ Accept: application/json
   "status": "active",
   "store": { "currency": "IRT", "paymentProvider": "bank" },
   "theme": { "primary": "#0f766e", "accent": "#f59e0b", "background": "#ffffff", "foreground": "#0a0a0a", "radius": "md", "lineHeight": 1.8 },
+  "themeRuntime": {
+    "theme": { "key": "graphite" },
+    "package": { "key": "graphite" },
+    "settings": {},
+    "bindings": {}
+  },
   "type": "store"
 }
 ```
@@ -212,6 +270,11 @@ When resolved via **site API key** (not Host), two extra fields appear (pinned b
 ```json
 { "id": "uuid...", "domainVerified": true, "...": "..." }
 ```
+
+`themeRuntime.theme.key` is the public theme identity. `themeRuntime.package.key` is kept
+for backward compatibility with older deployed themes. The descriptor never exposes theme
+package database IDs, Coolify UUIDs, server UUIDs, registry credentials, site API keys,
+revalidation secrets, tenant secret values or encrypted ciphertext.
 
 **404 — unknown host**
 ```json
@@ -1342,314 +1405,400 @@ Verify the HMAC over the **raw body bytes only** with `PAYLOAD_SECRET` (a deploy
 
 ---
 
-## 17b. `eshobe.theme.json` — making a theme deployable
+## 17b. Deployable Themes and `eshobe.theme.json`
 
-Everything above describes a theme that *reads* the API. This section is about a theme the
-platform can *host*: committed to GitHub, registered by an operator, and deployed to
-Eshobe's own infrastructure so a customer can pick it and have it live on their domain.
+A deployable Theme is one `theme-packages` row in the CMS. The UI calls it **Theme / پوسته**;
+the internal slug remains `theme-packages` for database/API compatibility. A Theme owns the
+GitHub source, manifest, design defaults, build/registry contract, runtime schemas and the
+versions/artifacts built from it. It does **not** own a live site's custom design tokens:
+`theme-packages.designDefaults` is copied into the site's `theme` document only when the site
+first adopts a different Theme after a successful production health check, or when an operator
+explicitly chooses **Apply theme defaults**.
 
-That requires exactly one extra file at the repository root. Without it the repo is still a
-perfectly good theme — you just deploy it yourself. Operator-side mechanics live in
-`docs/theme-deployments.md`; this is the author's half of the contract.
+### Three connection patterns
 
-### Minimal file
+#### A. Same-domain production renderer
 
-```jsonc
-{
-  "contractVersion": 1,
-  "key": "bazaar",
-  "name": "Bazaar",
-  "siteTypes": ["store"],
-  "design": { "primary": "#0f766e", "radius": "md", "lineHeight": 1.8 },
-  "build": { "pack": "nixpacks", "port": 3000 }
-}
+```text
+https://shop.example.com
 ```
 
-### Fields
+The browser calls CMS-owned paths on the same origin:
 
-| Field | Required | Default | Notes |
-|---|---|---|---|
-| `contractVersion` | ✅ | — | The Theme API version this theme targets. **Must not exceed** the platform's — a newer manifest is rejected, never coerced. |
-| `key` | ✅ | — | Stable slug. Identifies the package forever; renaming it creates a different package. |
-| `name` | ✅ | — | Latin display name. |
-| `nameFa` | | `null` | Persian display name shown to customers. Supply it — the admin UI is Persian-first. |
-| `siteTypes` | ✅ | — | Any of `business`, `portfolio`, `store`. A **capability claim**: a theme with no product blocks must not list `store`. Enforced at deploy time. |
-| `locales` | | `[]` | Locales the theme has strings for. Empty means "whatever the site defines". |
-| `capabilities` | | `{}` | Free-form `Record<string, boolean>` for operator filtering. Not interpreted. |
-| `previewUrl` | | `null` | Live demo. **Must be `https:`.** |
-| `proxiesApi` | | `false` | See below — the single most consequential flag in the file. |
-| `design` | | omitted | Optional initial site design defaults: hex `primary`, `accent`, `background`, `foreground`; `radius` (`none`, `sm`, `md`, `lg`); and `lineHeight` (1.4–2.4). Values are copied only when a site first adopts this theme or an operator explicitly applies them; changing a manifest never repaints an existing site. |
-| `env` | | `[]` | Tenant-supplied configuration. See below. |
-| `build` | | `{}` | Build instructions. See below. |
-
-### `proxiesApi` — read this before setting it
-
-Three domain modes exist. In `preview` and `edge`, the customer's domain stays on Eshobe's
-edge, which proxies **pages** to your theme while `/api/*` continues to be served by the
-CMS. Checkout, form submissions and media keep working regardless of what your theme does.
-
-In `direct` mode the customer's DNS points at your container and nothing sits in front of
-it. Every `/api/*` request now arrives at *your* app. If it doesn't forward them, checkout
-silently stops working — the page renders, the buy button 404s.
-
-So `proxiesApi: true` is a promise: *this theme forwards `/api/*` to `ESHOBE_CMS_URL`,
-preserving method, body and the `Host` header.* Deploying in `direct` mode is refused
-unless you make it. Leave it `false` unless you have actually implemented and tested that
-proxy — `edge` mode is the better default anyway.
-
-### `build`
-
-| Field | Default | Notes |
-|---|---|---|
-| `pack` | `nixpacks` | `nixpacks`, `dockerfile`, `static`, `dockercompose`. |
-| `port` | `3000` | 1–65535. The port your server listens on. |
-| `installCommand` / `buildCommand` / `startCommand` | `null` | `null` means "let the build pack decide", which is usually right for a standard Next.js app. |
-| `baseDirectory` | `/` | Must start with `/`. Set it for a monorepo. |
-| `publishDirectory` | `null` | Static output directory. |
-| `dockerfileLocation` | `null` | For `pack: "dockerfile"`. |
-| `healthCheckPath` | `null` | Must start with `/`. Strongly recommended: it's how a deploy knows the difference between "started" and "actually serving". |
-| `isStatic` | `true` when `pack` is `static` | |
-
-### `env` — asking the customer for configuration
-
-Each entry is a question the customer answers once, in the admin UI, before deploying:
-
-```jsonc
-{
-  "key": "MAP_API_KEY",
-  "labelFa": "کلید API نقشه",
-  "help": "از پنل نشان دریافت کنید",
-  "required": true,
-  "secret": true,
-  "source": "tenant"
-}
+```text
+/api/site
+/api/pages
+/api/posts
+/api/products
+/api/checkout
+/api/payments/methods
+/api/media/file/*
 ```
 
-- `key` — `^[A-Z][A-Z0-9_]{0,63}$`. Uppercase only; a lowercase key is rejected rather than
-  normalised, because silently renaming someone's variable is worse than refusing it.
-- `secret: true` — encrypted at rest, never returned by any API, write-only in the UI.
-- `required: true` — deployment is refused until it has a value. Nothing half-configured
-  ever reaches a build.
-- Values are capped at 2048 characters; the whole file at 64 KB.
+In legacy `edge` mode, Caddy keeps `/api/*` on the CMS and proxies page traffic to the theme.
+In Coolify-first `direct` mode the customer DNS points at the theme container, so the theme
+must proxy the CMS-owned `/api/*` paths back to `ESHOBE_CMS_URL` and preserve the original
+`Host` header. That promise is the manifest flag `proxiesApi: true`; production `direct`
+deploys are refused without it. Theme-owned routes such as HTML pages, assets, `/api/health`,
+and `/api/revalidate` stay in the theme app.
 
-**You cannot declare these.** They are injected by the platform, and listing one as
-`source: "tenant"` is a hard parse error:
+#### B. Server-side CMS access with a Site API Key
 
-```
-ESHOBE_CMS_URL          ESHOBE_SITE_DOMAIN     ESHOBE_SITE_ID
-ESHOBE_API_KEY          ESHOBE_DEFAULT_LOCALE  ESHOBE_LOCALES
-ESHOBE_SITE_TYPE        ESHOBE_CURRENCY        ESHOBE_REVALIDATE_SECRET
-ESHOBE_CONTRACT_VERSION ESHOBE_PUBLIC_ORIGIN
-```
+A managed deployment receives these platform variables (the theme cannot override them):
 
-`ESHOBE_PUBLIC_ORIGIN` is the origin your theme is *actually reachable at* by visitors:
-the preview hostname in preview mode (which is **not** `ESHOBE_SITE_DOMAIN`), the
-customer's domain in edge and direct mode. In edge mode your app is reached through
-Eshobe's edge with `Host` set to its preview hostname and the visitor's host in
-`X-Forwarded-Host` — build links from this variable, not from `Host`. Build absolute URLs from
-`ESHOBE_PUBLIC_ORIGIN` and canonical/SEO URLs from `ESHOBE_SITE_DOMAIN`; using the latter
-for links emits URLs nobody can follow while the customer is still previewing.
-
-`ESHOBE_API_KEY` and `ESHOBE_REVALIDATE_SECRET` are injected **at runtime, not build time**
-— a secret baked into an image layer outlives its rotation. Don't read them at module scope
-during a static build.
-
-### Revalidation
-
-If you accept revalidation webhooks, expose `POST /api/revalidate` and verify
-`x-eshobe-signature` with `ESHOBE_REVALIDATE_SECRET` exactly as described in §17 — the
-signature is over the **raw body**, without the timestamp. The CMS calls it on your
-application's own preview hostname (in edge mode the customer domain's `/api/*` belongs to
-the CMS), so with `proxiesApi: true` keep `/api/revalidate` out of your `/api` proxy. Each deployment gets its own secret, so one compromised
-theme cannot forge notices for another. An unsigned or unverified endpoint is a public
-cache-purge button; always verify before acting.
-
-### Checklist
-
-1. Commit `eshobe.theme.json` at the repo root.
-2. Read config from `process.env`, never from a committed file.
-3. Expose `healthCheckPath` and return non-200 while genuinely unready.
-4. Build links from `ESHOBE_PUBLIC_ORIGIN`, canonicals from `ESHOBE_SITE_DOMAIN`.
-5. Only claim `siteTypes` you actually render, and `proxiesApi` only if you truly proxy.
-6. Tag releases. Operators can pin a commit; a moving `main` is not a release strategy.
-
----
-
-## 18. Reference: Constants & Types
-
-### Slugs & Paths
-```ts
-HOME_SLUG = "home"
-POSTS_SEGMENT = "posts";        POSTS_BASE = "/posts"
-PRODUCTS_SEGMENT = "products";  PRODUCTS_BASE = "/products"
-SEARCH_SEGMENT = "search";      SEARCH_PATH = "/search"
-CHECKOUT_SEGMENT = "checkout";  CHECKOUT_BASE = "/checkout"
-RESERVED_PAGE_SLUGS = ["posts","search","checkout"] // pages cannot use
-
-pagePath(slug)     // "home"→"/", "about"→"/about"
-postPath(slug)     // "hello"→"/posts/hello"
-productPath(slug)  // "chair"→"/products/chair"
-localeHref(path, locale, siteDefault) // "/about"+"en"/"fa"→"/en/about" or "/about"
-
-isLocale(code)     // "fa"|"en" only (adding locale grows admin bundle)
-dirFor(code)       // "fa"→"rtl", "en"→"ltr"
-defaultLocale = "fa"
+```text
+ESHOBE_CMS_URL
+ESHOBE_API_KEY
+ESHOBE_SITE_ID
+ESHOBE_SITE_DOMAIN
+ESHOBE_DEFAULT_LOCALE
+ESHOBE_LOCALES
+ESHOBE_SITE_TYPE
+ESHOBE_CURRENCY
+ESHOBE_PUBLIC_ORIGIN
+ESHOBE_REVALIDATE_SECRET
+ESHOBE_CONTRACT_VERSION
 ```
 
-### Payload Config (relevant)
-```ts
-idType: "uuid"                          // non-enumerable across tenants
-localization: { locales:[{code:"fa",rtl:true},{code:"en"}], defaultLocale:"fa", fallback:true }
-cors: [getServerSideURL(), ...API_CORS_ORIGINS.split(",")]
-admin language: i18n.fallbackLanguage:"fa", supported:{fa,en}
-db: postgresAdapter(runtimeDatabaseOptions()) // DATABASE_URL only; no boot migrations
-// Separate `pnpm migrate` step uses MIGRATE_DATABASE_URL before web starts.
-editor: lexical (richText)
+Server code may call:
+
+```http
+GET ${ESHOBE_CMS_URL}/api/site
+Authorization: Bearer ${ESHOBE_API_KEY}
 ```
 
-### `GET /api/site` Return Type (simplified)
-```ts
-type SiteDescriptor = {
-  availableLocales: ("fa"|"en")[]
-  blocks: string[]                 // slugs the admin can pick
-  contractVersion: 1
-  defaultLocale: "fa"|"en"
-  domain: string
-  media: { basePath:"/api/media/file", origin:string }
-  name: string
-  slug: string
-  status: "active"|"suspended"|"archived"
-  store: { currency:CurrencyCode, paymentProvider:"bank"|"http" }
-  theme: { primary:string, accent:string, background:string, foreground:string, radius:"none"|"sm"|"md"|"lg", lineHeight:number } | null
-  type: "business"|"portfolio"|"store"
-  // + when via site API key:
-  id?: string
-  domainVerified?: boolean
-}
+Tenant identity comes from **Host** or from **`Authorization: Bearer <site key>`**. It never
+comes from `?site=`, a public body `siteId`, or a tenant query parameter. Public host-resolved
+`GET /api/site` never returns internal package IDs, Coolify UUIDs, server UUIDs, deployment
+secrets, registry credentials, site API keys, revalidation secrets, tenant secret values or
+ciphertext.
+
+#### C. Preview deployment
+
+A preview has its own Theme Binding and Coolify application, usually on a wildcard hostname
+such as:
+
+```text
+https://<site>-<theme>-preview.sites.example.com
 ```
 
-### Collections Index
-```
-GET /api/pages?where[slug][equals]=...&locale=fa&depth=1
-GET /api/posts?where[slug][equals]=...&locale=fa&depth=1
-GET /api/products?where[slug][equals]=...&locale=fa&depth=1
-GET /api/media/<id>?locale=fa
-GET /api/categories?limit=100
-GET /api/forms?locale=fa
-GET /api/search?where[title][like]=q&locale=fa&limit=10
-GET /api/store?limit=1
-GET /api/theme?limit=1
-GET /api/header?limit=1
-GET /api/footer?limit=1
-GET /api/redirects?where[from][equals]=/old&limit=1
-```
+Preview uses CMS credentials injected by the platform, but `ESHOBE_PUBLIC_ORIGIN` is the
+preview origin, not the canonical site domain. Preview never changes production routing,
+`sites.renderedBy`, `sites.activeDeployment`, or the live site's design tokens. A failed
+preview is only a failed deployment row.
 
-### GraphQL
-```
-POST /api/graphql          # query against generated schema (same access)
-GET  /api/graphql-playground  # dev only
-```
-Polls through same `scopedPublicRead`. Prefer REST for themes (simpler tenant mental model; `where` matches docs).
+### Public and private GitHub repositories
 
-### API Keys
-```ts
-// Mint (platform key only):
-POST /api/api-keys/issue   {name, role:"site"|"platform", siteId?}  → {id, key:"eshobe_live_...", prefix, role}
-// List:
-GET /api/api-keys/list?siteId=<uuid>  → {docs:[{id, name, prefix, role, siteId, createdAt, lastUsedAt}]}
-// Revoke:
-POST /api/api-keys/revoke  {id} → {ok:true}
-// Auth: Authorization: Bearer <raw key>
-```
+Public repositories are read via `raw.githubusercontent.com` without private credentials.
+Private repositories use the platform's `GITHUB_THEME_TOKEN` integration. Tokens stay in the
+CMS/Coolify control plane; they are never exposed to tenants, theme containers, manifests,
+logs or deployment history. Repository names are parsed as GitHub `owner/name` only, and refs
+are validated before they are used.
 
-### Provisioning (operator)
-```ts
-POST /api/provision-site  { name, domain, type, availableLocales, defaultLocale, ownerEmail, ... } → { site, summary, users }
-```
+### Manifest location and parser
 
-### Handoff (builder → CMS admin)
-```
-POST /api/handoff  {token, redirect?, secret?}  → 302 Set-Cookie: payload-token=...; SameSite=None
-GET  /api/handoff?token=...&secret=...            → 302
-// same contract as src/app/(site)/next/preview — PREVIEW_SECRET / HANDOFF_SECRET
-```
+Commit `eshobe.theme.json` at the repository root. The CMS reads it during manual sync and
+GitHub push webhook sync. Sync validates strictly; on failure it records `syncError` and keeps
+the previous valid manifest, commit and design defaults. A webhook sync only marks update
+availability — it never auto-deploys production.
 
-### Preview (site)
-```
-GET /next/preview?slug=...&secret=PREVIEW_SECRET&locale=fa  → draftMode + payload-token SameSite=None + redirect
-GET /next/exit-preview                                    → exit
-// Needs RefreshRouteOnSave + frame-ancestors CSP allowing admin origin
-```
-
----
-
-## 19. Recommended immutable-image CI
-
-`eshobe.theme.json` remains required. A `Dockerfile` and `.github/workflows/theme-image.yml`
-are recommended for production. The workflow should validate the manifest, install, lint,
-typecheck, test, build, smoke-test the container, push to GHCR with Buildx, inspect the
-registry digest, and call Eshobe's signed artifact endpoint. See
-[`theme-artifacts.md`](./theme-artifacts.md) for the callback contract.
-
-Tags (`latest`, branch, semantic version, commit) are labels only. Eshobe executes
-`ghcr.io/owner/image@sha256:…`, so never assume a tag identifies what a site runs. Site IDs,
-API keys, revalidation secrets, domains, and tenant settings must be runtime environment
-values; do not put customer data into a reusable image layer.
-
-## Appendix: Do & Don't
-
-**Do**
-- Call `GET /api/site` once and cache (30s, `vary: Host`).
-- Use `localeHref` for every internal link; canonical via `siteUrl`.
-- Render rich text fields' own `direction`; one English quote inside Persian needs `dir="ltr"` on its wrapper + `unicode-bidi: plaintext`.
-- Reuse `@eshobe/site-runtime` — it's the only implementation of Shamsi digits, Toman label after number, Vazirmatn OG fix.
-- Set `FallbackLocale:false` when building sitemap/hreflang.
-
-**Don't**
-- Never pass `site` from client body — server derives it.
-- Never float-parse a price — `validatePriceMinor` enforces integer minor.
-- Never use physical Tailwind (`pl-`, `ml-`, `text-left`) — they silently RTL-break and ESLint bans them.
-- Never hardcode `posts`/`checkout`/`search` as page slugs — they are routes.
-- Never call `payload.find` directly from a theme — use the REST/GraphQL tenant-scoped surface.
-
----
-
-*Questions while building? Open `src/lib/*`, `src/blocks/index.ts`, `WAVE-9.md` §3 for rationale. But for AI generation, this file + `packages/site-runtime` is sufficient to ship a store theme that formats correctly, themes per customer, and checks out money without leaking a tenant.*
-
-
-## 18. Branding, runtime options and content bindings
-
-`GET /api/site` remains the single renderer bootstrap. It returns safe `branding` media
-references and, for an active deployable theme, `themeRuntime.settings` and
-`themeRuntime.bindings`. Its ETag and Last-Modified include branding/runtime changes.
-Public host requests never receive site IDs, API keys, deployment env, secrets, repository
-or Coolify data.
-
-Brand identity (names, localized tagline, logos, favicon and social image) belongs in the
-tenant Branding record and survives theme changes. Generic colors/radius/line-height belong
-in Theme. Use `themeCss(descriptor.theme)` from `@eshobe/site-runtime`; it accepts only hex
-colors, the closed radius scale and finite line heights from 1.4 through 2.4.
-
-Normal presentation options belong in manifest `settings`, not `env`:
+Complete example using the current field names:
 
 ```json
 {
+  "contractVersion": 1,
+  "key": "graphite",
+  "name": "Graphite",
+  "nameFa": "گرافیت",
+  "siteTypes": ["business", "portfolio", "store"],
+  "locales": ["fa", "en"],
+  "previewUrl": "https://example.com",
+  "proxiesApi": true,
+  "capabilities": { "commerce": true },
+  "design": {
+    "primary": "#0f766e",
+    "accent": "#f59e0b",
+    "background": "#ffffff",
+    "foreground": "#0a0a0a",
+    "radius": "md",
+    "lineHeight": 1.8
+  },
+  "build": {
+    "buildPack": "dockerfile",
+    "baseDirectory": "/",
+    "dockerfileLocation": "Dockerfile",
+    "installCommand": null,
+    "buildCommand": null,
+    "startCommand": null,
+    "publishDirectory": null,
+    "port": 3000,
+    "healthCheckPath": "/api/health",
+    "isStatic": false
+  },
+  "env": [
+    {
+      "key": "EXAMPLE_API_KEY",
+      "source": "tenant",
+      "required": false,
+      "secret": true,
+      "labelFa": "کلید API",
+      "help": "Value is encrypted and injected only at deploy time."
+    }
+  ],
   "settings": {
-    "showSectionNumbers": { "type": "boolean", "default": true, "labelFa": "نمایش شماره بخش‌ها" },
-    "density": { "type": "select", "default": "roomy", "options": [{ "value": "roomy" }, { "value": "compact" }] }
+    "showSectionNumbers": {
+      "type": "boolean",
+      "default": true,
+      "labelFa": "نمایش شماره بخش‌ها"
+    }
   },
   "contentSlots": [
-    { "key": "home", "type": "page", "required": true },
-    { "key": "projects", "type": "category" }
+    {
+      "key": "home",
+      "type": "page",
+      "required": true,
+      "labelFa": "صفحه اصلی"
+    }
   ]
 }
 ```
 
-Setting types are `boolean`, `text`, `number`, and `select`; arbitrary objects, HTML and CSS
-are rejected. Slot types are `page`, `post`, `category`, `form`, and `media`; targets are
-verified to belong to the same tenant. These optional additions remain Theme API v1 and old
-slug-based themes continue to work. `env` is only for process concerns and integration
-credentials; secrets stay encrypted/write-only and tenant input cannot override `ESHOBE_*`.
+### Manifest fields
 
-Posts optionally expose structured `projectMetadata`. Contact blocks optionally expose
-validated coordinates and an HTTPS map link; themes must not automatically load map iframes.
+| Field | Type | Required | Default | Allowed values / validation | Security meaning and runtime effect |
+|---|---|---:|---|---|---|
+| `contractVersion` | integer | yes | — | `>=1` and `<=` platform `contractVersion` | Refuses themes written for a newer public renderer contract. Optional fields such as `design` do **not** bump v1. |
+| `key` | string | no | slugified `name` | ASCII slug produced by the parser | Public theme identity (`themeRuntime.theme.key`). Use a stable explicit key; changing it creates a new identity. |
+| `name` | string | yes | — | non-empty | Operator/customer display name. |
+| `nameFa` | string/null | no | `null` | non-empty string if present | Persian display name. |
+| `siteTypes` | array | no | `business`, `portfolio`, `store` | only `business`, `portfolio`, `store`; non-empty if supplied | Deploy-time compatibility. The package row may narrow this further. |
+| `locales` | string[] | no | `["fa"]` | non-empty strings | Theme UI locale support metadata. The site still decides its served locales. |
+| `previewUrl` | string/null | no | `null` | HTTPS only | Catalogue/demo link. Parser also accepts legacy `preview`. |
+| `proxiesApi` | boolean | no | `false` | boolean only | Required for Coolify-first direct production because `/api/*` hits the theme container. |
+| `capabilities` | object | no | `{}` | `Record<string, boolean>`; non-true values become `false` | Metadata for filtering/reporting; not an execution surface. |
+| `design` | object | no | `{}` | keys exactly `primary`, `accent`, `background`, `foreground`, `radius`, `lineHeight` | Optional design defaults copied on adoption/reset only. Unknown keys reject the manifest. |
+| `build` | object | no | `{}` | see below; unknown build keys reject | Instructions projected to Coolify. Treat as untrusted repository input. |
+| `env` | array | no | `[]` | max 50 entries; see below | Deployment environment declarations. Values are never taken from the manifest. |
+| `settings` | object | no | `{}` | max 50 entries; see below | Safe runtime presentation settings returned through `GET /api/site`; no rebuild needed. |
+| `contentSlots` | array | no | `[]` | max 50 entries; see below | Tenant-scoped content binding schema. |
+
+#### `design`
+
+| Key | Type | Required | Default | Allowed values | Runtime effect |
+|---|---|---:|---|---|---|
+| `primary`, `accent`, `background`, `foreground` | string | no | omitted | hex color accepted by the site theme schema (`#rgb` or `#rrggbb`) | Copied into `theme` only on first successful different-theme production adoption or explicit reset. |
+| `radius` | string | no | omitted | `none`, `sm`, `md`, `lg` | Same as site `theme.radius`. |
+| `lineHeight` | number | no | omitted | `1.4` through `2.4` | Same as site `theme.lineHeight`. |
+
+Changing `design` in GitHub and syncing the Theme does not repaint existing sites.
+
+#### `build`
+
+Current build packs are exactly:
+
+```text
+nixpacks
+dockerfile
+static
+dockercompose
+```
+
+| Key | Type | Required | Default | Validation / effect |
+|---|---|---:|---|---|
+| `buildPack` | string | no | `nixpacks` | One of the build packs above. Legacy `pack` is accepted for old manifests. |
+| `baseDirectory` | string | no | `/` | Safe path only, no `..`; must start with `/`. |
+| `dockerfileLocation` | string/null | no | `null` | Optional safe path for `dockerfile`; <= 500 chars, no control characters or `..`. |
+| `installCommand` | string/null | no | `null` | Passed to Coolify only after validation: a single package-manager/framework command (`pnpm`, `npm`, `yarn`, `bun`, `node`, `npx`, `next`, `vite`, `astro`, `nuxt`, `remix`, `gatsby`, `serve`) with simple arguments. Shell operators, quotes, pipes, redirects and control characters are rejected. |
+| `buildCommand` | string/null | no | `null` | Same. `null` means let the build pack decide. |
+| `startCommand` | string/null | no | `null` | Same. |
+| `publishDirectory` | string/null | no | `null` | Static output directory; safe path only. |
+| `port` | number/string | no | `3000` | Integer 1–65535. |
+| `healthCheckPath` | string/null | no | `null` | Safe path; must start with `/` when present. |
+| `isStatic` | boolean | no | `true` only when `buildPack`/legacy `pack` is `static`, else `false` | Coolify static flag. |
+
+Unknown build keys (for example `build.command`) are rejected instead of ignored because they
+are execution-adjacent input from an untrusted repository.
+
+#### `env`
+
+Each entry declares one environment variable shape:
+
+| Key | Type | Required | Default | Meaning |
+|---|---|---:|---|---|
+| `key` | string | yes | — | `/^[A-Z][A-Z0-9_]{0,63}$/`; duplicates rejected. |
+| `source` | `platform`/`tenant` | no | `tenant` | Who supplies the value. |
+| `required` | boolean | no | `false` | Required tenant value before deploy. |
+| `secret` | boolean | no | `false` | Tenant value is encrypted and write-only. |
+| `labelFa` | string/null | no | `null` | Persian form label. |
+| `help` | string/null | no | `null` | Help text. |
+
+`platform` values are controlled by CMS. `tenant` values are supplied through **Site → Theme
+Settings** and validated against the manifest. A theme cannot make a protected platform key a
+tenant question. Current protected `PLATFORM_ENV_KEYS` are:
+
+```text
+ESHOBE_CMS_URL
+ESHOBE_SITE_DOMAIN
+ESHOBE_SITE_ID
+ESHOBE_API_KEY
+ESHOBE_DEFAULT_LOCALE
+ESHOBE_LOCALES
+ESHOBE_SITE_TYPE
+ESHOBE_CURRENCY
+ESHOBE_REVALIDATE_SECRET
+ESHOBE_CONTRACT_VERSION
+ESHOBE_PUBLIC_ORIGIN
+```
+
+Secret lifecycle:
+
+```text
+Theme declares requirement
+→ customer enters value in Site Theme Settings
+→ CMS encrypts value at rest
+→ deploy job decrypts only while creating/updating the Coolify environment
+→ secret is never returned by API, admin reads, logs, deployment history or errors
+```
+
+Tenant values are limited to 2048 characters. Platform values are written **after** tenant
+values in the Coolify environment so protected keys cannot be shadowed even if a future bug
+relaxes validation.
+
+#### Runtime `settings`
+
+Runtime settings are not environment variables. They are safe presentation/runtime choices that
+can change without rebuilding the container and are returned under `GET /api/site` →
+`themeRuntime.settings` after validation.
+
+`settings` is an object whose keys match `/^[a-z][A-Za-z0-9]{0,63}$/`. Each value supports:
+
+| Key | Type | Required | Meaning |
+|---|---|---:|---|
+| `type` | string | yes | `boolean`, `text`, `number`, or `select`. |
+| `default` | boolean/number/string | no | Must match `type`; for `select`, must be one of the option values. |
+| `min`, `max` | number | no | Enforced for `number` values. |
+| `options` | array | required for `select` | 1–50 options, each `{ value, labelFa?, labelEn? }`, value <= 100 chars. |
+| `labelFa`, `labelEn` | string/null | no | Form labels. |
+| `help` | string/null | no | Help text. |
+
+Stored values are validated before save and again before returning through `/api/site`; unknown
+or incorrectly typed settings are rejected.
+
+#### `contentSlots`
+
+`contentSlots` is an array of content binding declarations. Supported types are exactly:
+
+```text
+page
+post
+category
+form
+media
+```
+
+Each slot has `{ key, type, required?, labelFa?, labelEn?, help? }`; `key` uses the same
+`/^[a-z][A-Za-z0-9]{0,63}$/` pattern and cannot repeat.
+
+Flow:
+
+```text
+Theme declares slot
+→ Site owner chooses content in Site Theme Settings
+→ CMS validates the selected document belongs to the same site
+→ CMS stores the binding
+→ GET /api/site returns a resolved binding
+→ Theme renders it
+```
+
+Example response:
+
+```json
+{
+  "themeRuntime": {
+    "theme": { "key": "graphite" },
+    "settings": { "showSectionNumbers": true },
+    "bindings": {
+      "home": { "id": "...", "type": "page", "slug": "home", "title": "خانه" }
+    }
+  }
+}
+```
+
+Cross-tenant binding IDs are refused and unresolved/deleted targets return `null` for that slot.
+
+### Revalidation contract
+
+When CMS content changes, the CMS sends a best-effort signed request to every live deployment's
+application hostname:
+
+```http
+POST https://<application-host>/api/revalidate
+content-type: application/json
+x-eshobe-timestamp: 2026-09-28T10:00:00.000Z
+x-eshobe-signature: sha256=<hex HMAC-SHA256(secret, rawBody)>
+
+{"paths":["/acme.ir/fa/pricing"],"resources":["page"],"siteId":"...","tags":["site:...:page"],"timestamp":"2026-09-28T10:00:00.000Z"}
+```
+
+The secret is the deployment's `ESHOBE_REVALIDATE_SECRET`. Verify the signature over the exact
+raw request body bytes only. Do **not** sign or verify `<timestamp>.<body>` for this v1
+renderer contract; `x-eshobe-timestamp` is sent but not signed. A timestamp-signed scheme would
+be a versioned v2 contract so existing themes do not silently reject every notice.
+
+Delivery is at-most-once with a 3 second timeout. A failed receiver does not fail the CMS write.
+
+### GHCR / immutable artifact flow
+
+Registry-image Themes use immutable artifacts instead of mutable tags:
+
+```text
+GitHub repository
+  ↓ CI
+  ↓ GHCR image
+  ↓ POST /api/platform/theme-packages/:id/artifacts
+  ↓ verified digest
+  ↓ preview
+  ↓ production
+```
+
+The package may declare `deploymentStrategy: registry_image`, `registryProvider: ghcr`,
+`registryImageRepository` and `registryVisibility` in the CMS. The manifest still controls the
+runtime/build contract. The CI callback supplies repository, commit SHA, image repository,
+`sha256:` digest, workflow URL/id, SBOM/provenance flags and timing. The CMS verifies:
+
+- callback HMAC `X-Eshobe-Signature-256: sha256=<HMAC raw body>` with
+  `ESHOBE_THEME_ARTIFACT_SECRET`;
+- source repository matches the Theme package;
+- image repository matches `registryImageRepository`;
+- commit SHA and digest syntax are strict;
+- duplicate package + commit + digest is idempotent.
+
+Production deploys prefer `ghcr.io/owner/image@sha256:<digest>`, not a mutable tag. Existing
+`theme-artifacts` rows remain immutable rollback inputs.
+
+### Operational flow
+
+```text
+GitHub push
+  ↓
+CMS webhook verifies GitHub signature
+  ↓
+manifest sync validates and stores manifest/designDefaults/syncedCommitSha
+  ↓
+Sites show “update available” when their deployed commit differs
+  ↓
+Operator deploys preview or production explicitly
+```
+
+There is no automatic production deployment in v1. Preview and production use separate
+Theme Bindings; production promotion happens only after health verification, and a failed
+production attempt never destroys the previous healthy state.
+
+### Security checklist for theme authors
+
+- Never accept `?site=`, `tenant`, or public `siteId` as tenant authority.
+- Never log `ESHOBE_API_KEY`, `ESHOBE_REVALIDATE_SECRET`, tenant secrets or registry credentials.
+- If `proxiesApi: true`, proxy only CMS-owned API paths and keep `/api/revalidate` local.
+- Verify revalidation signatures before purging cache.
+- Treat `themeRuntime.settings` and `bindings` as validated presentation input, not secrets.
+- Use immutable image digests for registry deployments.

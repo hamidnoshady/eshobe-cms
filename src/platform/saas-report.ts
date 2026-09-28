@@ -4,6 +4,7 @@ import { clampReportDays } from '@/lib/platform-control'
 import { billingIntegrationHealth } from '@/billing/health'
 import { isUuid } from '@/lib/ids'
 import { slugKey } from '@/lib/saas/plans'
+import { recognizedDesignDefaults } from '@/lib/theme-design'
 
 /**
  * Operator overview for the website execution plane.
@@ -29,7 +30,10 @@ const countOf = async (
   } catch (error) {
     // A collection missing on a database mid-migration must leave a hole in the
     // report, never take the whole report down — the same choice `report.ts` makes.
-    req.payload.logger.error({ err: error as Error, msg: `saas report: count ${collection} failed` })
+    req.payload.logger.error({
+      err: error as Error,
+      msg: `saas report: count ${collection} failed`,
+    })
     return -1
   }
 }
@@ -61,7 +65,9 @@ export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown }
     countOf(req, 'webhooks', { consecutiveFailures: { greater_than: 0 } }),
     countOf(req, 'feature-flags'),
     countOf(req, 'audit-log', { createdAt: { greater_than: since } }),
-    req.payload.findGlobal({ slug: 'platform-settings', depth: 0, overrideAccess: true, req }).catch(() => null),
+    req.payload
+      .findGlobal({ slug: 'platform-settings', depth: 0, overrideAccess: true, req })
+      .catch(() => null),
   ])
 
   return {
@@ -76,7 +82,9 @@ export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown }
     operations: {
       auditEntriesInWindow: auditRecent,
       maintenanceMode: (settings as { maintenanceMode?: unknown } | null)?.maintenanceMode === true,
-      quotaEnforcement: String((settings as { quotaEnforcement?: unknown } | null)?.quotaEnforcement ?? 'warn'),
+      quotaEnforcement: String(
+        (settings as { quotaEnforcement?: unknown } | null)?.quotaEnforcement ?? 'warn',
+      ),
       signupsOpen: (settings as { signupsOpen?: unknown } | null)?.signupsOpen === true,
       webhooks: { enabled: webhooksEnabled, failing: webhooksFailing, total: webhooksTotal },
     },
@@ -119,12 +127,12 @@ export const pluginsForSite = async (
 }
 
 /**
- * Copy a template's tokens onto a site's `theme` document.
+ * Copy a canonical Theme's design defaults onto a site's `theme` document.
  *
- * Only the keys the live `theme` collection actually has are copied — a template
- * holding a token this deployment's theme has not grown yet must not fail the
- * apply, and a token the template is missing must not blank the site's current
- * value. That is why this is an explicit field list and not a spread.
+ * This is an explicit operator/adoption action and a copy, never a live link: changing
+ * `theme-packages.designDefaults` must not repaint existing customer sites. Only the
+ * stable token allowlist shared with the site `theme` collection is copied; missing
+ * defaults leave the site's current values alone.
  */
 export const applyThemeDesignDefaults = async (
   req: PayloadRequest,
@@ -156,11 +164,9 @@ export const applyThemeDesignDefaults = async (
 
   if (!themePackage) return { message: `پوستهٔ «${ref}» پیدا نشد.`, ok: false }
 
-  const tokens = (themePackage as { designDefaults?: Record<string, unknown> }).designDefaults ?? {}
-  const data: Record<string, unknown> = {}
-  for (const key of ['accent', 'background', 'foreground', 'lineHeight', 'primary', 'radius'] as const) {
-    if (tokens[key] !== undefined && tokens[key] !== null && tokens[key] !== '') data[key] = tokens[key]
-  }
+  const data = recognizedDesignDefaults(
+    (themePackage as { designDefaults?: Record<string, unknown> }).designDefaults,
+  ) as Record<string, unknown>
 
   const { docs } = await req.payload.find({
     collection: 'theme',
@@ -190,5 +196,9 @@ export const applyThemeDesignDefaults = async (
         req,
       })
 
-  return { id: String(doc.id), ok: true, theme: String((themePackage as { key?: unknown }).key ?? ref) }
+  return {
+    id: String(doc.id),
+    ok: true,
+    theme: String((themePackage as { key?: unknown }).key ?? ref),
+  }
 }

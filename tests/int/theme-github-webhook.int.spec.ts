@@ -115,9 +115,9 @@ describe('GitHub theme webhook', () => {
     const delivery = 'duplicate-delivery-id-1'
     const body = pushBody('hamidnoshady/nonexistent-theme-repo', 'main')
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('not found', { status: 404 }),
-    )
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('not found', { status: 404 }))
 
     const first = await callWebhook(body, { 'x-github-delivery': delivery })
     expect(first?.status).toBe(200)
@@ -136,6 +136,60 @@ describe('GitHub theme webhook', () => {
     fetchSpy.mockRestore()
   })
 
+  it('successful sync writes manifest design defaults and does not deploy production', async () => {
+    const sha = 'c'.repeat(40)
+    const manifest = JSON.stringify({
+      build: { buildPack: 'nixpacks', healthCheckPath: '/health', port: 3000 },
+      contractVersion: 1,
+      design: { primary: '#0f766e', accent: '#f59e0b', radius: 'md', lineHeight: 1.8 },
+      key: 'webhook-design',
+      name: 'Webhook Design',
+      siteTypes: ['business'],
+    })
+    const beforeDeployments = await payload.count({
+      collection: 'site-deployments',
+      overrideAccess: true,
+    })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.startsWith('https://raw.githubusercontent.com/')) return new Response(manifest)
+      if (url.startsWith('https://api.github.com/repos/') && url.includes('/commits/')) {
+        return new Response(JSON.stringify({ sha }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+
+    const syncRes = await themePackageSyncEndpoint.handler({
+      ...adminReq,
+      routeParams: { id: packageId },
+      json: async () => ({ ref: 'main' }),
+    } as PayloadRequest)
+    expect(syncRes?.status).toBe(200)
+
+    const row = await payload.findByID({
+      collection: 'theme-packages',
+      id: packageId,
+      overrideAccess: true,
+    })
+    expect(row.designDefaults).toMatchObject({
+      primary: '#0f766e',
+      accent: '#f59e0b',
+      radius: 'md',
+      lineHeight: 1.8,
+    })
+    expect(row.syncedCommitSha).toBe(sha)
+
+    const afterDeployments = await payload.count({
+      collection: 'site-deployments',
+      overrideAccess: true,
+    })
+    expect(afterDeployments.totalDocs).toBe(beforeDeployments.totalDocs)
+
+    fetchSpy.mockRestore()
+  })
+
   it('sync failure does not remove a prior manifest', async () => {
     await payload.update({
       collection: 'theme-packages',
@@ -149,9 +203,9 @@ describe('GitHub theme webhook', () => {
       overrideAccess: true,
     })
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('not found', { status: 404 }),
-    )
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('not found', { status: 404 }))
 
     const syncRes = await themePackageSyncEndpoint.handler({
       ...adminReq,

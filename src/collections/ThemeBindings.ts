@@ -24,7 +24,7 @@ export const ThemeBindings: CollectionConfig<'theme-bindings'> = {
   admin: {
     defaultColumns: ['site', 'themePackage', 'lane', 'state', 'appUuid', 'updatedAt'],
     description:
-      'هویت ثابت اپلیکیشن Coolify برای هر سایت، پوسته و مسیر (پیش‌نمایش یا انتشار). ردیف‌های استقرار به این ردیف ارجاع می‌دهند.',
+      'زیرساخت داخلی: هویت ثابت اپلیکیشن Coolify برای هر سایت، پوسته و مسیر (پیش‌نمایش یا انتشار). ردیف‌های انتشار به این ردیف ارجاع می‌دهند و این جدول در نمای سایت/انتشار نمایش داده می‌شود.',
     group: PLATFORM_GROUPS.operations,
     hidden: hiddenFromCustomers,
     useAsTitle: 'bindingKey',

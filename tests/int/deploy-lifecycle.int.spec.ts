@@ -21,10 +21,7 @@ import {
   siteDeploymentRedeployEndpoint,
   siteDeploymentRollbackEndpoint,
 } from '@/endpoints/platformDeployments'
-import {
-  flushThemeRoutesRegeneration,
-  themeRoutesRegenerationPending,
-} from '@/deploy/routing'
+import { flushThemeRoutesRegeneration, themeRoutesRegenerationPending } from '@/deploy/routing'
 import {
   advanceDeployment,
   createDeployment,
@@ -33,7 +30,6 @@ import {
   verifyDeployment,
 } from '@/deploy/service'
 import { advanceDeployments } from '@/deploy/task'
-import { parseThemeManifest, type ThemeManifest } from '@/lib/deploy/manifest'
 import { STALE_DOMAIN_MESSAGE } from '@/lib/deploy/status'
 import { getSiteByHost } from '@/lib/site-query'
 
@@ -91,7 +87,8 @@ const respond = (data: unknown, status = 200): Response =>
 const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   const method = String(init?.method ?? 'GET').toUpperCase()
-  const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : undefined
+  const body =
+    typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : undefined
   net.calls.push({ body, method, url })
 
   if (url.startsWith(`${COOLIFY}/api/v1`)) {
@@ -113,7 +110,8 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
     }
     if (method === 'PATCH' && /^\/applications\/[^/]+\/envs\/bulk$/.test(path)) return respond({})
     if (method === 'PATCH' && /^\/applications\/[^/]+$/.test(path)) return respond({})
-    if (method === 'GET' && path.startsWith('/deployments/')) return respond({ status: net.buildStatus })
+    if (method === 'GET' && path.startsWith('/deployments/'))
+      return respond({ status: net.buildStatus })
     if (method === 'GET' && path.endsWith('/start')) return respond({})
     if (method === 'DELETE') return respond({})
     return respond({ message: 'not stubbed' }, 404)
@@ -134,6 +132,7 @@ const callsTo = (method: string, pattern: RegExp): Call[] =>
 
 let siteId = ''
 let original: Record<string, unknown> = {}
+let originalTheme: Record<string, unknown> = {}
 let targetId = ''
 let packageId = ''
 let siteKey = ''
@@ -148,14 +147,13 @@ const rawManifest = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-const manifest = (overrides: Record<string, unknown> = {}): ThemeManifest => {
-  const parsed = parseThemeManifest(rawManifest(overrides), 1)
-  if (!parsed.ok) throw new Error(parsed.errors.join(' '))
-  return parsed.manifest
-}
-
 const userByEmail = async (email: string): Promise<TypedUser> => {
-  const { docs } = await payload.find({ collection: 'users', depth: 0, limit: 1, where: { email: { equals: email } } })
+  const { docs } = await payload.find({
+    collection: 'users',
+    depth: 0,
+    limit: 1,
+    where: { email: { equals: email } },
+  })
   if (!docs[0]) throw new Error(`User ${email} missing — run \`pnpm seed\``)
   return docs[0]
 }
@@ -163,49 +161,113 @@ const userByEmail = async (email: string): Promise<TypedUser> => {
 const reqAsAdmin = async (extra?: Partial<PayloadRequest>): Promise<PayloadRequest> => {
   const admin = await userByEmail('admin@eshobe.test')
   expect(admin.role).toBe('platformAdmin')
-  return createLocalReq({ ...(extra ? { req: extra } : {}), user: { ...admin, collection: 'users' } }, payload)
+  return createLocalReq(
+    { ...(extra ? { req: extra } : {}), user: { ...admin, collection: 'users' } },
+    payload,
+  )
 }
 
 const reqWithKey = (key: string, extra?: Partial<PayloadRequest>): Promise<PayloadRequest> =>
   createLocalReq(
-    { req: { headers: new Headers({ authorization: `Bearer ${key}` }), ...extra } as Partial<PayloadRequest> },
+    {
+      req: {
+        headers: new Headers({ authorization: `Bearer ${key}` }),
+        ...extra,
+      } as Partial<PayloadRequest>,
+    },
     payload,
   )
 
-const withBody = (body: unknown): Partial<PayloadRequest> => ({ json: async () => body }) as Partial<PayloadRequest>
+const withBody = (body: unknown): Partial<PayloadRequest> =>
+  ({ json: async () => body }) as Partial<PayloadRequest>
 const withParams = (params: Record<string, string>): Partial<PayloadRequest> =>
   ({ routeParams: params }) as Partial<PayloadRequest>
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const bodyOf = async (res: Response): Promise<Record<string, any>> => (await res.json()) as Record<string, any>
+type JsonRecord = Record<string, unknown>
+
+type EndpointBody = JsonRecord & {
+  current: JsonRecord
+  deployment: string
+  domainMode: string
+  needsRedeploy: boolean
+  ref: string
+  routes: unknown[]
+  update: JsonRecord
+}
+
+const bodyOf = async (res: Response): Promise<EndpointBody> => (await res.json()) as EndpointBody
 
 const site = async (): Promise<Record<string, unknown>> =>
-  (await payload.findByID({ collection: 'sites', depth: 0, id: siteId, overrideAccess: true })) as unknown as Record<
-    string,
-    unknown
-  >
+  (await payload.findByID({
+    collection: 'sites',
+    depth: 0,
+    id: siteId,
+    overrideAccess: true,
+  })) as unknown as Record<string, unknown>
 
 const row = async (id: string): Promise<Record<string, unknown>> =>
-  (await payload.findByID({ collection: 'site-deployments', depth: 0, id, overrideAccess: true })) as unknown as Record<
-    string,
-    unknown
-  >
+  (await payload.findByID({
+    collection: 'site-deployments',
+    depth: 0,
+    id,
+    overrideAccess: true,
+  })) as unknown as Record<string, unknown>
+
+const themeDoc = async (): Promise<Record<string, unknown>> => {
+  const { docs } = await payload.find({
+    collection: 'theme',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    pagination: false,
+    where: { site: { equals: siteId } },
+  })
+  if (!docs[0]) throw new Error('theme document missing')
+  return docs[0] as unknown as Record<string, unknown>
+}
 
 const updateSite = (data: Record<string, unknown>) =>
   payload.update({ collection: 'sites', data, id: siteId, overrideAccess: true })
 
+const updateTheme = async (data: Record<string, unknown>) => {
+  const doc = await themeDoc()
+  return payload.update({ collection: 'theme', data, id: String(doc.id), overrideAccess: true })
+}
+
 const resetSite = async () => {
-  await payload.delete({ collection: 'site-deployments', overrideAccess: true, where: { site: { equals: siteId } } })
-  await payload.delete({ collection: 'theme-bindings', overrideAccess: true, where: { site: { equals: siteId } } })
+  await payload.delete({
+    collection: 'site-deployments',
+    overrideAccess: true,
+    where: { site: { equals: siteId } },
+  })
+  await payload.delete({
+    collection: 'theme-bindings',
+    overrideAccess: true,
+    where: { site: { equals: siteId } },
+  })
   // Two writes: a changed domain resets verification in the same save.
-  await updateSite({ activeDeployment: null, domain: String(original.domain), renderedBy: 'platform', status: 'active' })
+  await updateSite({
+    activeDeployment: null,
+    domain: String(original.domain),
+    renderedBy: 'platform',
+    status: 'active',
+  })
   await updateSite({ domainVerified: true })
 }
 
 /** Create a deployment and walk it through the queue's own steps until it is live. */
-const deployToLive = async (domainMode: 'direct' | 'edge' | 'preview', ref?: string): Promise<string> => {
+const deployToLive = async (
+  domainMode: 'direct' | 'edge' | 'preview',
+  ref?: string,
+): Promise<string> => {
   const req = await reqAsAdmin()
-  const created = await createDeployment({ domainMode, packageRef: packageId, ref, req, site: await site() })
+  const created = await createDeployment({
+    domainMode,
+    packageRef: packageId,
+    ref,
+    req,
+    site: await site(),
+  })
   if (!created.ok) throw new Error(created.message)
   await advanceDeployment(req, created.deploymentId)
   await advanceDeployment(req, created.deploymentId)
@@ -220,15 +282,50 @@ beforeAll(async () => {
   payload = await getPayload({ config })
   vi.stubGlobal('fetch', fakeFetch)
 
-  const { docs } = await payload.find({ collection: 'sites', depth: 0, limit: 1, where: { slug: { equals: 'shop' } } })
+  const { docs } = await payload.find({
+    collection: 'sites',
+    depth: 0,
+    limit: 1,
+    where: { slug: { equals: 'shop' } },
+  })
   if (!docs[0]) throw new Error('Site shop missing — run `pnpm seed`')
   siteId = String(docs[0].id)
   original = { ...(docs[0] as unknown as Record<string, unknown>) }
+  const themeRows = await payload.find({
+    collection: 'theme',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    pagination: false,
+    where: { site: { equals: siteId } },
+  })
+  if (!themeRows.docs[0]) {
+    const createdTheme = await payload.create({
+      collection: 'theme',
+      data: { site: siteId },
+      overrideAccess: true,
+    })
+    originalTheme = { ...(createdTheme as unknown as Record<string, unknown>) }
+  } else {
+    originalTheme = { ...(themeRows.docs[0] as unknown as Record<string, unknown>) }
+  }
 
   // Re-runnable from any state, like the sibling spec.
-  await payload.delete({ collection: 'site-deployments', overrideAccess: true, where: { site: { equals: siteId } } })
-  await payload.delete({ collection: 'theme-packages', overrideAccess: true, where: { key: { equals: 'lifecycle-theme' } } })
-  await payload.delete({ collection: 'deploy-targets', overrideAccess: true, where: { key: { equals: 'lifecycle-target' } } })
+  await payload.delete({
+    collection: 'site-deployments',
+    overrideAccess: true,
+    where: { site: { equals: siteId } },
+  })
+  await payload.delete({
+    collection: 'theme-packages',
+    overrideAccess: true,
+    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two'] } },
+  })
+  await payload.delete({
+    collection: 'deploy-targets',
+    overrideAccess: true,
+    where: { key: { equals: 'lifecycle-target' } },
+  })
 
   const target = await payload.create({
     collection: 'deploy-targets',
@@ -298,11 +395,24 @@ beforeEach(async () => {
   await payload.update({
     collection: 'theme-packages',
     context: { eshobeThemePackageSync: true },
-    data: { defaultRef: 'main', pinnedCommit: null, syncedCommitSha: SHA_MAIN },
+    data: {
+      defaultRef: 'main',
+      designDefaults: {},
+      pinnedCommit: null,
+      syncedCommitSha: SHA_MAIN,
+    },
     id: packageId,
     overrideAccess: true,
   })
   await resetSite()
+  await updateTheme({
+    accent: originalTheme.accent,
+    background: originalTheme.background,
+    foreground: originalTheme.foreground,
+    lineHeight: originalTheme.lineHeight,
+    primary: originalTheme.primary,
+    radius: originalTheme.radius,
+  })
 })
 
 afterAll(async () => {
@@ -310,12 +420,41 @@ afterAll(async () => {
   delete process.env.THEME_ROUTES_FILE
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
-  await payload.delete({ collection: 'theme-bindings', overrideAccess: true, where: { site: { equals: siteId } } })
-  await payload.delete({ collection: 'site-deployments', overrideAccess: true, where: { site: { equals: siteId } } })
-  await updateSite({ activeDeployment: null, domain: original.domain, renderedBy: 'platform', status: original.status })
+  await payload.delete({
+    collection: 'theme-bindings',
+    overrideAccess: true,
+    where: { site: { equals: siteId } },
+  })
+  await payload.delete({
+    collection: 'site-deployments',
+    overrideAccess: true,
+    where: { site: { equals: siteId } },
+  })
+  await updateTheme({
+    accent: originalTheme.accent,
+    background: originalTheme.background,
+    foreground: originalTheme.foreground,
+    lineHeight: originalTheme.lineHeight,
+    primary: originalTheme.primary,
+    radius: originalTheme.radius,
+  })
+  await updateSite({
+    activeDeployment: null,
+    domain: original.domain,
+    renderedBy: 'platform',
+    status: original.status,
+  })
   await updateSite({ domainVerified: original.domainVerified })
-  await payload.delete({ collection: 'theme-packages', overrideAccess: true, where: { key: { equals: 'lifecycle-theme' } } })
-  await payload.delete({ collection: 'deploy-targets', overrideAccess: true, where: { key: { equals: 'lifecycle-target' } } })
+  await payload.delete({
+    collection: 'theme-packages',
+    overrideAccess: true,
+    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two'] } },
+  })
+  await payload.delete({
+    collection: 'deploy-targets',
+    overrideAccess: true,
+    where: { key: { equals: 'lifecycle-target' } },
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -328,23 +467,35 @@ describe('who may reach the deployment routes', () => {
 
     for (const endpoint of platformDeploymentEndpoints) {
       const asSite = await endpoint.handler!(
-        await reqWithKey(siteKey, { ...withParams({ id: siteId }), ...withBody({ package: packageId }) }),
+        await reqWithKey(siteKey, {
+          ...withParams({ id: siteId }),
+          ...withBody({ package: packageId }),
+        }),
       )
       expect(asSite.status, `${endpoint.method} ${endpoint.path} with a site key`).toBe(403)
 
       const anonymous = await endpoint.handler!(
-        await createLocalReq({ req: { ...withParams({ id: siteId }), ...withBody({}) } as Partial<PayloadRequest> }, payload),
+        await createLocalReq(
+          { req: { ...withParams({ id: siteId }), ...withBody({}) } as Partial<PayloadRequest> },
+          payload,
+        ),
       )
       if (endpoint === themeArtifactRegistrationEndpoint) {
         // This machine callback uses HMAC rather than the operator guard.
-        expect(anonymous.status, `${endpoint.method} ${endpoint.path} unsigned`).toBeGreaterThanOrEqual(400)
+        expect(
+          anonymous.status,
+          `${endpoint.method} ${endpoint.path} unsigned`,
+        ).toBeGreaterThanOrEqual(400)
       } else {
         expect(anonymous.status, `${endpoint.method} ${endpoint.path} anonymously`).toBe(403)
       }
     }
 
     // Nothing was created by any of those attempts.
-    const { totalDocs } = await payload.count({ collection: 'site-deployments', where: { site: { equals: siteId } } })
+    const { totalDocs } = await payload.count({
+      collection: 'site-deployments',
+      where: { site: { equals: siteId } },
+    })
     expect(totalDocs).toBe(0)
   })
 })
@@ -357,7 +508,12 @@ describe('an edge deployment, from queued to live', () => {
   it('runs in the queue, persists appUuid, keeps the customer domain and flips the site only once healthy', async () => {
     const req = await reqAsAdmin()
     const shop = await site()
-    const created = await createDeployment({ domainMode: 'edge', packageRef: packageId, req, site: shop })
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req,
+      site: shop,
+    })
     expect(created.ok).toBe(true)
     if (!created.ok) return
 
@@ -373,7 +529,9 @@ describe('an edge deployment, from queued to live', () => {
     expect(building.commitSha).toBe(SHA_MAIN)
     // The row describes the customer's hostname; Caddy's upstream is the preview one.
     expect(building.domain).toBe(String(shop.domain))
-    expect(String(building.previewDomain)).toMatch(new RegExp(`\\.${WILDCARD.replace(/\./g, '\\.')}$`))
+    expect(String(building.previewDomain)).toMatch(
+      new RegExp(`\\.${WILDCARD.replace(/\./g, '\\.')}$`),
+    )
     expect(String(building.previewDomain)).not.toContain('-preview.')
 
     // In edge mode the application must not claim the customer's domain in Coolify.
@@ -385,7 +543,9 @@ describe('an edge deployment, from queued to live', () => {
     // customer's domain (Caddy proxies it) — not the preview name it answers on.
     const env = callsTo('PATCH', /\/envs\/bulk$/)[0]!
     const vars = (env.body?.data ?? []) as { key: string; value: string }[]
-    expect(vars.find((v) => v.key === 'ESHOBE_PUBLIC_ORIGIN')?.value).toBe(`https://${String(shop.domain)}`)
+    expect(vars.find((v) => v.key === 'ESHOBE_PUBLIC_ORIGIN')?.value).toBe(
+      `https://${String(shop.domain)}`,
+    )
     expect(vars.find((v) => v.key === 'ESHOBE_SITE_DOMAIN')?.value).toBe(String(shop.domain))
 
     // Current Coolify accepts this action only as POST. Pin the method and JSON shape;
@@ -401,14 +561,145 @@ describe('an edge deployment, from queued to live', () => {
     const live = await row(created.deploymentId)
     expect(live.status).toBe('live')
     // The health check went to the application itself, not the customer domain.
-    expect(callsTo('GET', new RegExp(`^https://${String(building.previewDomain)}/health$`))).toHaveLength(1)
+    expect(
+      callsTo('GET', new RegExp(`^https://${String(building.previewDomain)}/health$`)),
+    ).toHaveLength(1)
 
     const after = await site()
     expect(after.renderedBy).toBe('deployment')
     expect(after.activeDeployment).toBe(created.deploymentId)
 
     const routes = await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))
-    expect(routes.routes).toContainEqual({ host: String(shop.domain), upstream: String(building.previewDomain) })
+    expect(routes.routes).toContainEqual({
+      host: String(shop.domain),
+      upstream: String(building.previewDomain),
+    })
+  })
+
+  it('applies design defaults only after a successful first production adoption', async () => {
+    await payload.update({
+      collection: 'theme-packages',
+      data: { designDefaults: { accent: '#222222', primary: '#111111' } },
+      id: packageId,
+      overrideAccess: true,
+    })
+    await updateTheme({ accent: '#aaaaaa', primary: '#bbbbbb' })
+
+    const req = await reqAsAdmin()
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
+    if (!created.ok) throw new Error(created.message)
+
+    await advanceDeployment(req, created.deploymentId)
+    expect(await themeDoc()).toMatchObject({ accent: '#aaaaaa', primary: '#bbbbbb' })
+
+    await advanceDeployment(req, created.deploymentId)
+    expect(await themeDoc()).toMatchObject({ accent: '#222222', primary: '#111111' })
+  })
+
+  it('does not apply production design defaults when health verification fails', async () => {
+    await payload.update({
+      collection: 'theme-packages',
+      data: { designDefaults: { accent: '#333333', primary: '#444444' } },
+      id: packageId,
+      overrideAccess: true,
+    })
+    await updateTheme({ accent: '#aaaaaa', primary: '#bbbbbb' })
+    net.healthStatus = 503
+
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req: await reqAsAdmin(),
+      site: await site(),
+    })
+    if (!created.ok) throw new Error(created.message)
+    await advanceDeployment(await reqAsAdmin(), created.deploymentId)
+    await advanceDeployment(await reqAsAdmin(), created.deploymentId)
+
+    expect((await row(created.deploymentId)).status).toBe('failed')
+    expect(await themeDoc()).toMatchObject({ accent: '#aaaaaa', primary: '#bbbbbb' })
+  })
+
+  it('never applies design defaults for preview and never overwrites same-theme customizations', async () => {
+    await payload.update({
+      collection: 'theme-packages',
+      data: { designDefaults: { accent: '#222222', primary: '#111111' } },
+      id: packageId,
+      overrideAccess: true,
+    })
+    await updateTheme({ accent: '#aaaaaa', primary: '#bbbbbb' })
+
+    await deployToLive('preview')
+    expect(await themeDoc()).toMatchObject({ accent: '#aaaaaa', primary: '#bbbbbb' })
+
+    await deployToLive('edge')
+    expect(await themeDoc()).toMatchObject({ accent: '#222222', primary: '#111111' })
+
+    await updateTheme({ accent: '#abcdef', primary: '#123456' })
+    await payload.update({
+      collection: 'theme-packages',
+      data: { designDefaults: { accent: '#010101', primary: '#020202' } },
+      id: packageId,
+      overrideAccess: true,
+    })
+    await deployToLive('edge')
+
+    expect(await themeDoc()).toMatchObject({ accent: '#abcdef', primary: '#123456' })
+  })
+
+  it('applies new design defaults after switching to a different production theme', async () => {
+    await payload.update({
+      collection: 'theme-packages',
+      data: { designDefaults: { accent: '#222222', primary: '#111111' } },
+      id: packageId,
+      overrideAccess: true,
+    })
+    await deployToLive('edge')
+    await updateTheme({ accent: '#abcdef', primary: '#123456' })
+
+    const second = await payload.create({
+      collection: 'theme-packages',
+      data: {
+        buildPack: 'nixpacks',
+        contractVersion: 1,
+        defaultRef: 'main',
+        defaultTarget: targetId,
+        designDefaults: { accent: '#555555', primary: '#666666' },
+        envSchema: [],
+        healthCheckPath: '/health',
+        key: 'lifecycle-theme-two',
+        manifest: rawManifest({ key: 'lifecycle-theme-two', name: 'Lifecycle Theme Two' }),
+        manifestSyncedAt: new Date().toISOString(),
+        name: 'پوستهٔ چرخهٔ عمر دو',
+        port: 3000,
+        provider: 'github',
+        proxiesApi: true,
+        repository: 'hamidnoshady/lifecycle-theme-two',
+        siteTypes: ['business', 'portfolio', 'store'],
+        status: 'published',
+        syncedCommitSha: SHA_MAIN,
+        visibility: 'public',
+      },
+      overrideAccess: true,
+    })
+
+    const req = await reqAsAdmin()
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: String(second.id),
+      req,
+      site: await site(),
+    })
+    if (!created.ok) throw new Error(created.message)
+    await advanceDeployment(req, created.deploymentId)
+    await advanceDeployment(req, created.deploymentId)
+
+    expect(await themeDoc()).toMatchObject({ accent: '#555555', primary: '#666666' })
   })
 
   it('keeps renderedBy/activeDeployment out of reach of a stale admin form', async () => {
@@ -428,7 +719,12 @@ describe('an edge deployment, from queued to live', () => {
 
   it('persists appUuid before a later step can fail', async () => {
     const req = await reqAsAdmin()
-    const created = await createDeployment({ domainMode: 'edge', packageRef: packageId, req, site: await site() })
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
     if (!created.ok) throw new Error(created.message)
 
     // Coolify accepts the create, then refuses the environment write.
@@ -452,7 +748,12 @@ describe('an edge deployment, from queued to live', () => {
 
   it('fails immediately when Coolify accepts deploy but omits its deployment id', async () => {
     const req = await reqAsAdmin()
-    const created = await createDeployment({ domainMode: 'edge', packageRef: packageId, req, site: await site() })
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
     if (!created.ok) throw new Error(created.message)
     net.deployOmitsUuid = true
 
@@ -467,7 +768,12 @@ describe('an edge deployment, from queued to live', () => {
 
   it('refuses to run a queued deployment for a site that was suspended meanwhile', async () => {
     const req = await reqAsAdmin()
-    const created = await createDeployment({ domainMode: 'preview', packageRef: packageId, req, site: await site() })
+    const created = await createDeployment({
+      domainMode: 'preview',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
     if (!created.ok) throw new Error(created.message)
 
     // Suspension stops the queued row outright — it never reaches Coolify.
@@ -563,7 +869,11 @@ describe('redeploy, upgrade and rollback', () => {
     expect(callsTo('POST', /\/applications\/app-1\/stop$/)).toHaveLength(0)
 
     // Its key is revoked; the new row has its own.
-    const oldKey = await payload.findByID({ collection: 'api-keys', id: String(superseded.apiKey), overrideAccess: true })
+    const oldKey = await payload.findByID({
+      collection: 'api-keys',
+      id: String(superseded.apiKey),
+      overrideAccess: true,
+    })
     expect(oldKey.disabledAt).toBeTruthy()
     expect(String(fresh.apiKey)).not.toBe(String(superseded.apiKey))
 
@@ -573,8 +883,16 @@ describe('redeploy, upgrade and rollback', () => {
   it('treats a pin as the package’s version, and a rollback beats the pin', async () => {
     const liveId = await deployToLive('edge')
 
-    await payload.update({ collection: 'theme-packages', data: { pinnedCommit: SHA_PIN }, id: packageId, overrideAccess: true })
-    expect((await getDeployment()).update).toMatchObject({ latestCommit: SHA_PIN, updateAvailable: true })
+    await payload.update({
+      collection: 'theme-packages',
+      data: { pinnedCommit: SHA_PIN },
+      id: packageId,
+      overrideAccess: true,
+    })
+    expect((await getDeployment()).update).toMatchObject({
+      latestCommit: SHA_PIN,
+      updateAvailable: true,
+    })
 
     // Rolling back to the commit the live row runs must build *that* commit, not the pin.
     const res = await siteDeploymentRollbackEndpoint.handler!(
@@ -591,16 +909,33 @@ describe('redeploy, upgrade and rollback', () => {
     const repoint = callsTo('PATCH', /\/applications\/app-1$/).at(-1)
     expect(repoint?.body).toMatchObject({ git_branch: 'main', git_commit_sha: SHA_MAIN })
 
-    await payload.update({ collection: 'theme-packages', data: { pinnedCommit: null }, id: packageId, overrideAccess: true })
+    await payload.update({
+      collection: 'theme-packages',
+      data: { pinnedCommit: null },
+      id: packageId,
+      overrideAccess: true,
+    })
   })
 
   it('withholds the notice when the package was never synced, and forgets a sync when the ref is edited', async () => {
     await deployToLive('edge')
 
-    await payload.update({ collection: 'theme-packages', data: { defaultRef: 'develop' }, id: packageId, overrideAccess: true })
-    const pkg = await payload.findByID({ collection: 'theme-packages', id: packageId, overrideAccess: true })
+    await payload.update({
+      collection: 'theme-packages',
+      data: { defaultRef: 'develop' },
+      id: packageId,
+      overrideAccess: true,
+    })
+    const pkg = await payload.findByID({
+      collection: 'theme-packages',
+      id: packageId,
+      overrideAccess: true,
+    })
     expect(pkg.syncedCommitSha).toBeFalsy()
-    expect((await getDeployment()).update).toMatchObject({ latestCommit: null, updateAvailable: false })
+    expect((await getDeployment()).update).toMatchObject({
+      latestCommit: null,
+      updateAvailable: false,
+    })
 
     await payload.update({
       collection: 'theme-packages',
@@ -671,21 +1006,31 @@ describe('suspension and archival', () => {
 
     const stopped = await row(liveId)
     expect(stopped.status).toBe('stopped')
-    expect(callsTo('POST', new RegExp(`/applications/${String(before.appUuid)}/stop$`))).toHaveLength(1)
+    expect(
+      callsTo('POST', new RegExp(`/applications/${String(before.appUuid)}/stop$`)),
+    ).toHaveLength(1)
     expect(net.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0)
-    const key = await payload.findByID({ collection: 'api-keys', id: String(before.apiKey), overrideAccess: true })
+    const key = await payload.findByID({
+      collection: 'api-keys',
+      id: String(before.apiKey),
+      overrideAccess: true,
+    })
     expect(key.disabledAt).toBeTruthy()
 
     const after = await site()
     expect(after.status).toBe('suspended')
     expect(after.renderedBy).toBe('platform')
     expect(after.activeDeployment).toBeFalsy()
-    expect((await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))).routes).toEqual([])
+    expect((await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))).routes).toEqual(
+      [],
+    )
   })
 
   it('suspending stops a live direct deployment too — its DNS never passed through Caddy', async () => {
     const liveId = await deployToLive('direct')
-    expect(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains).toContain(`https://${String(original.domain)}`)
+    expect(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains).toContain(
+      `https://${String(original.domain)}`,
+    )
 
     // The health check reached the application on its own hostname: the customer's
     // domain may still point at Caddy, whose built-in renderer would answer 200.
@@ -704,12 +1049,18 @@ describe('suspension and archival', () => {
     const liveId = await deployToLive('edge')
     const previewId = await deployToLive('preview')
     const req = await reqAsAdmin()
-    const queued = await createDeployment({ domainMode: 'edge', packageRef: packageId, req, site: await site() })
+    const queued = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
     if (!queued.ok) throw new Error(queued.message)
 
     await updateSite({ status: 'archived' })
 
-    for (const id of [liveId, previewId, queued.deploymentId]) expect((await row(id)).status).toBe('stopped')
+    for (const id of [liveId, previewId, queued.deploymentId])
+      expect((await row(id)).status).toBe('stopped')
     // Two applications (production and preview), each stopped once; the queued row had none.
     expect(callsTo('POST', /\/stop$/)).toHaveLength(2)
   })
@@ -760,7 +1111,9 @@ describe('suspension and archival', () => {
 
     // No theme route for the host, so Caddy sends it to web:3000; there the site still
     // resolves (a holding page, not a 404) and is not `serving` (`getSiteContext`).
-    expect((await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))).routes).toEqual([])
+    expect((await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))).routes).toEqual(
+      [],
+    )
     const resolved = await getSiteByHost(String(original.domain))
     expect(resolved?.id).toBe(siteId)
     expect(resolved?.status).toBe('suspended')
@@ -789,7 +1142,9 @@ describe('a primary-domain change after a production deployment', () => {
       expect(status.current.attention).toBe(STALE_DOMAIN_MESSAGE)
       // The deployment ran fine; this is not a failure.
       expect(status.current.status).toBe('live')
-      expect((await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))).routes).toEqual([])
+      expect(
+        (await bodyOf(await routingTableEndpoint.handler!(await reqAsAdmin()))).routes,
+      ).toEqual([])
 
       // Not before the new domain is verified.
       const early = await siteDeploymentRedeployEndpoint.handler!(
@@ -817,7 +1172,12 @@ describe('a primary-domain change after a production deployment', () => {
 
   it('refuses to promote a build made for the previous domain', async () => {
     const req = await reqAsAdmin()
-    const created = await createDeployment({ domainMode: 'edge', packageRef: packageId, req, site: await site() })
+    const created = await createDeployment({
+      domainMode: 'edge',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
     if (!created.ok) throw new Error(created.message)
     await advanceDeployment(req, created.deploymentId)
     expect((await row(created.deploymentId)).status).toBe('building')

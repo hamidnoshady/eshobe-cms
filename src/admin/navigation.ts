@@ -21,7 +21,8 @@ import { isPlatformAdmin } from '@/access/platformAdmin'
  * `getVisibleEntities` reads, and it is re-derived per user); this map only
  * decides *where* and *under what label* a visible entity is shown, per audience.
  * Anything visible that this map forgets still appears, under a catch-all group,
- * so a new collection can never become unreachable by omission.
+ * except explicit internal/support tables listed below, so a new collection can never
+ * become unreachable by omission.
  *
  * This is navigation only. Every real boundary is a collection/global `access`
  * function (`src/access/*`); nothing here grants or removes a permission.
@@ -147,8 +148,8 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
  * history/event and per-site override tables (`usage-records`, `site-entitlements`,
  * `site-theme-settings`, `*-events`, `*-operations`, `webhook-deliveries`) are
  * deliberately NOT primary items: they are per-site/contextual detail, surfaced in
- * a site's Customer-360 report, and remain reachable through the «سایر» catch-all
- * (demoted, never deleted). The group order mirrors the product information
+ * a site's Customer-360/deployment/theme views or by support deep link when needed.
+ * Some support tables are also kept out of the generic «سایر» catch-all below. The group order mirrors the product information
  * architecture: who the customers are, then the product catalogue,
  * then the infrastructure that runs it, then integrations, then day-to-day
  * operations, then the platform's own settings.
@@ -161,7 +162,7 @@ export const PLATFORM_NAV: NavGroupDef[] = [
   {
     // The product catalogue: features, themes, plugins. `site-theme-settings` is a
     // per-site override table, not a catalogue product — it belongs to a site's
-    // context, so it is not a primary item here (still reachable via «سایر»).
+    // context, so it is not a primary item here (deep link/contextual support only).
     label: 'محصول',
     entities: [
       collection('feature-flags', 'قابلیت‌ها'),
@@ -210,7 +211,6 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     label: 'عملیات',
     entities: [
       collection('site-deployments', 'انتشارها'),
-      collection('theme-artifacts', 'ساخت‌های پوسته'),
       collection('central-entitlement-projections', 'وضعیت تجاری'),
       collection('billing-usage-outbox', 'خروجی مصرف'),
       collection('audit-log', 'Audit'),
@@ -221,6 +221,18 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     entities: [global('platform-settings')],
   },
 ]
+
+/**
+ * Raw implementation tables that are intentionally reachable only by deep link or
+ * contextual views, not by the generic catch-all. Navigation is not authorization:
+ * the collections keep their access rules, but normal operators should not have to
+ * assemble Theme Runtime Infrastructure from these backend nouns.
+ */
+export const INTERNAL_SUPPORT_COLLECTIONS = new Set([
+  'site-theme-settings',
+  'theme-artifacts',
+  'theme-bindings',
+])
 
 /** Group name for any visible entity this map did not place — see the file header. */
 export const OTHER_GROUP_LABEL = 'سایر'
@@ -275,7 +287,9 @@ export const resolveNavGroups = ({
   const leftovers: ResolvedNavEntity[] = []
   for (const slug of visible.collections) {
     const e = collection(slug)
-    if (!placed.has(key(e))) leftovers.push({ ...e, href: hrefFor(e), id: idFor(e) })
+    if (!placed.has(key(e)) && !INTERNAL_SUPPORT_COLLECTIONS.has(slug)) {
+      leftovers.push({ ...e, href: hrefFor(e), id: idFor(e) })
+    }
   }
   for (const slug of visible.globals) {
     const e = global(slug)

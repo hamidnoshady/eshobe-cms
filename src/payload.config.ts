@@ -301,11 +301,12 @@ export default buildConfig({
     /**
      * Wave 11 — deployable themes.
      *
-     * `theme-packages` (a GitHub repo built against docs/THEME_API.md) and
-     * `deploy-targets` (a Coolify connection) are the operator's catalogue and
-     * infrastructure, so they take the documented multi-tenant exception alongside
-     * `theme-packages`. `site-deployments` and `site-theme-settings` each carry
-     * exactly one site and are registered with the plugin — see `src/plugins/index.ts`.
+     * `theme-packages` (the canonical Theme, a GitHub repo built against
+     * docs/THEME_API.md), immutable `theme-artifacts`, and `deploy-targets` (a Coolify
+     * connection) are the operator's catalogue/build output/infrastructure, so they
+     * take the documented multi-tenant exception. `site-deployments`,
+     * `theme-bindings`, and `site-theme-settings` each carry exactly one site and are
+     * registered with the plugin — see `src/plugins/index.ts`.
      *
      * `theme-packages` is the canonical deployable-theme catalogue. Its manifest
      * supplies design defaults, copied only on explicit adoption.
