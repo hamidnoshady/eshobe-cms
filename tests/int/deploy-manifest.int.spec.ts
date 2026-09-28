@@ -289,6 +289,27 @@ describe('manifest runtime contract', () => {
     expect(old.settings).toEqual([])
     expect(old.contentSlots).toEqual([])
   })
+
+  it('re-parses a stored manifest after sync normalized settings to an array', () => {
+    const github = {
+      ...valid,
+      settings: {
+        introAnimation: { type: 'boolean', default: true },
+        introDuration: { type: 'number', min: 0, max: 5000, default: 1200 },
+      },
+    }
+    const synced = manifestOf(github)
+    const reparsed = parseThemeManifest(
+      { ...synced, settings: synced.settings },
+      synced.contractVersion,
+    )
+    expect(reparsed.ok).toBe(true)
+    if (!reparsed.ok) return
+    expect(reparsed.manifest.settings.map((s) => s.key)).toEqual([
+      'introAnimation',
+      'introDuration',
+    ])
+  })
 })
 
 describe('parseRepository', () => {
