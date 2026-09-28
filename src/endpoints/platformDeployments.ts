@@ -26,7 +26,7 @@ import {
 import { DEPLOYMENT_LANES, isDeploymentLane, resolveDeployMode } from '@/lib/deploy/lane'
 import { emitPlatformEvent } from '@/platform/webhooks'
 
-import { json, param, requireOperator, siteById } from './platformShared'
+import { json, param, readJsonBody, requireOperator, siteById } from './platformShared'
 import { themeGithubWebhookEndpoint } from './themeGithubWebhook'
 import { themeArtifactRegistrationEndpoint } from './themeArtifacts'
 
@@ -65,19 +65,7 @@ const requireAdminSession = (req: PayloadRequest): null | Response => {
   return json({ message: 'این عملیات فقط با نشست مدیر پلتفرم انجام می‌شود.', ok: false }, 403)
 }
 
-const readBody = async (
-  req: PayloadRequest,
-): Promise<{ body?: Record<string, unknown>; error?: Response }> => {
-  try {
-    const parsed = (await req.json?.()) ?? {}
-    if (!parsed || typeof parsed !== 'object') {
-      return { error: json({ message: 'بدنهٔ درخواست باید یک شیء JSON باشد.', ok: false }, 400) }
-    }
-    return { body: parsed as Record<string, unknown> }
-  } catch {
-    return { error: json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400) }
-  }
-}
+const readBody = readJsonBody
 
 /**
  * The row shape a console renders. Never includes `revalidateSecret`, `apiKey` or a
