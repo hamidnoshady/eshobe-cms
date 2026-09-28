@@ -1620,7 +1620,7 @@ dockercompose
 | `startCommand` | string/null | no | `null` | Same. |
 | `publishDirectory` | string/null | no | `null` | Static output directory; safe path only. |
 | `port` | number/string | no | `3000` | Integer 1–65535. |
-| `healthCheckPath` | string/null | no | `null` | Safe path; must start with `/` when present. |
+| `healthCheckPath` | string/null | no | `null` | Safe path; must start with `/` when present. Coolify's container health check curls it from inside the container against `127.0.0.1:<port>` — IPv4 loopback on purpose (`localhost` resolves to `::1` on IPv6-first images and the check refuses to connect), so the server must answer on IPv4. |
 | `isStatic` | boolean | no | `true` only when `buildPack`/legacy `pack` is `static`, else `false` | Coolify static flag. |
 
 Unknown build keys (for example `build.command`) are rejected instead of ignored because they

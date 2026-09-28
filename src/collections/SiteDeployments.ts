@@ -26,7 +26,9 @@ import { DEPLOYMENT_LANES, DEPLOYMENT_LANE_LABELS } from '@/lib/deploy/lane'
  * customer, platform-owned. A deployment row carries **exactly one site**, so it is
  * registered (`src/plugins/index.ts`), which is the rule CLAUDE.md states and the
  * same call `subscriptions` and `site-entitlements` make. Read access is still
- * platform-admin: a customer does not administer their own container.
+ * platform-admin: a customer does not administer their own container. Create is
+ * closed even to platform admins — see `access.create` below for why a hand-made
+ * row is a row that can only fail.
  *
  * ## `status` has one writer
  *
@@ -44,7 +46,23 @@ import { DEPLOYMENT_LANES, DEPLOYMENT_LANE_LABELS } from '@/lib/deploy/lane'
 export const SiteDeployments: CollectionConfig<'site-deployments'> = {
   slug: 'site-deployments',
   access: {
-    create: platformAdmin,
+    /**
+     * Rows are born in exactly one place: `createDeployment`, which has already
+     * validated the package, resolved the immutable artifact for a registry
+     * package, derived the preview hostname, and written `queued`. It runs with
+     * `overrideAccess`, so closing `create` to everybody — platform admins
+     * included — takes away nothing the deploy flow needs.
+     *
+     * What it takes away is the «انتشارها» create form, which was the source of a
+     * whole class of broken rows: a hand-made row lands here with no linked
+     * artifact and no preview hostname, and then fails at run time with
+     * «برای این کامیت هنوز تصویر آماده و تأییدشده‌ای وجود ندارد» while GHCR is
+     * perfectly ready. `runDeployment` now repairs such rows, but the honest fix
+     * is that they cannot be created.
+     *
+     * Like `status` below: one writer, and it is the job.
+     */
+    create: () => false,
     delete: platformAdmin,
     read: platformAdmin,
     update: platformAdmin,
@@ -52,7 +70,7 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
   admin: {
     defaultColumns: ['site', 'themePackage', 'status', 'domain', 'commitSha', 'deployedAt'],
     description:
-      'هر ردیف، یک اجرای واقعی از یک پوسته روی یک سایت است. وضعیت را فقط کار استقرار می‌نویسد؛ ردیف‌های قدیمی برای بازگشت به نسخهٔ قبل نگه داشته می‌شوند.',
+      'هر ردیف، یک اجرای واقعی از یک پوسته روی یک سایت است. ردیف تازه فقط از مسیر استقرار ساخته می‌شود (پیش‌نمایش یا انتشار روی دامنه، در تب «استقرار پوسته» سایت)؛ وضعیت را هم فقط کار استقرار می‌نویسد. ردیف‌های قدیمی برای بازگشت به نسخهٔ قبل نگه داشته می‌شوند.',
     group: PLATFORM_GROUPS.operations,
     hidden: hiddenFromCustomers,
     useAsTitle: 'domain',

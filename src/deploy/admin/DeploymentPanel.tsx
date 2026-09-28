@@ -309,6 +309,16 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
   const deployPackageKey = packageKey || assignedPkg?.key || ''
 
+  /**
+   * A history row can only be re-run (rollback) if it knows what to run. A
+   * `registry_image` row without an artifact link and without a digest is a row that
+   * failed before anything was built — offering «بازگشت به این نسخه» on it just
+   * queues the same refusal again. Source-build rows re-run from their commit, so
+   * they stay eligible.
+   */
+  const rowIsRerunnable = (row: Deployment): boolean =>
+    row.artifactSource !== 'registry_image' || Boolean(row.themeArtifact || row.imageDigest)
+
   if (loading) return <p>در حال بارگذاری…</p>
 
   return (
@@ -318,6 +328,10 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
         <p style={{ color: 'var(--theme-elevation-600)' }}>
           دامنه: <code dir="ltr">{siteDomain}</code>
           {!domainVerified && ' (تأیید نشده)'}
+        </p>
+        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
+          همهٔ استقرارها از همین صفحه شروع می‌شوند: ابتدا «استقرار پیش‌نمایش»، پس از بررسی
+          سلامت «انتشار روی دامنه». این تب فقط برای کارکنان سکو (مدیر پلتفرم) است.
         </p>
       </div>
 
@@ -595,7 +609,7 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           <ActionButton
             body={{ lane: 'preview', package: deployPackageKey }}
             disabled={!deployPackageKey}
-            label="استقرار پیش‌نمایش"
+            label={deployPackageKey ? `استقرار پیش‌نمایش (${deployPackageKey})` : 'استقرار پیش‌نمایش'}
             onSuccess={load}
             style="primary"
             url={base}
@@ -735,6 +749,13 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
                     </div>
                   )}
 
+                  {!rowIsRerunnable(row) && (
+                    <div className="banner banner--type-default" style={{ margin: 0 }}>
+                      این ردیف بدون آرتیفکت immutable ساخته شده و قابل اجرای مجدد نیست؛ از
+                      «استقرار پیش‌نمایش» یک استقرار تازه بسازید.
+                    </div>
+                  )}
+
                   {row.logTail && (
                     <details>
                       <summary>گزارش ساخت</summary>
@@ -785,9 +806,12 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
                      * A rollback is offered from any row that recorded a commit and is
                      * not the one already serving. It does not mutate the running
                      * application — it creates a new deployment pinned to that commit,
-                     * so the history stays a history.
+                     * so the history stays a history. A registry row that never
+                     * reached an artifact is not offered one: there is nothing
+                     * immutable to roll back to, and the button would only queue the
+                     * same refusal again.
                      */}
-                    {row.commitSha && row.status !== 'live' && (
+                    {row.commitSha && row.status !== 'live' && rowIsRerunnable(row) && (
                       <ActionButton
                         body={{ deployment: row.id }}
                         confirm={`یک استقرار تازه با کامیت ${shortSha(row.commitSha)} ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی خواهد شد. ادامه می‌دهید؟`}

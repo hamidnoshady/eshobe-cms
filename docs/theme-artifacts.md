@@ -54,6 +54,35 @@ A registry preview and production can both be queued with the same `artifact` ID
 
 All strategies share binding resolution, runtime environment injection, Coolify deployment polling, health checking, stale-site/domain checks, and promotion. Site API keys and tenant secrets are runtime values and are not baked into reusable images.
 
+### How the digest reaches Coolify
+
+One digest pin, two wire shapes — Coolify's create and update routes validate
+`docker_registry_image_name` differently:
+
+- **Create** (`POST /applications/dockerimage`): the full reference
+  `ghcr.io/owner/repo@sha256:<64 hex>` in the name field, empty tag. Coolify parses
+  and normalizes it itself.
+- **Re-point** (`PATCH /applications/{uuid}`): the stored shape — name
+  `ghcr.io/owner/repo@sha256` (the bare repository plus Coolify's own `@sha256`
+  marker), the bare 64-hex hash in `docker_registry_image_tag`. The full reference
+  here is a 422 (`docker_registry_image_name is invalid`), and the PATCH allowlist
+  also rejects `project_uuid`, `server_uuid`, `environment_name`,
+  `docker_registry_uuid`, `github_app_uuid` and `private_key_uuid` with «This field
+  is not allowed» — placement is chosen once at create and never moved by re-point.
+
+Both live in `src/deploy/coolify.ts` (`digestReferenceForCreate`,
+`digestPinForPatch`, `repointApplication`), which is the only place allowed to know
+these shapes. The container health check Coolify generates is pinned to
+`health_check_host: 127.0.0.1` (an IPv4 loopback — its `localhost` default resolves
+to `::1` on IPv6-first images and the container is declared unhealthy) with the
+manifest's `build.healthCheckPath` and port.
+
+A registry row that reaches the queue without its artifact link is repaired by
+`runDeployment` before anything plans from it: the ready artifact for its commit is
+resolved and written back (with `ref` and preview hostname if those are missing
+too). The refusal «برای این کامیت هنوز تصویر آماده و تأییدشده‌ای وجود ندارد» now
+means exactly what it says — no ready artifact exists for that commit.
+
 ## Deploy-target examples
 
 Same project, different environments:

@@ -208,6 +208,46 @@ export const boundedLabel = (base: string, max: number, suffix?: null | string):
 export const coolifyAppName = (domain: string, themeKey: string, variant?: null | string): string =>
   boundedLabel(`${domain}-${themeKey}`, 60, variant) || 'eshobe-site'
 
+/**
+ * The host Coolify's container health check curls, from inside the container.
+ *
+ * Coolify's default is `localhost`, which an IPv6-first image resolves to `::1`;
+ * a server bound to IPv4 only (or to `0.0.0.0` behind some base images) then
+ * refuses the connection, Docker marks the container unhealthy and Traefik answers
+ * the public hostname with «no available server» until a human rewrites the check
+ * by hand. `127.0.0.1` names IPv4 explicitly and is what the srv1 workaround
+ * ended up being, so it is pinned here for every application this platform creates
+ * or re-points. The *path* stays the theme's own (`build.healthCheckPath`).
+ */
+export const HEALTH_CHECK_HOST = '127.0.0.1'
+
+/**
+ * How an immutable digest pin travels to Coolify — one pin, two wire shapes.
+ *
+ * **Create** (`POST /applications/dockerimage`) wants a full reference in
+ * `docker_registry_image_name` — `ghcr.io/owner/repo@sha256:<64 hex>` — validates
+ * it with Coolify's `DockerImageFormat` rule and normalizes the pair itself.
+ *
+ * **Patch** (`PATCH /applications/{uuid}`) is stricter and narrower than its own
+ * OpenAPI schema claims: its allowlist rejects `project_uuid`, `server_uuid`,
+ * `environment_name` and `docker_registry_uuid` («This field is not allowed»), and
+ * `docker_registry_image_name` must be a bare repository — with at most the literal
+ * `@sha256` marker Coolify itself appends to digest-pinned rows, the hash itself
+ * travelling separately in `docker_registry_image_tag`. That stored shape —
+ * `ghcr.io/owner/repo@sha256` + the bare hex — is what a successful create leaves
+ * behind, so it is what a re-point sends back.
+ */
+export const digestReferenceForCreate = (image: string, digest: string): string =>
+  `${image}@${digest}`
+
+export const digestPinForPatch = (
+  image: string,
+  digest: string,
+): { name: string; tag: string } => ({
+  name: `${image}@sha256`,
+  tag: digest.trim().toLowerCase().replace(/^sha256:/, ''),
+})
+
 const statusFromRaw = (raw: string): DeploymentStatus['status'] => {
   const value = raw.toLowerCase()
   if (value.includes('queue')) return 'queued'
@@ -385,6 +425,9 @@ export class CoolifyClient {
       common.health_check_enabled = true
       common.health_check_path = input.healthCheckPath
       common.health_check_port = String(input.port)
+      // `localhost` resolves to `::1` on IPv6-first images and the check refuses to
+      // connect; see `HEALTH_CHECK_HOST` above.
+      common.health_check_host = HEALTH_CHECK_HOST
     }
 
     if (input.source.type === 'registry-image') {
@@ -393,7 +436,12 @@ export class CoolifyClient {
       }
       const body = {
         ...common,
-        docker_registry_image_name: `${input.source.image}@${input.source.digest}`,
+        // The create route takes the full `image@sha256:<hash>` reference and
+        // normalizes it itself — `digestReferenceForCreate` documents the pair.
+        docker_registry_image_name: digestReferenceForCreate(
+          input.source.image,
+          input.source.digest,
+        ),
         docker_registry_image_tag: '',
         ...(input.source.registryCredentialUuid
           ? { docker_registry_uuid: input.source.registryCredentialUuid }
@@ -496,10 +544,78 @@ export class CoolifyClient {
     })
   }
 
-  async updateApplication(
+  /**
+   * Re-point an existing application at the source and hostnames a new deployment
+   * runs — the only PATCH this platform makes, and deliberately a typed method
+   * rather than a bare `updateApplication(appUuid, patch)`.
+   *
+   * `PATCH /applications/{uuid}` in Coolify's API v1 rejects, with
+   * `Validation failed`, both fields it does not own and fields its own create
+   * routes accept: `project_uuid`, `server_uuid`, `environment_name`,
+   * `destination_uuid`, `docker_registry_uuid`, `github_app_uuid` and
+   * `private_key_uuid` are all answered «This field is not allowed». Placement is
+   * decided once, at create, and a git source's access method cannot change here.
+   * Building the body from this closed input type is what keeps that allowlist a
+   * property of the client instead of a 422 an operator reads off a row.
+   *
+   * The digest travels in the stored shape (`digestPinForPatch`): the bare
+   * repository plus Coolify's `@sha256` marker in the name column, the bare hash
+   * in the tag column.
+   */
+  async repointApplication(
     appUuid: string,
-    patch: Record<string, unknown>,
+    input: {
+      domains: string
+      healthCheckPath: null | string
+      port: number
+      source:
+        | { digest: string; image: string; type: 'registry-image' }
+        | {
+            baseDirectory: string
+            branch: string
+            buildCommand: null | string
+            buildPack: BuildPack
+            commitSha: null | string
+            dockerfileLocation: null | string
+            installCommand: null | string
+            publishDirectory: null | string
+            repository: string
+            startCommand: null | string
+            type: 'git'
+          }
+    },
   ): Promise<CoolifyResult<unknown>> {
+    const patch: Record<string, unknown> = {
+      domains: input.domains,
+      ports_exposes: String(input.port),
+      health_check_enabled: Boolean(input.healthCheckPath),
+    }
+    if (input.healthCheckPath) {
+      patch.health_check_path = input.healthCheckPath
+      patch.health_check_port = String(input.port)
+      patch.health_check_host = HEALTH_CHECK_HOST
+    }
+
+    if (input.source.type === 'registry-image') {
+      if (!/^sha256:[0-9a-f]{64}$/i.test(input.source.digest)) {
+        return { message: 'digest تصویر نامعتبر است.', ok: false, status: 0 }
+      }
+      const pin = digestPinForPatch(input.source.image, input.source.digest)
+      patch.docker_registry_image_name = pin.name
+      patch.docker_registry_image_tag = pin.tag
+    } else {
+      patch.git_repository = input.source.repository
+      patch.git_branch = input.source.branch
+      patch.git_commit_sha = input.source.commitSha ?? 'HEAD'
+      patch.build_pack = input.source.buildPack
+      patch.base_directory = input.source.baseDirectory
+      patch.install_command = input.source.installCommand
+      patch.build_command = input.source.buildCommand
+      patch.start_command = input.source.startCommand
+      patch.publish_directory = input.source.publishDirectory
+      patch.dockerfile_location = input.source.dockerfileLocation
+    }
+
     return this.call('PATCH', `/applications/${encodeURIComponent(appUuid)}`, patch)
   }
 
