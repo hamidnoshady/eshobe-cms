@@ -11,13 +11,14 @@ import {
 import { DEPLOYMENT_LANES, DEPLOYMENT_LANE_LABELS } from '@/lib/deploy/lane'
 
 /**
- * One running instance of a theme: (site × package × target) on a Coolify
- * application.
+ * Historical deployment attempt for one theme on one site.
  *
- * This is the row that makes the feature debuggable. Without it "why is acme.ir
- * showing the old theme?" is answered by opening Coolify and reading container
- * names; with it the answer is a status, a commit sha, a domain mode and a log tail
- * on one screen.
+ * `ThemeBinding` owns persistent runtime identity (Coolify app UUID, project/server
+ * placement, lane). `SiteDeployment` owns immutable attempt/history data: commit,
+ * artifact, target snapshot, logs, health and rollback inputs. Without it "why is
+ * acme.ir showing the old theme?" is answered by opening Coolify and reading
+ * container names; with it the answer is a status, a commit sha, a domain mode and a
+ * log tail on one screen.
  *
  * ## In the multi-tenant plugin's map, unlike its two siblings
  *
@@ -56,7 +57,7 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
     hidden: hiddenFromCustomers,
     useAsTitle: 'domain',
   },
-  labels: { plural: 'استقرارهای سایت', singular: 'استقرار سایت' },
+  labels: { plural: 'انتشارها', singular: 'انتشار' },
   fields: [
     {
       type: 'row',

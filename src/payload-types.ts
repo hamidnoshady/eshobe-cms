@@ -776,7 +776,7 @@ export interface SiteDeployment {
   createdAt: string;
 }
 /**
- * هویت ثابت اپلیکیشن Coolify برای هر سایت، پوسته و مسیر (پیش‌نمایش یا انتشار). ردیف‌های استقرار به این ردیف ارجاع می‌دهند.
+ * زیرساخت داخلی: هویت ثابت اپلیکیشن Coolify برای هر سایت، پوسته و مسیر (پیش‌نمایش یا انتشار). ردیف‌های انتشار به این ردیف ارجاع می‌دهند و این جدول در نمای سایت/انتشار نمایش داده می‌شود.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "theme-bindings".

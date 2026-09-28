@@ -390,7 +390,7 @@ export const pluginPatchEndpoint: Endpoint = {
   },
 }
 
-/** `GET /api/platform/themes` — the theme catalogue an external builder offers. */
+/** `GET /api/platform/themes` — compatibility catalogue backed by canonical Theme packages. */
 export const themesListEndpoint: Endpoint = {
   path: '/platform/themes',
   method: 'get',

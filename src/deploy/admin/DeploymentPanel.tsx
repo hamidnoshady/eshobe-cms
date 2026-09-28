@@ -56,6 +56,16 @@ type Deployment = {
   previewDomain: null | string
   previewOpenUrl: null | string
   ref: null | string
+  themeBinding?: null | string
+  runtime?: null | {
+    appName?: null | string
+    appUuid?: null | string
+    applicationHostname?: null | string
+    bindingState?: null | string
+    coolifyProjectUuid?: null | string
+    environmentName?: null | string
+    serverUuid?: null | string
+  }
   themePackage: null | string
   status: string
   targetName: null | string
@@ -350,6 +360,39 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
             <dd style={{ margin: 0 }}>{MODE_LABELS[current.domainMode] ?? current.domainMode}</dd>
             <dt>سرور</dt>
             <dd style={{ margin: 0 }}>{current.targetName ?? '—'}</dd>
+            <dt>Runtime binding</dt>
+            <dd style={{ margin: 0 }}>
+              <code dir="ltr">{current.themeBinding ?? '—'}</code>
+            </dd>
+            {current.runtime && (
+              <>
+                <dt>Runtime / Infrastructure</dt>
+                <dd style={{ margin: 0 }}>
+                  <div>
+                    Coolify Application: <code dir="ltr">{current.runtime.appName ?? '—'}</code>
+                  </div>
+                  <div>
+                    Application UUID: <code dir="ltr">{current.runtime.appUuid ?? '—'}</code>
+                  </div>
+                  <div>
+                    Server: <code dir="ltr">{current.runtime.serverUuid ?? '—'}</code>
+                  </div>
+                  <div>
+                    Project: <code dir="ltr">{current.runtime.coolifyProjectUuid ?? '—'}</code>
+                  </div>
+                  <div>
+                    Environment: <code dir="ltr">{current.runtime.environmentName ?? '—'}</code>
+                  </div>
+                  <div>
+                    Runtime hostname:{' '}
+                    <code dir="ltr">{current.runtime.applicationHostname ?? '—'}</code>
+                  </div>
+                  <div>
+                    Binding state: <code dir="ltr">{current.runtime.bindingState ?? '—'}</code>
+                  </div>
+                </dd>
+              </>
+            )}
             <dt>کامیت</dt>
             <dd style={{ margin: 0 }}>
               <code dir="ltr">{shortSha(current.commitSha)}</code>

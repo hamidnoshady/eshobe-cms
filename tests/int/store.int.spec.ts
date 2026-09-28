@@ -32,9 +32,7 @@ import { readOrderDocs, signOrderReceipt, verifyOrderReceipt } from '@/lib/order
 let payload: Payload
 
 const idOf = (value: unknown): string =>
-  typeof value === 'object' && value !== null
-    ? String((value as { id: string }).id)
-    : String(value)
+  typeof value === 'object' && value !== null ? String((value as { id: string }).id) : String(value)
 
 const site = async (domain: string): Promise<Site> => {
   const { docs } = await payload.find({
@@ -104,7 +102,6 @@ const request = ({
     payload,
   )
 }
-
 
 /**
  * A guard on the seed itself, in its own suite because every other test here
@@ -291,7 +288,10 @@ describe('store', () => {
     })
 
     it('hides a draft product from the storefront and shows it to the site’s owner', async () => {
-      const anonymous = await findForSite('products', String(shop.id), { locale: 'fa', pagination: false })
+      const anonymous = await findForSite('products', String(shop.id), {
+        locale: 'fa',
+        pagination: false,
+      })
 
       expect(anonymous.docs.map((doc) => doc.title)).not.toContain(draft.title)
 
@@ -386,7 +386,7 @@ describe('store', () => {
         /**
          * The SaaS control plane's catalogue half.
          *
-         * A plan, a feature flag, a plugin registration, a theme template and a
+         * A plan, a feature flag, a plugin registration, a theme package and a
          * webhook are all the *operator's* rows — one list, offered to every
          * customer. A `site` column on them would not scope anything; it would ask
          * "which customer owns the Pro plan?", which has no answer.
@@ -406,7 +406,6 @@ describe('store', () => {
         'billing-service-credentials',
         'billing-replay-nonces',
         'plugins',
-        'theme-templates',
         /**
          * WAVE-11's catalogue half, by the same test.
          *
@@ -416,10 +415,10 @@ describe('store', () => {
          * Tehran server?" has no answer — the same shape as `storage-connections`
          * directly above.
          *
-         * Their per-site halves — `site-deployments` and `site-theme-settings` — are
-         * registered with the multi-tenant plugin and are therefore deliberately
-         * absent from this list, which is what makes this assertion the thing that
-         * catches a tenant collection quietly joining the exception.
+         * Their per-site halves — `theme-bindings`, `site-deployments` and
+         * `site-theme-settings` — are registered with the multi-tenant plugin and are
+         * therefore deliberately absent from this list, which is what makes this
+         * assertion the thing that catches a tenant collection quietly joining the exception.
          */
         'theme-packages',
         'theme-artifacts',
@@ -442,7 +441,10 @@ describe('store', () => {
         .map((entry) => entry.config ?? entry)
         .filter((collection) => !platformWide.has(collection.slug))
         .filter((collection) => !collection.slug.startsWith('payload-'))
-        .filter((collection) => !(collection.fields ?? []).some((field: { name?: string }) => field?.name === 'site'))
+        .filter(
+          (collection) =>
+            !(collection.fields ?? []).some((field: { name?: string }) => field?.name === 'site'),
+        )
         .map((collection) => collection.slug)
 
       expect(unscoped).toEqual([])
@@ -623,7 +625,10 @@ describe('store', () => {
 
       const order = await orderFor(response)
 
-      const returned = await get(`/api/checkout/callback?order=${order.id}&status=ok`, 'shop.localhost')
+      const returned = await get(
+        `/api/checkout/callback?order=${order.id}&status=ok`,
+        'shop.localhost',
+      )
 
       // A browser return is a redirect to the receipt page, not a JSON answer.
       expect(returned.status).toBe(302)
@@ -641,7 +646,10 @@ describe('store', () => {
       const order = await orderFor(response)
 
       // Same order id, asked from the *other* tenant's domain.
-      const crossHost = await get(`/api/checkout/callback?order=${order.id}&status=ok`, 'acme.localhost')
+      const crossHost = await get(
+        `/api/checkout/callback?order=${order.id}&status=ok`,
+        'acme.localhost',
+      )
 
       expect(crossHost.status).toBe(400)
       expect(await readOrderDocs(payload, order.id, String(acme.id))).toBeNull()
@@ -659,7 +667,9 @@ describe('store', () => {
       const receipt = signOrderReceipt({ orderId: id, siteId: String(shop.id) })
 
       expect(verifyOrderReceipt({ orderId: id, receipt, siteId: String(shop.id) })).toBe(true)
-      expect(verifyOrderReceipt({ orderId: id, receipt: `${receipt}x`, siteId: String(shop.id) })).toBe(false)
+      expect(
+        verifyOrderReceipt({ orderId: id, receipt: `${receipt}x`, siteId: String(shop.id) }),
+      ).toBe(false)
       // Same signature, another tenant: the site is part of what is signed, so a
       // leaked link cannot be replayed on a different domain.
       expect(verifyOrderReceipt({ orderId: id, receipt, siteId: String(acme.id) })).toBe(false)
@@ -733,7 +743,10 @@ describe('store', () => {
       })
 
       expect(response.status).toBe(200)
-      expect(await response.json()).toMatchObject({ ok: true, redirectUrl: 'https://psp.test/pay/abc' })
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        redirectUrl: 'https://psp.test/pay/abc',
+      })
 
       const [call] = gateway.calls
 
@@ -818,7 +831,11 @@ describe('store', () => {
 
       // Read once: a `Response` body is a stream, and `orderFor()` would be reading
       // the same one a second time.
-      const body = (await response.json()) as { confirmationUrl?: string; message?: string; pending?: boolean }
+      const body = (await response.json()) as {
+        confirmationUrl?: string
+        message?: string
+        pending?: boolean
+      }
 
       expect(body).toMatchObject({
         message: 'درگاه پرداخت این سایت پیکربندی نشده است.',

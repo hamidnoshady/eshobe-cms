@@ -1,18 +1,22 @@
 import type { CollectionConfig } from 'payload'
 
 import { authenticated } from '../access/authenticated'
-import { isHexColor } from '../lib/theme'
 import { scopedPublicRead } from '../access/siteRead'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
+import {
+  DESIGN_LINE_HEIGHT_MAX,
+  DESIGN_LINE_HEIGHT_MIN,
+  DESIGN_RADIUS,
+  validateDesignColor,
+} from '@/lib/theme-design'
 
 /**
  * A colour that will be interpolated into a `<style>` tag. Rejected in the admin as
  * well as dropped at render time — an editor who typed `red` deserves to be told,
  * not to wonder why the site looks unchanged.
  */
-const hexColor = (value: unknown): string | true =>
-  isHexColor(value) || value == null ? true : 'رنگ را به شکل کد هکس بنویسید، مثل #0f766e.'
+const hexColor = validateDesignColor
 
 /**
  * Per-site design tokens. Registered as `isGlobal: true` in the multi-tenant
@@ -88,22 +92,28 @@ export const Theme: CollectionConfig = {
           type: 'select',
           label: 'گردی گوشه‌ها',
           defaultValue: 'md',
-          options: [
-            { label: 'بدون گردی', value: 'none' },
-            { label: 'کم', value: 'sm' },
-            { label: 'متوسط', value: 'md' },
-            { label: 'زیاد', value: 'lg' },
-          ],
+          options: DESIGN_RADIUS.map((value) => ({
+            label:
+              value === 'none'
+                ? 'بدون گردی'
+                : value === 'sm'
+                  ? 'کم'
+                  : value === 'md'
+                    ? 'متوسط'
+                    : 'زیاد',
+            value,
+          })),
         },
         {
           name: 'lineHeight',
           type: 'number',
           label: 'فاصله خطوط',
           defaultValue: 1.8,
-          min: 1.4,
-          max: 2.4,
+          min: DESIGN_LINE_HEIGHT_MIN,
+          max: DESIGN_LINE_HEIGHT_MAX,
           admin: {
-            description: 'فارسی به فضای عمودی بیشتری از لاتین نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.',
+            description:
+              'فارسی به فضای عمودی بیشتری از لاتین نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.',
             step: 0.1,
           },
         },

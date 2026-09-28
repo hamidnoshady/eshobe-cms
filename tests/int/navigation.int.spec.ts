@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CUSTOMER_NAV,
+  INTERNAL_SUPPORT_COLLECTIONS,
   type NavGroupDef,
   OTHER_GROUP_LABEL,
   PLATFORM_NAV,
@@ -75,7 +76,6 @@ const PLATFORM_TARGET = [
   {
     entities: [
       'site-deployments',
-      'theme-artifacts',
       'central-entitlement-projections',
       'billing-usage-outbox',
       'audit-log',
@@ -87,19 +87,19 @@ const PLATFORM_TARGET = [
 
 /**
  * Collections with a legitimate backend purpose that must NOT be primary sidebar
- * products (task §3, §14, §15, §16, §17). They stay reachable through the «سایر»
- * catch-all — demoted, never deleted (task §23).
+ * products. Ordinary supporting records fall into «سایر»; raw theme runtime tables
+ * are internal support/deep-link collections and are intentionally not caught there.
  */
 const DEMOTED_SUPPORTING = [
   'usage-records',
   'site-entitlements',
-  'site-theme-settings',
-  'theme-bindings',
   'reseller-domain-operations',
   'reseller-domain-events',
   'cdn-events',
   'webhook-deliveries',
 ]
+
+const INTERNAL_SUPPORTING = ['site-theme-settings', 'theme-artifacts', 'theme-bindings']
 
 describe('sidebar information architecture', () => {
   it('renders the exact customer tree — groups, order, children and labels', () => {
@@ -173,15 +173,15 @@ describe('sidebar information architecture', () => {
   it('keeps supporting tables out of every primary platform group', () => {
     const primarySlugs = PLATFORM_NAV.flatMap((g) => g.entities.map((e) => e.slug))
 
-    for (const slug of DEMOTED_SUPPORTING) {
+    for (const slug of [...DEMOTED_SUPPORTING, ...INTERNAL_SUPPORTING]) {
       expect(primarySlugs, `${slug} must not be a primary platform nav item`).not.toContain(slug)
     }
   })
 
   it('demotes visible supporting tables into «سایر» rather than losing them', () => {
-    // A real operator can see the supporting collections (they are `hiddenFromCustomers`,
+    // A real operator can see many supporting collections (they are `hiddenFromCustomers`,
     // i.e. visible to operators). They must still be reachable — the catch-all is
-    // exactly that safety net (task §23: hide from primary nav, never delete).
+    // exactly that safety net for non-internal support records.
     const groups = resolveNavGroups({
       adminRoute: '/admin',
       user: operator,
@@ -196,6 +196,27 @@ describe('sidebar information architecture', () => {
     expect(new Set(other!.entities.map((e) => e.slug))).toEqual(new Set(DEMOTED_SUPPORTING))
     // And «سایر» is last, so demoted tables never sit above real products.
     expect(groups.at(-1)?.label).toBe(OTHER_GROUP_LABEL)
+  })
+
+  it('keeps internal theme runtime tables out of the generic catch-all', () => {
+    for (const slug of INTERNAL_SUPPORTING)
+      expect(INTERNAL_SUPPORT_COLLECTIONS.has(slug)).toBe(true)
+
+    const groups = resolveNavGroups({
+      adminRoute: '/admin',
+      user: operator,
+      visible: {
+        collections: [
+          ...slugsOf(PLATFORM_NAV, 'collection'),
+          ...DEMOTED_SUPPORTING,
+          ...INTERNAL_SUPPORTING,
+        ],
+        globals: slugsOf(PLATFORM_NAV, 'global'),
+      },
+    })
+    const slugs = groups.flatMap((group) => group.entities.map((entity) => entity.slug))
+
+    for (const slug of INTERNAL_SUPPORTING) expect(slugs).not.toContain(slug)
   })
 
   it('builds correct hrefs for collections vs globals and honours a non-default adminRoute', () => {

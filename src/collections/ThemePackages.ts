@@ -4,8 +4,12 @@ import { platformAdmin } from '@/access/platformAdmin'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { BUILD_PACKS, parseRepository, isSafeGitRef } from '@/lib/deploy/manifest'
 import { slugKey } from '@/lib/saas/plans'
-import { DESIGN_RADIUS } from '@/lib/theme-design'
-import { isHexColor } from '@/lib/theme'
+import {
+  DESIGN_LINE_HEIGHT_MAX,
+  DESIGN_LINE_HEIGHT_MIN,
+  DESIGN_RADIUS,
+  validateDesignColor,
+} from '@/lib/theme-design'
 
 /**
  * A **deployable** theme: a GitHub repository built against `docs/THEME_API.md`,
@@ -98,7 +102,7 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
     hidden: hiddenFromCustomers,
     useAsTitle: 'name',
   },
-  labels: { plural: 'پوسته‌های نصب‌شدنی', singular: 'پوستهٔ نصب‌شدنی' },
+  labels: { plural: 'پوسته‌ها', singular: 'پوسته' },
   fields: [
     {
       name: 'actions',
@@ -472,14 +476,26 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
           type: 'group',
           label: 'پیش‌فرض‌های طراحی',
           access: readOnly,
-          admin: { readOnly: true, description: 'از مانیفست خوانده می‌شود و فقط هنگام پذیرش پوسته در سایت کپی می‌شود.' },
+          admin: {
+            readOnly: true,
+            description: 'از مانیفست خوانده می‌شود و فقط هنگام پذیرش پوسته در سایت کپی می‌شود.',
+          },
           fields: [
-            { name: 'primary', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
-            { name: 'accent', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
-            { name: 'background', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
-            { name: 'foreground', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
-            { name: 'radius', type: 'select', options: DESIGN_RADIUS.map((value) => ({ label: value, value })) },
-            { name: 'lineHeight', type: 'number', min: 1.4, max: 2.4 },
+            { name: 'primary', type: 'text', validate: validateDesignColor },
+            { name: 'accent', type: 'text', validate: validateDesignColor },
+            { name: 'background', type: 'text', validate: validateDesignColor },
+            { name: 'foreground', type: 'text', validate: validateDesignColor },
+            {
+              name: 'radius',
+              type: 'select',
+              options: DESIGN_RADIUS.map((value) => ({ label: value, value })),
+            },
+            {
+              name: 'lineHeight',
+              type: 'number',
+              min: DESIGN_LINE_HEIGHT_MIN,
+              max: DESIGN_LINE_HEIGHT_MAX,
+            },
           ],
         },
         {

@@ -75,7 +75,7 @@ export const PLATFORM_GROUPS = {
   fleet: 'مشتریان',
   /** Plans, subscriptions, invoices, usage, entitlements. */
   billing: 'اشتراک و مالی',
-  /** Features, themes (templates/packages/settings), plugins — the product catalogue. */
+  /** Features, Themes and plugins — the product catalogue. */
   product: 'محصول',
   /** Storage, CDN, domains, registrar, deploy targets, payment policy. */
   infrastructure: 'زیرساخت',

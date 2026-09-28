@@ -46,7 +46,7 @@ A customer's staff decide exactly one thing: the answers to the variables the th
 
 `theme-packages` and `deploy-targets` are platform-wide (the documented exception to the
 multi-tenant registration rule, and in `platformWide` in `tests/int/store.int.spec.ts`).
-`site-deployments` and `site-theme-settings` are registered with the multi-tenant plugin.
+`theme-bindings`, `site-deployments` and `site-theme-settings` are registered with the multi-tenant plugin.
 
 `sites.renderedBy` (`platform` | `deployment`) and `sites.activeDeployment` say who serves
 the customer's domain. Both are written only by the deploy service (field access denies
@@ -59,7 +59,7 @@ back).
 
 1. Create a `theme-packages` row: repository (`owner/name`), visibility, default ref, and
    optionally a **pinned commit** (every new deploy then builds exactly that commit),
-   a default target, a `requiredFeature` (a plan feature key) and a token template.
+   a default target, a `requiredFeature` (a plan feature key) and design defaults copied on adoption.
 2. **«همگام‌سازی از گیت‌هاب»** (`POST /api/platform/theme-packages/:id/sync`) reads
    `eshobe.theme.json` at the ref, validates it (`parseThemeManifest` refuses rather than
    coerces), projects it into read-only fields, and stores `syncedCommitSha` — the commit
@@ -154,8 +154,8 @@ POST …/deployment ─► queued ─► creating ─► building ─► verifyi
    customer domain may still point at Caddy, whose built-in renderer would answer 200).
 5. **Promote** — the row becomes `live` first, then what it replaces is stopped (every
    other row of the site for `edge`/`direct`; only other previews for `preview`), then for
-   `edge`/`direct` the package's token template is copied onto the site and
-   `renderedBy`/`activeDeployment` switch.
+   `edge`/`direct` the package's design defaults are copied only if this is the
+   first successful adoption of a different theme, then `renderedBy`/`activeDeployment` switch.
 
 A row that has not moved for an hour is failed by the queue. **A failed deploy changes
 nothing but its own row**: the previous live deployment and the site stay exactly as they

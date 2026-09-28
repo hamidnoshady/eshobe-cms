@@ -244,13 +244,12 @@ export const plugins: Plugin[] = [
       // relaxation on a subscription or a usage counter would then hand one
       // customer's commercial record to another.
       //
-      // Four are registered and three are deliberately **not**, and the line between
-      // them is whether the row belongs to exactly one site:
+      // Rows are registered unless they are platform-owned catalogue/infrastructure:
       //
-      //   - `plans`, `feature-flags`, `theme-packages`, `plugins`, `webhooks` are
-      //     the platform's own catalogue and infrastructure — the same shape as
-      //     `api-keys` and `storage-connections`. A `site` column on a price list is
-      //     meaningless.
+      //   - `plans`, `feature-flags`, `theme-packages`, `theme-artifacts`, `deploy-targets`,
+      //     `plugins`, `webhooks` are the platform's own catalogue/build output and
+      //     infrastructure — the same shape as `api-keys` and `storage-connections`.
+      //     A `site` column on a price list or immutable theme build is meaningless.
       //   - `audit-log` and `webhook-deliveries` carry *optional* site references
       //     they declare themselves, because a platform-level action ("settings
       //     changed") belongs to no site. The plugin's `site` field is **required**
@@ -268,13 +267,12 @@ export const plugins: Plugin[] = [
       'billing-storage-accounts': { isGlobal: true },
       'billing-usage-outbox': {},
       'billing-usage-samples': {},
-      // The deployment surface splits the same way. `site-deployments` and
-      // `site-theme-settings` each carry exactly one site, so both are registered;
-      // `theme-packages` and `deploy-targets` are the operator's own catalogue and
-      // infrastructure — one repository list and one server list offered to every
-      // customer — so they take the documented exception alongside `theme-packages`
-      // and `storage-connections`. "Which customer owns the Tehran server?" has no
-      // answer, and a required `site` column would make the row unsavable.
+      // The deployment surface splits the same way. `site-deployments`,
+      // `theme-bindings`, and `site-theme-settings` each carry exactly one site, so
+      // they are registered; `theme-packages`, `theme-artifacts`, and `deploy-targets`
+      // are the operator's Theme catalogue, immutable build outputs, and server list,
+      // so they take the documented exception. "Which customer owns the Tehran
+      // server?" has no answer, and a required `site` column would make the row unsavable.
       'site-deployments': {},
       'theme-bindings': {},
       'site-theme-settings': { isGlobal: true },

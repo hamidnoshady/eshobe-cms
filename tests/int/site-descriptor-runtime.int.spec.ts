@@ -36,7 +36,10 @@ const rawManifest = {
     density: {
       default: 'comfortable',
       labelEn: 'Density',
-      options: [{ labelEn: 'Compact', value: 'compact' }, { labelEn: 'Comfortable', value: 'comfortable' }],
+      options: [
+        { labelEn: 'Compact', value: 'compact' },
+        { labelEn: 'Comfortable', value: 'comfortable' },
+      ],
       type: 'select',
     },
   },
@@ -74,7 +77,11 @@ const adminReq = async () => {
 beforeAll(async () => {
   payload = await getPayload({ config: await config })
 
-  const { docs: allSites } = await payload.find({ collection: 'sites', depth: 0, pagination: false })
+  const { docs: allSites } = await payload.find({
+    collection: 'sites',
+    depth: 0,
+    pagination: false,
+  })
   const studio = (allSites as { domain: string; id: string }[]).find((site) => site.domain === HOST)
   const acme = (allSites as { domain: string; id: string }[]).find(
     (site) => site.domain === 'acme.localhost',
@@ -307,6 +314,82 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
     expect(Date.parse(after.headers.get('last-modified')!)).toBeGreaterThanOrEqual(
       Date.parse(modifiedBefore!),
     )
+  })
+
+  it('does not let settings saved for another package describe the runtime', async () => {
+    const originalSite = (await payload.findByID({
+      collection: 'sites',
+      depth: 0,
+      id: ids.site,
+      overrideAccess: true,
+    })) as unknown as Record<string, unknown>
+    const otherRawManifest = {
+      ...rawManifest,
+      key: 'descriptor-theme-two',
+      name: 'Descriptor Theme Two',
+      settings: {
+        showNumbers: { default: false, type: 'boolean' },
+        density: {
+          default: 'roomy',
+          options: [{ value: 'roomy' }, { value: 'tight' }],
+          type: 'select',
+        },
+      },
+    }
+    const parsed = parseThemeManifest(otherRawManifest, 1)
+    if (!parsed.ok) throw new Error(parsed.errors.join(' '))
+    const otherPackage = await payload.create({
+      collection: 'theme-packages',
+      data: {
+        contractVersion: 1,
+        defaultRef: 'main',
+        envSchema: parsed.manifest.env,
+        key: 'descriptor-theme-two',
+        manifest: otherRawManifest,
+        name: 'پوستهٔ توصیف‌گر دوم',
+        provider: 'github',
+        repository: 'hamidnoshady/descriptor-theme-two',
+        status: 'published',
+        visibility: 'public',
+      },
+      overrideAccess: true,
+    })
+
+    try {
+      await payload.update({
+        collection: 'sites',
+        data: { assignedThemePackage: String(otherPackage.id) },
+        id: ids.site,
+        overrideAccess: true,
+      })
+
+      const res = await fetchDescriptor(HOST)
+      const body = (await res.json()) as {
+        themeRuntime?: {
+          bindings?: Record<string, unknown>
+          package?: { key?: string }
+          settings?: Record<string, unknown>
+          theme?: { key?: string }
+        }
+      }
+
+      expect(body.themeRuntime?.theme?.key).toBe('descriptor-theme-two')
+      expect(body.themeRuntime?.package?.key).toBe('descriptor-theme-two')
+      expect(body.themeRuntime?.settings).toMatchObject({ density: 'roomy', showNumbers: false })
+      expect(body.themeRuntime?.bindings?.home).toBeUndefined()
+    } finally {
+      await payload.update({
+        collection: 'sites',
+        data: { assignedThemePackage: idOf(originalSite.assignedThemePackage) },
+        id: ids.site,
+        overrideAccess: true,
+      })
+      await payload.delete({
+        collection: 'theme-packages',
+        id: String(otherPackage.id),
+        overrideAccess: true,
+      })
+    }
   })
 
   it('resolves deleted binding targets to null', async () => {

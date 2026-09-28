@@ -86,7 +86,11 @@ const readBody = async (
 const deploymentRow = (
   doc: Record<string, unknown>,
   site: Record<string, unknown>,
-  names: { packages: Map<string, string>; targets: Map<string, string> },
+  names: {
+    bindings: Map<string, Record<string, unknown>>
+    packages: Map<string, string>
+    targets: Map<string, string>
+  },
 ): Record<string, unknown> => ({
   appUuid: doc.appUuid ?? null,
   artifactSource: doc.artifactSource ?? 'source_build',
@@ -115,6 +119,8 @@ const deploymentRow = (
   target: idOf(doc.target),
   targetName: names.targets.get(String(idOf(doc.target))) ?? null,
   themePackage: idOf(doc.themePackage),
+  themeBinding: idOf(doc.themeBinding),
+  runtime: names.bindings.get(String(idOf(doc.themeBinding))) ?? null,
 })
 
 /** A deployment row, only if it belongs to the site in the URL — never another site's row by id. */
@@ -398,6 +404,9 @@ export const siteDeploymentGetEndpoint: Endpoint = {
       ...new Set(docs.map((doc) => idOf(doc.themePackage)).filter(Boolean)),
     ] as string[]
     const targetIds = [...new Set(docs.map((doc) => idOf(doc.target)).filter(Boolean))] as string[]
+    const bindingIds = [
+      ...new Set(docs.map((doc) => idOf(doc.themeBinding)).filter(Boolean)),
+    ] as string[]
 
     const packages = packageIds.length
       ? ((
@@ -425,8 +434,35 @@ export const siteDeploymentGetEndpoint: Endpoint = {
           })
         ).docs as unknown as Record<string, unknown>[])
       : []
+    const bindings = bindingIds.length
+      ? ((
+          await req.payload.find({
+            collection: 'theme-bindings',
+            depth: 0,
+            limit: bindingIds.length,
+            overrideAccess: true,
+            pagination: false,
+            req,
+            where: { id: { in: bindingIds } },
+          })
+        ).docs as unknown as Record<string, unknown>[])
+      : []
 
     const names = {
+      bindings: new Map(
+        bindings.map((binding) => [
+          String(binding.id),
+          {
+            appName: binding.appName ?? null,
+            appUuid: binding.appUuid ?? null,
+            applicationHostname: binding.applicationHostname ?? null,
+            bindingState: binding.state ?? null,
+            coolifyProjectUuid: binding.coolifyProjectUuid ?? null,
+            environmentName: binding.environmentName ?? null,
+            serverUuid: binding.serverUuid ?? null,
+          },
+        ]),
+      ),
       packages: new Map(packages.map((pkg) => [String(pkg.id), String(pkg.name ?? pkg.key ?? '')])),
       targets: new Map(targets.map((target) => [String(target.id), String(target.name ?? '')])),
     }

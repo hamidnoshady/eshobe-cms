@@ -80,15 +80,18 @@ const reqAsEditor = async (extra?: Partial<PayloadRequest>): Promise<PayloadRequ
 const reqWithKey = (key: string, extra?: Partial<PayloadRequest>): Promise<PayloadRequest> =>
   createLocalReq(
     {
-      req: { headers: new Headers({ authorization: `Bearer ${key}` }), ...extra } as Partial<PayloadRequest>,
+      req: {
+        headers: new Headers({ authorization: `Bearer ${key}` }),
+        ...extra,
+      } as Partial<PayloadRequest>,
     },
     payload,
   )
 
 const withBody = (body: unknown): Partial<PayloadRequest> =>
-  ({ json: async () => body } as Partial<PayloadRequest>)
+  ({ json: async () => body }) as Partial<PayloadRequest>
 
-const withUrl = (url: string): Partial<PayloadRequest> => ({ url } as Partial<PayloadRequest>)
+const withUrl = (url: string): Partial<PayloadRequest> => ({ url }) as Partial<PayloadRequest>
 
 /**
  * `any` on purpose, and only here: these responses are hand-built JSON with a
@@ -107,7 +110,13 @@ const bodyOf = async (res: Response): Promise<Record<string, any>> =>
  */
 const entitlementFor = async (id: string) => {
   const req = await reqAsAdmin()
-  const site = await payload.findByID({ collection: 'sites', depth: 0, id, overrideAccess: true, req })
+  const site = await payload.findByID({
+    collection: 'sites',
+    depth: 0,
+    id,
+    overrideAccess: true,
+    req,
+  })
   return resolveEntitlement(req, site as unknown as Record<string, unknown>)
 }
 
@@ -211,7 +220,7 @@ describe('admin visibility', () => {
     'usage-records',
     'feature-flags',
     'plugins',
-    'theme-templates',
+    'theme-packages',
     'webhooks',
     'webhook-deliveries',
     'audit-log',
@@ -220,7 +229,16 @@ describe('admin visibility', () => {
     'cdn-zones',
   ]
 
-  const SITE_CONTENT = ['pages', 'posts', 'categories', 'media', 'products', 'orders', 'store', 'theme']
+  const SITE_CONTENT = [
+    'pages',
+    'posts',
+    'categories',
+    'media',
+    'products',
+    'orders',
+    'store',
+    'theme',
+  ]
 
   it('shows a platform admin the control plane and not the content', () => {
     // The escape hatch would make this vacuous: it exists for support work and for
@@ -245,9 +263,9 @@ describe('admin visibility', () => {
     // named ones. The sidebar itself is now driven by src/admin/navigation.ts, but
     // `admin.group` still labels each collection's breadcrumb, so it must stay set.
     type Grouped = { admin?: { group?: unknown }; slug: string }
-    const entries = (payload.config.collections as unknown as (Grouped & { config?: Grouped })[]).map(
-      (item) => item.config ?? item,
-    )
+    const entries = (
+      payload.config.collections as unknown as (Grouped & { config?: Grouped })[]
+    ).map((item) => item.config ?? item)
 
     for (const slug of CONTROL_PLANE) {
       const group = entries.find((entry) => entry.slug === slug)?.admin?.group
@@ -284,7 +302,9 @@ describe('access', () => {
 
   it('refuses a site key everywhere on the operator surface', async () => {
     for (const [name, endpoint] of [...operatorRoutes, ...retiredRoutes]) {
-      const res = await endpoint.handler!(await reqWithKey(siteKey, withUrl('http://t/api/platform/x')))
+      const res = await endpoint.handler!(
+        await reqWithKey(siteKey, withUrl('http://t/api/platform/x')),
+      )
       expect(res.status, name).toBe(403)
     }
   })
@@ -301,15 +321,23 @@ describe('access', () => {
 
   it('admits a platform key and a platform-admin session', async () => {
     for (const [name, endpoint] of operatorRoutes) {
-      const viaKey = await endpoint.handler!(await reqWithKey(platformKey, withUrl('http://t/api/platform/x')))
+      const viaKey = await endpoint.handler!(
+        await reqWithKey(platformKey, withUrl('http://t/api/platform/x')),
+      )
       expect(viaKey.status, `${name} (key)`).toBe(200)
-      const viaSession = await endpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/x')))
+      const viaSession = await endpoint.handler!(
+        await reqAsAdmin(withUrl('http://t/api/platform/x')),
+      )
       expect(viaSession.status, `${name} (session)`).toBe(200)
     }
     for (const [name, endpoint] of retiredRoutes) {
-      const viaKey = await endpoint.handler!(await reqWithKey(platformKey, withUrl('http://t/api/platform/x')))
+      const viaKey = await endpoint.handler!(
+        await reqWithKey(platformKey, withUrl('http://t/api/platform/x')),
+      )
       expect(viaKey.status, `${name} (key)`).toBe(410)
-      const viaSession = await endpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/x')))
+      const viaSession = await endpoint.handler!(
+        await reqAsAdmin(withUrl('http://t/api/platform/x')),
+      )
       expect(viaSession.status, `${name} (session)`).toBe(410)
     }
   })
@@ -317,7 +345,9 @@ describe('access', () => {
   it('never lets any of it be cached', async () => {
     // Every one of these answers is either a secret-adjacent operator report or a
     // per-caller entitlement; a shared cache in front of the app must not keep one.
-    const res = await saasOverviewEndpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/saas/overview')))
+    const res = await saasOverviewEndpoint.handler!(
+      await reqAsAdmin(withUrl('http://t/api/platform/saas/overview')),
+    )
     expect(res.headers.get('cache-control')).toBe('no-store')
   })
 
@@ -331,7 +361,9 @@ describe('access', () => {
     expect(viaKey.status).toBe(403)
 
     const { settings } = await bodyOf(
-      await settingsGetEndpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/settings'))),
+      await settingsGetEndpoint.handler!(
+        await reqAsAdmin(withUrl('http://t/api/platform/settings')),
+      ),
     )
     expect(settings.maintenanceMode).not.toBe(true)
   })
@@ -471,7 +503,11 @@ describe('quota enforcement', () => {
       expect(rescue.id).toBeTruthy()
       await payload.delete({ collection: 'pages', id: String(rescue.id), overrideAccess: true })
     } finally {
-      await payload.delete({ collection: 'site-entitlements', id: String(entitlementDoc.id), overrideAccess: true })
+      await payload.delete({
+        collection: 'site-entitlements',
+        id: String(entitlementDoc.id),
+        overrideAccess: true,
+      })
       const { docs } = await payload.find({
         collection: 'central-entitlement-projections',
         depth: 0,
@@ -480,7 +516,11 @@ describe('quota enforcement', () => {
         where: { site: { equals: siteId.acme } },
       })
       for (const doc of docs) {
-        await payload.delete({ collection: 'central-entitlement-projections', id: String(doc.id), overrideAccess: true })
+        await payload.delete({
+          collection: 'central-entitlement-projections',
+          id: String(doc.id),
+          overrideAccess: true,
+        })
       }
     }
   })
@@ -489,20 +529,35 @@ describe('quota enforcement', () => {
 describe('retired invoices', () => {
   it('refuses invoice creation and payment', async () => {
     const created = await invoiceCreateEndpoint.handler!(
-      await reqAsAdmin(withBody({ lines: [{ description: 'x', quantity: 1, unitAmount: 1 }], siteId: siteId.acme, total: 1 })),
+      await reqAsAdmin(
+        withBody({
+          lines: [{ description: 'x', quantity: 1, unitAmount: 1 }],
+          siteId: siteId.acme,
+          total: 1,
+        }),
+      ),
     )
     expect(created.status).toBe(410)
     const paid = await invoicePayEndpoint.handler!(
-      await reqAsAdmin({ ...withBody({ reference: 'TEST-REF-1' }), routeParams: { id: '00000000-0000-0000-0000-000000000000' } } as Partial<PayloadRequest>),
+      await reqAsAdmin({
+        ...withBody({ reference: 'TEST-REF-1' }),
+        routeParams: { id: '00000000-0000-0000-0000-000000000000' },
+      } as Partial<PayloadRequest>),
     )
     expect(paid.status).toBe(410)
     await expect(
-      payload.create({ collection: 'invoices', data: { site: siteId.acme } as never, overrideAccess: true }),
+      payload.create({
+        collection: 'invoices',
+        data: { site: siteId.acme } as never,
+        overrideAccess: true,
+      }),
     ).rejects.toThrow(/بایگانی|پلتفرم/)
   })
 
   it('reports billing integration health instead of local revenue', async () => {
-    const res = await saasOverviewEndpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/saas/overview')))
+    const res = await saasOverviewEndpoint.handler!(
+      await reqAsAdmin(withUrl('http://t/api/platform/saas/overview')),
+    )
     const { overview } = await bodyOf(res)
     expect(overview.commercialAuthority).toBe('cafe-restaurant-pos')
     expect(overview.billing.commercialAuthority).toBe('cafe-restaurant-pos')
@@ -532,7 +587,9 @@ describe('extensions', () => {
     })
 
     try {
-      const res = await pluginsListEndpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/plugins')))
+      const res = await pluginsListEndpoint.handler!(
+        await reqAsAdmin(withUrl('http://t/api/platform/plugins')),
+      )
       const text = JSON.stringify(await bodyOf(res))
       // Not "it is masked in the UI" — the bytes must not leave the process. A
       // console rendering this list is one `console.log` away from a support ticket
@@ -629,10 +686,14 @@ describe('extensions', () => {
         overrideAccess: true,
       })
       // Editing the catalogue entry did **not** repaint the live site. This is the
-      // whole reason the template is copied rather than related.
+      // whole reason Theme package defaults are copied rather than related.
       expect(unchanged.primary).toBe('#00ff00')
     } finally {
-      await payload.delete({ collection: 'theme-packages', id: String(themePackage.id), overrideAccess: true })
+      await payload.delete({
+        collection: 'theme-packages',
+        id: String(themePackage.id),
+        overrideAccess: true,
+      })
       if (original) {
         await payload.update({
           collection: 'theme',
@@ -654,7 +715,12 @@ describe('extensions', () => {
   it('refuses a commercial feature grant and records only a technical hold', async () => {
     const flag = await payload.create({
       collection: 'feature-flags',
-      data: { defaultEnabled: false, key: 'test-beta-editor', label: 'ویرایشگر آزمایشی', technicallyAvailable: true },
+      data: {
+        defaultEnabled: false,
+        key: 'test-beta-editor',
+        label: 'ویرایشگر آزمایشی',
+        technicallyAvailable: true,
+      },
       overrideAccess: true,
     })
 
@@ -697,9 +763,17 @@ describe('extensions', () => {
         where: { site: { equals: siteId.acme } },
       })
       for (const doc of docs) {
-        await payload.delete({ collection: 'site-entitlements', id: String(doc.id), overrideAccess: true })
+        await payload.delete({
+          collection: 'site-entitlements',
+          id: String(doc.id),
+          overrideAccess: true,
+        })
       }
-      await payload.delete({ collection: 'feature-flags', id: String(flag.id), overrideAccess: true })
+      await payload.delete({
+        collection: 'feature-flags',
+        id: String(flag.id),
+        overrideAccess: true,
+      })
     }
   })
 })
@@ -710,7 +784,9 @@ describe('extensions', () => {
 
 describe('audit trail', () => {
   it('records who changed what, and never records the secret they changed', async () => {
-    const res = await auditListEndpoint.handler!(await reqAsAdmin(withUrl('http://t/api/platform/audit?limit=50')))
+    const res = await auditListEndpoint.handler!(
+      await reqAsAdmin(withUrl('http://t/api/platform/audit?limit=50')),
+    )
     expect(res.status).toBe(200)
     const { entries } = await bodyOf(res)
     expect(Array.isArray(entries)).toBe(true)

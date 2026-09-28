@@ -1,3 +1,13 @@
+import {
+  DESIGN_COLOR_KEYS,
+  DESIGN_LINE_HEIGHT_MAX,
+  DESIGN_LINE_HEIGHT_MIN,
+  DESIGN_RADIUS,
+  isDesignColor,
+  isDesignLineHeight,
+  isDesignRadius,
+} from '@/lib/theme-design'
+
 /**
  * `eshobe.theme.json` — how a theme repository describes itself.
  *
@@ -130,7 +140,7 @@ export type ManifestDesign = {
   foreground?: string
   lineHeight?: number
   primary?: string
-  radius?: 'none' | 'sm' | 'md' | 'lg'
+  radius?: (typeof DESIGN_RADIUS)[number]
 }
 
 export type ThemeManifest = {
@@ -158,21 +168,27 @@ const parseDesign = (raw: unknown, errors: string[]): ManifestDesign => {
     return {}
   }
   const row = raw as Record<string, unknown>
-  const allowed = new Set(['primary', 'accent', 'background', 'foreground', 'radius', 'lineHeight'])
-  for (const key of Object.keys(row)) if (!allowed.has(key)) errors.push(`کلید design.${key} پشتیبانی نمی‌شود.`)
+  const allowed = new Set([...DESIGN_COLOR_KEYS, 'radius', 'lineHeight'])
+  const keys = Object.keys(row)
+  if (keys.length > allowed.size)
+    errors.push('«design» بیشتر از تعداد توکن‌های پشتیبانی‌شده مقدار دارد.')
+  for (const key of keys) if (!allowed.has(key)) errors.push(`کلید design.${key} پشتیبانی نمی‌شود.`)
   const out: ManifestDesign = {}
-  for (const key of ['primary', 'accent', 'background', 'foreground'] as const) {
+  for (const key of DESIGN_COLOR_KEYS) {
     if (row[key] === undefined) continue
-    if (typeof row[key] !== 'string' || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(row[key])) errors.push(`design.${key} باید رنگ hex باشد.`)
+    if (!isDesignColor(row[key])) errors.push(`design.${key} باید رنگ hex باشد.`)
     else out[key] = row[key]
   }
   if (row.radius !== undefined) {
-    if (!['none', 'sm', 'md', 'lg'].includes(String(row.radius))) errors.push('design.radius نامعتبر است.')
-    else out.radius = row.radius as ManifestDesign['radius']
+    if (!isDesignRadius(row.radius)) errors.push('design.radius نامعتبر است.')
+    else out.radius = row.radius
   }
   if (row.lineHeight !== undefined) {
-    if (typeof row.lineHeight !== 'number' || !Number.isFinite(row.lineHeight) || row.lineHeight < 1.4 || row.lineHeight > 2.4) errors.push('design.lineHeight باید بین ۱٫۴ و ۲٫۴ باشد.')
-    else out.lineHeight = row.lineHeight
+    if (!isDesignLineHeight(row.lineHeight)) {
+      errors.push(
+        `design.lineHeight باید بین ${DESIGN_LINE_HEIGHT_MIN} و ${DESIGN_LINE_HEIGHT_MAX} باشد.`,
+      )
+    } else out.lineHeight = row.lineHeight
   }
   return out
 }
@@ -372,12 +388,76 @@ const parseEnv = (raw: unknown, errors: string[]): ManifestEnvVar[] => {
   return out
 }
 
-const parseBuild = (raw: unknown, errors: string[]): ManifestBuild => {
-  const row = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+const SAFE_BUILD_COMMAND_PATTERN =
+  /^(?:pnpm|npm|yarn|bun|node|npx|next|vite|astro|nuxt|remix|gatsby|serve)(?:\s+[A-Za-z0-9@._:/=,+-]+)*$/
+const SAFE_BUILD_PATH_PATTERN = /^\/?[A-Za-z0-9._/-]+$/
 
-  const packRaw = str(row.pack) ?? str(row.buildPack) ?? 'nixpacks'
+const safeBuildString = (
+  row: Record<string, unknown>,
+  key: string,
+  errors: string[],
+): null | string => {
+  const value = row[key]
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'string') {
+    errors.push(`«build.${key}» باید متن باشد.`)
+    return null
+  }
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (trimmed.length > 500 || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    errors.push(`«build.${key}» مقدار امن و قابل قبول نیست.`)
+    return null
+  }
+
+  if (key === 'installCommand' || key === 'buildCommand' || key === 'startCommand') {
+    if (!SAFE_BUILD_COMMAND_PATTERN.test(trimmed)) {
+      errors.push(`«build.${key}» فقط می‌تواند یک دستور سادهٔ بسته‌ساز/فریم‌ورک باشد.`)
+      return null
+    }
+  } else if (
+    (key === 'baseDirectory' ||
+      key === 'dockerfileLocation' ||
+      key === 'healthCheckPath' ||
+      key === 'publishDirectory') &&
+    (!SAFE_BUILD_PATH_PATTERN.test(trimmed) || trimmed.includes('..'))
+  ) {
+    errors.push(`«build.${key}» مسیر امن و قابل قبول نیست.`)
+    return null
+  }
+
+  return trimmed
+}
+
+const parseBuild = (raw: unknown, errors: string[]): ManifestBuild => {
+  const row = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<
+    string,
+    unknown
+  >
+  if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) {
+    errors.push('«build» باید یک شیء باشد.')
+  }
+
+  const allowed = new Set([
+    'baseDirectory',
+    'buildCommand',
+    'buildPack',
+    'dockerfileLocation',
+    'healthCheckPath',
+    'installCommand',
+    'isStatic',
+    'pack',
+    'port',
+    'publishDirectory',
+    'startCommand',
+  ])
+  for (const key of Object.keys(row)) {
+    if (!allowed.has(key)) errors.push(`کلید build.${key} پشتیبانی نمی‌شود.`)
+  }
+
+  const packRaw = str(row.buildPack) ?? str(row.pack) ?? 'nixpacks'
   if (!(BUILD_PACKS as readonly string[]).includes(packRaw)) {
-    errors.push(`«build.pack» باید یکی از ${BUILD_PACKS.join('، ')} باشد.`)
+    errors.push(`«build.buildPack» باید یکی از ${BUILD_PACKS.join('، ')} باشد.`)
   }
 
   const portRaw = row.port ?? 3000
@@ -386,29 +466,29 @@ const parseBuild = (raw: unknown, errors: string[]): ManifestBuild => {
     errors.push('«build.port» باید یک عدد بین ۱ تا ۶۵۵۳۵ باشد.')
   }
 
-  const healthCheckPath = str(row.healthCheckPath)
+  const healthCheckPath = safeBuildString(row, 'healthCheckPath', errors)
   if (healthCheckPath && !healthCheckPath.startsWith('/')) {
     errors.push('«build.healthCheckPath» باید با / شروع شود.')
   }
 
-  const baseDirectory = str(row.baseDirectory) ?? '/'
+  const baseDirectory = safeBuildString(row, 'baseDirectory', errors) ?? '/'
   if (!baseDirectory.startsWith('/')) {
     errors.push('«build.baseDirectory» باید با / شروع شود.')
   }
 
   return {
     baseDirectory,
-    buildCommand: str(row.buildCommand),
+    buildCommand: safeBuildString(row, 'buildCommand', errors),
     buildPack: ((BUILD_PACKS as readonly string[]).includes(packRaw)
       ? packRaw
       : 'nixpacks') as BuildPack,
-    dockerfileLocation: str(row.dockerfileLocation),
+    dockerfileLocation: safeBuildString(row, 'dockerfileLocation', errors),
     healthCheckPath,
-    installCommand: str(row.installCommand),
+    installCommand: safeBuildString(row, 'installCommand', errors),
     isStatic: bool(row.isStatic, packRaw === 'static'),
     port: Number.isInteger(port) ? port : 3000,
-    publishDirectory: str(row.publishDirectory),
-    startCommand: str(row.startCommand),
+    publishDirectory: safeBuildString(row, 'publishDirectory', errors),
+    startCommand: safeBuildString(row, 'startCommand', errors),
   }
 }
 
