@@ -1523,6 +1523,12 @@ Complete example using the current field names:
     "radius": "md",
     "lineHeight": 1.8
   },
+  "deployment": {
+    "strategy": "registry_image",
+    "registryProvider": "ghcr",
+    "registryImageRepository": "ghcr.io/owner/theme",
+    "registryVisibility": "public"
+  },
   "build": {
     "buildPack": "dockerfile",
     "baseDirectory": "/",
@@ -1577,6 +1583,7 @@ Complete example using the current field names:
 | `proxiesApi` | boolean | no | `false` | boolean only | Required for Coolify-first direct production because `/api/*` hits the theme container. |
 | `capabilities` | object | no | `{}` | `Record<string, boolean>`; non-true values become `false` | Metadata for filtering/reporting; not an execution surface. |
 | `design` | object | no | `{}` | keys exactly `primary`, `accent`, `background`, `foreground`, `radius`, `lineHeight` | Optional design defaults copied on adoption/reset only. Unknown keys reject the manifest. |
+| `deployment` | object | no | omitted | see below; unknown deployment keys reject | GHCR/registry strategy synced into the theme package on manifest sync. |
 | `build` | object | no | `{}` | see below; unknown build keys reject | Instructions projected to Coolify. Treat as untrusted repository input. |
 | `env` | array | no | `[]` | max 50 entries; see below | Deployment environment declarations. Values are never taken from the manifest. |
 | `settings` | object | no | `{}` | max 50 entries; see below | Safe runtime presentation settings returned through `GET /api/site`; no rebuild needed. |

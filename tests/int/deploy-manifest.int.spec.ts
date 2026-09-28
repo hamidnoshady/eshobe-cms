@@ -57,10 +57,32 @@ const manifestOf = (input: unknown): ThemeManifest => {
 }
 
 describe('parseThemeManifest', () => {
+  it('accepts registry_image deployment metadata for GHCR themes', () => {
+    const manifest = manifestOf({
+      ...valid,
+      build: {
+        buildPack: 'dockerfile',
+        dockerfileLocation: 'Dockerfile',
+        healthCheckPath: '/api/health',
+        port: 3000,
+      },
+      deployment: {
+        strategy: 'registry_image',
+        registryProvider: 'ghcr',
+        registryImageRepository: 'ghcr.io/owner/theme',
+        registryVisibility: 'public',
+      },
+    })
+    expect(manifest.deployment?.strategy).toBe('registry_image')
+    expect(manifest.deployment?.registryImageRepository).toBe('ghcr.io/owner/theme')
+    expect(manifest.build.buildPack).toBe('dockerfile')
+  })
+
   it('accepts a well-formed manifest and projects its build settings', () => {
     const manifest = manifestOf(valid)
 
     expect(manifest.key).toBe('bazaar-store')
+    expect(manifest.deployment).toBeNull()
     expect(manifest.build.buildPack).toBe('nixpacks')
     expect(manifest.build.port).toBe(3000)
     expect(manifest.siteTypes).toEqual(['store'])
