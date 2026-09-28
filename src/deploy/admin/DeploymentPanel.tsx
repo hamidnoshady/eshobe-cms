@@ -8,6 +8,7 @@ import { SelectInput } from '@payloadcms/ui/fields/Select'
 import { formatDate } from '@/lib/format'
 
 import { ActionButton } from './ActionButton'
+import { ReadinessChecklist } from './ReadinessChecklist'
 
 /**
  * The per-site deployment console: `/admin/collections/sites/:id/deployment`.
@@ -336,6 +337,12 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
       </div>
 
       {error && <div className="banner banner--type-error">{error}</div>}
+
+      <ReadinessChecklist
+        refreshKey={`${assignedThemePackage ?? ''}:${deployments.map((row) => `${row.id}${row.status}`).join(',')}`}
+        settingsHref={`/admin/collections/sites/${siteId}/theme-settings`}
+        siteId={siteId}
+      />
 
       {/* ---------------------------------------------------------------- */}
       {/* What is serving right now */}

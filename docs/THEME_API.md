@@ -1772,6 +1772,36 @@ Example response:
 
 Cross-tenant binding IDs are refused and unresolved/deleted targets return `null` for that slot.
 
+##### How a theme should consume bindings
+
+A binding is the **customer's choice of content**; the URL it appears at is **the theme's**.
+Keep the two separate and a customer can call their About page anything.
+
+1. **Routes are the theme's.** A theme that has an "About" section serves it at a fixed path of
+   its own choosing (`/about`). Never derive that path from the bound document's slug — a
+   Persian site's page is called `درباره-ما`, and nav, sitemap and canonical URLs would all
+   move when somebody renames it.
+2. **Look the document up by `id`, not by slug.** `bindings.<key>.id` is stable; the slug is
+   editable and localized. Read it with the request's `locale` and `fallbackLocale=false`. A
+   bound document that has no translation in that locale is *missing* there (404 or an empty
+   state) — do not substitute a different page that happens to share a slug.
+3. **Slug is only a first-run hint.** With no binding saved (a freshly provisioned site
+   before anybody opened «تنظیمات پوسته»), a theme may look for a document whose slug equals
+   its section key. The hint applies **only when the slot is unbound** (`null`/absent), never
+   as a second opinion next to a binding.
+4. **One canonical URL per bound page.** When a visitor reaches a bound page through its own
+   slug (a rich-text link, an old bookmark), redirect to the section route. Internal
+   references in CMS navigation carry the document `id`, so match on that.
+5. **Resolve in one place.** Routes, navigation, sitemap and structured data must all go
+   through the same lookup, or a menu item points at a page the route will not render.
+
+The Graphite theme is the reference: `src/lib/theme/sections.ts` (rules, pure) and
+`src/lib/cms.ts` (`getSectionPage`, `getHomePage`, `getSectionCategories`).
+
+The operator console's **«آمادگی پوسته»** checklist (`GET …/deployment/readiness`) reports
+required slots that are unbound, bound documents that are drafts or deleted, and bound pages
+missing a served locale — the three ways a correct deploy still renders an empty page.
+
 ### Revalidation contract
 
 When CMS content changes, the CMS sends a best-effort signed request to every live deployment's
