@@ -247,7 +247,7 @@ export const plugins: Plugin[] = [
       // Four are registered and three are deliberately **not**, and the line between
       // them is whether the row belongs to exactly one site:
       //
-      //   - `plans`, `feature-flags`, `theme-templates`, `plugins`, `webhooks` are
+      //   - `plans`, `feature-flags`, `theme-packages`, `plugins`, `webhooks` are
       //     the platform's own catalogue and infrastructure — the same shape as
       //     `api-keys` and `storage-connections`. A `site` column on a price list is
       //     meaningless.
@@ -272,7 +272,7 @@ export const plugins: Plugin[] = [
       // `site-theme-settings` each carry exactly one site, so both are registered;
       // `theme-packages` and `deploy-targets` are the operator's own catalogue and
       // infrastructure — one repository list and one server list offered to every
-      // customer — so they take the documented exception alongside `theme-templates`
+      // customer — so they take the documented exception alongside `theme-packages`
       // and `storage-connections`. "Which customer owns the Tehran server?" has no
       // answer, and a required `site` column would make the row unsavable.
       'site-deployments': {},

@@ -1360,6 +1360,7 @@ perfectly good theme — you just deploy it yourself. Operator-side mechanics li
   "key": "bazaar",
   "name": "Bazaar",
   "siteTypes": ["store"],
+  "design": { "primary": "#0f766e", "radius": "md", "lineHeight": 1.8 },
   "build": { "pack": "nixpacks", "port": 3000 }
 }
 ```
@@ -1377,6 +1378,7 @@ perfectly good theme — you just deploy it yourself. Operator-side mechanics li
 | `capabilities` | | `{}` | Free-form `Record<string, boolean>` for operator filtering. Not interpreted. |
 | `previewUrl` | | `null` | Live demo. **Must be `https:`.** |
 | `proxiesApi` | | `false` | See below — the single most consequential flag in the file. |
+| `design` | | omitted | Optional initial site design defaults: hex `primary`, `accent`, `background`, `foreground`; `radius` (`none`, `sm`, `md`, `lg`); and `lineHeight` (1.4–2.4). Values are copied only when a site first adopts this theme or an operator explicitly applies them; changing a manifest never repaints an existing site. |
 | `env` | | `[]` | Tenant-supplied configuration. See below. |
 | `build` | | `{}` | Build instructions. See below. |
 

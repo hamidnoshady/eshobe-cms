@@ -102,7 +102,6 @@ export interface Config {
     'billing-replay-nonces': BillingReplayNonce;
     'feature-flags': FeatureFlag;
     plugins: Plugin;
-    'theme-templates': ThemeTemplate;
     'theme-packages': ThemePackage;
     'theme-artifacts': ThemeArtifact;
     'deploy-targets': DeployTarget;
@@ -164,7 +163,6 @@ export interface Config {
     'billing-replay-nonces': BillingReplayNoncesSelect<false> | BillingReplayNoncesSelect<true>;
     'feature-flags': FeatureFlagsSelect<false> | FeatureFlagsSelect<true>;
     plugins: PluginsSelect<false> | PluginsSelect<true>;
-    'theme-templates': ThemeTemplatesSelect<false> | ThemeTemplatesSelect<true>;
     'theme-packages': ThemePackagesSelect<false> | ThemePackagesSelect<true>;
     'theme-artifacts': ThemeArtifactsSelect<false> | ThemeArtifactsSelect<true>;
     'deploy-targets': DeployTargetsSelect<false> | DeployTargetsSelect<true>;
@@ -495,9 +493,16 @@ export interface ThemePackage {
   githubLastAutoSyncAt?: string | null;
   githubLastAutoSyncError?: string | null;
   /**
-   * وقتی سایتی این پوسته را می‌گیرد، رنگ‌های این پوستهٔ آماده روی آن کپی می‌شود. کپی است، نه پیوند.
+   * از مانیفست خوانده می‌شود و فقط هنگام پذیرش پوسته در سایت کپی می‌شود.
    */
-  themeTemplate?: (string | null) | ThemeTemplate;
+  designDefaults?: {
+    primary?: string | null;
+    accent?: string | null;
+    background?: string | null;
+    foreground?: string | null;
+    radius?: ('none' | 'sm' | 'md' | 'lg') | null;
+    lineHeight?: number | null;
+  };
   /**
    * اگر هنگام استقرار سروری انتخاب نشود، همین استفاده می‌شود.
    */
@@ -511,46 +516,85 @@ export interface ThemePackage {
   createdAt: string;
 }
 /**
- * کتابخانهٔ پوسته‌های آماده که سایت جدید از روی آن‌ها ساخته می‌شود. اعمال یک پوسته، یک کپی است — ویرایش این فهرست، سایت‌های موجود را تغییر نمی‌دهد.
+ * سرورهایی که پوستهٔ سایت‌ها روی آن‌ها اجرا می‌شود. توکن Coolify رمزنگاری‌شده ذخیره می‌شود و هرگز برگردانده نمی‌شود؛ پیش از استفاده حتماً «خودآزمایی» را اجرا کنید.
  *
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "theme-templates".
+ * via the `definition` "deploy-targets".
  */
-export interface ThemeTemplate {
+export interface DeployTarget {
   id: string;
+  /**
+   * برای خودتان — مثلاً «سرور اصلی — تهران».
+   */
   name: string;
   /**
-   * شناسهٔ ماشینی؛ در API ساخت سایت با همین نام ارسال می‌شود.
+   * شناسهٔ ماشینی؛ در API با همین نام ارسال می‌شود.
    */
   key: string;
-  description?: string | null;
+  provider: 'coolify';
   /**
-   * خاموش یعنی در ساخت سایت جدید پیشنهاد نمی‌شود؛ سایت‌های موجود دست‌نخورده‌اند.
+   * خاموش یعنی استقرار جدیدی روی آن ساخته نمی‌شود؛ سایت‌های در حال اجرا دست‌نخورده می‌مانند.
    */
   active?: boolean | null;
   /**
-   * وقتی هنگام ساخت سایت پوسته‌ای انتخاب نشده باشد، همین اعمال می‌شود.
+   * بدون / پایانی — مثل https://coolify.example.com.
    */
-  isDefault?: boolean | null;
+  baseUrl: string;
   /**
-   * فقط برای این نوع‌ها در فهرست ساخت سایت ظاهر می‌شود.
+   * از بخش Keys & Tokens در Coolify. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده». این توکن می‌تواند هر سایتی را روشن و خاموش کند.
    */
-  siteTypes?: ('business' | 'portfolio' | 'store')[] | null;
-  tokens?: {
-    primary?: string | null;
-    accent?: string | null;
-    background?: string | null;
-    foreground?: string | null;
-    radius?: ('none' | 'sm' | 'md' | 'lg') | null;
-    /**
-     * فارسی به فضای عمودی بیشتری نیاز دارد؛ کمتر از ۱٫۶ توصیه نمی‌شود.
-     */
-    lineHeight?: number | null;
-  };
+  apiToken?: string | null;
   /**
-   * اختیاری — برای فهرست انتخاب پوسته در ساخت سایت.
+   * بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».
    */
-  preview?: (string | null) | Media;
+  clearApiToken?: boolean | null;
+  tokenSummary?: string | null;
+  /**
+   * اگر مسیر override نداشته باشد از این سرور استفاده می‌کند.
+   */
+  defaultServerUuid?: string | null;
+  previewServerUuid?: string | null;
+  previewEnvironmentName?: string | null;
+  previewWildcardDomain?: string | null;
+  productionServerUuid?: string | null;
+  productionEnvironmentName?: string | null;
+  publicGitEnabled?: boolean | null;
+  githubAppEnabled?: boolean | null;
+  deployKeyEnabled?: boolean | null;
+  publicRegistryPullEnabled?: boolean | null;
+  ghcrEnabled?: boolean | null;
+  ghcrCredentialUuid?: string | null;
+  /**
+   * فقط برای سازگاری با نسخهٔ قبل. مقدار به «پروژهٔ انتشار» منتقل شده است؛ برای استقرار جدید هر دو پروژه را پر کنید.
+   */
+  projectUuid?: string | null;
+  /**
+   * UUID پروژهٔ Coolify برای استقرارهای پیش‌نمایش.
+   */
+  previewProjectUuid?: string | null;
+  /**
+   * UUID پروژهٔ Coolify برای انتشار روی دامنهٔ مشتری. ترجیحاً با پروژهٔ پیش‌نمایش متفاوت باشد.
+   */
+  productionProjectUuid?: string | null;
+  /**
+   * UUID سرور در Coolify.
+   */
+  serverUuid?: string | null;
+  environmentName: string;
+  /**
+   * برای پوسته‌های خصوصی باید در Coolify از قبل یک منبع ساخته باشید.
+   */
+  gitSource: 'public' | 'githubApp' | 'deployKey';
+  githubAppUuid?: string | null;
+  privateKeyUuid?: string | null;
+  /**
+   * مثل *.sites.example.com — پیش از انتقال DNS مشتری، پوسته روی یک زیردامنه از این نام اجرا و بررسی می‌شود.
+   */
+  wildcardDomain?: string | null;
+  notes?: string | null;
+  lastSelfTestOk?: boolean | null;
+  lastSelfTestDetail?: string | null;
+  lastSelfTestAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -672,89 +716,6 @@ export interface FolderInterface {
     totalDocs?: number;
   };
   folderType?: 'media'[] | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * سرورهایی که پوستهٔ سایت‌ها روی آن‌ها اجرا می‌شود. توکن Coolify رمزنگاری‌شده ذخیره می‌شود و هرگز برگردانده نمی‌شود؛ پیش از استفاده حتماً «خودآزمایی» را اجرا کنید.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "deploy-targets".
- */
-export interface DeployTarget {
-  id: string;
-  /**
-   * برای خودتان — مثلاً «سرور اصلی — تهران».
-   */
-  name: string;
-  /**
-   * شناسهٔ ماشینی؛ در API با همین نام ارسال می‌شود.
-   */
-  key: string;
-  provider: 'coolify';
-  /**
-   * خاموش یعنی استقرار جدیدی روی آن ساخته نمی‌شود؛ سایت‌های در حال اجرا دست‌نخورده می‌مانند.
-   */
-  active?: boolean | null;
-  /**
-   * بدون / پایانی — مثل https://coolify.example.com.
-   */
-  baseUrl: string;
-  /**
-   * از بخش Keys & Tokens در Coolify. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و هرگز برگردانده نمی‌شود؛ خالی گذاشتن یعنی «تغییر نده». این توکن می‌تواند هر سایتی را روشن و خاموش کند.
-   */
-  apiToken?: string | null;
-  /**
-   * بدون تیک، فیلد خالی یعنی «همان مقدار قبلی».
-   */
-  clearApiToken?: boolean | null;
-  tokenSummary?: string | null;
-  /**
-   * اگر مسیر override نداشته باشد از این سرور استفاده می‌کند.
-   */
-  defaultServerUuid?: string | null;
-  previewServerUuid?: string | null;
-  previewEnvironmentName?: string | null;
-  previewWildcardDomain?: string | null;
-  productionServerUuid?: string | null;
-  productionEnvironmentName?: string | null;
-  publicGitEnabled?: boolean | null;
-  githubAppEnabled?: boolean | null;
-  deployKeyEnabled?: boolean | null;
-  publicRegistryPullEnabled?: boolean | null;
-  ghcrEnabled?: boolean | null;
-  ghcrCredentialUuid?: string | null;
-  /**
-   * فقط برای سازگاری با نسخهٔ قبل. مقدار به «پروژهٔ انتشار» منتقل شده است؛ برای استقرار جدید هر دو پروژه را پر کنید.
-   */
-  projectUuid?: string | null;
-  /**
-   * UUID پروژهٔ Coolify برای استقرارهای پیش‌نمایش.
-   */
-  previewProjectUuid?: string | null;
-  /**
-   * UUID پروژهٔ Coolify برای انتشار روی دامنهٔ مشتری. ترجیحاً با پروژهٔ پیش‌نمایش متفاوت باشد.
-   */
-  productionProjectUuid?: string | null;
-  /**
-   * UUID سرور در Coolify.
-   */
-  serverUuid?: string | null;
-  environmentName: string;
-  /**
-   * برای پوسته‌های خصوصی باید در Coolify از قبل یک منبع ساخته باشید.
-   */
-  gitSource: 'public' | 'githubApp' | 'deployKey';
-  githubAppUuid?: string | null;
-  privateKeyUuid?: string | null;
-  /**
-   * مثل *.sites.example.com — پیش از انتقال DNS مشتری، پوسته روی یک زیردامنه از این نام اجرا و بررسی می‌شود.
-   */
-  wildcardDomain?: string | null;
-  notes?: string | null;
-  lastSelfTestOk?: boolean | null;
-  lastSelfTestDetail?: string | null;
-  lastSelfTestAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -3512,10 +3473,6 @@ export interface PayloadLockedDocument {
         value: string | Plugin;
       } | null)
     | ({
-        relationTo: 'theme-templates';
-        value: string | ThemeTemplate;
-      } | null)
-    | ({
         relationTo: 'theme-packages';
         value: string | ThemePackage;
       } | null)
@@ -4853,31 +4810,6 @@ export interface PluginsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "theme-templates_select".
- */
-export interface ThemeTemplatesSelect<T extends boolean = true> {
-  name?: T;
-  key?: T;
-  description?: T;
-  active?: T;
-  isDefault?: T;
-  siteTypes?: T;
-  tokens?:
-    | T
-    | {
-        primary?: T;
-        accent?: T;
-        background?: T;
-        foreground?: T;
-        radius?: T;
-        lineHeight?: T;
-      };
-  preview?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "theme-packages_select".
  */
 export interface ThemePackagesSelect<T extends boolean = true> {
@@ -4912,7 +4844,16 @@ export interface ThemePackagesSelect<T extends boolean = true> {
   githubWebhookReceivedAt?: T;
   githubLastAutoSyncAt?: T;
   githubLastAutoSyncError?: T;
-  themeTemplate?: T;
+  designDefaults?:
+    | T
+    | {
+        primary?: T;
+        accent?: T;
+        background?: T;
+        foreground?: T;
+        radius?: T;
+        lineHeight?: T;
+      };
   defaultTarget?: T;
   requiredFeature?: T;
   preview?: T;

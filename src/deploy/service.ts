@@ -24,7 +24,7 @@ import {
   type DomainMode,
 } from '@/lib/deploy/status'
 import { resolveEntitlement } from '@/platform/entitlements'
-import { applyThemeTemplate } from '@/platform/saas-report'
+import { applyThemeDesignDefaults } from '@/platform/saas-report'
 import { emitPlatformEvent } from '@/platform/webhooks'
 import { readDeployTargetToken } from '@/collections/hooks/deploySecrets'
 import { CoolifyClient, boundedLabel, scrubDetail, type DeployTarget } from './coolify'
@@ -1318,15 +1318,6 @@ export const promoteDeployment = async (
     })
   }
 
-  const pkg = (await req.payload.findByID({
-    collection: 'theme-packages',
-    depth: 0,
-    disableErrors: true,
-    id: String(idOf(deployment.themePackage)),
-    overrideAccess: true,
-    req,
-  })) as unknown as null | Record<string, unknown>
-
   const site = (await req.payload.findByID({
     collection: 'sites',
     depth: 0,
@@ -1337,12 +1328,13 @@ export const promoteDeployment = async (
   })) as unknown as null | Record<string, unknown>
 
   if (isProductionMode(mode)) {
-    // The tokens the theme renders with. A copy, exactly as `applyThemeTemplate`
-    // documents — a live link would repaint twenty customers when an operator tweaks a
-    // preset. Only for production: a preview must not repaint the live site.
-    const templateId = idOf(pkg?.themeTemplate)
-    if (templateId && site) {
-      await applyThemeTemplate(req, site, templateId)
+    // Copy only on first successful adoption of a different theme. Redeploying the
+    // same package must never reset customer branding.
+    const previous = site && idOf(site.activeDeployment)
+      ? await req.payload.findByID({ collection: 'site-deployments', depth: 0, disableErrors: true, id: String(idOf(site.activeDeployment)), overrideAccess: true, req })
+      : null
+    if (site && String(idOf((previous as Record<string, unknown> | null)?.themePackage) ?? '') !== String(idOf(deployment.themePackage))) {
+      await applyThemeDesignDefaults(req, site, String(idOf(deployment.themePackage)))
     }
 
     await req.payload.update({

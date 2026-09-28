@@ -35,7 +35,7 @@ A customer's staff decide exactly one thing: the answers to the variables the th
 | Concept | Slug | Owner | What it holds |
 |---|---|---|---|
 | Per-site tokens | `theme` | site | Colours/radius — unchanged by any of this. |
-| Token presets | `theme-templates` | platform | Paint only. A package may name one to copy onto a site when it goes live. |
+| Design defaults | `theme-packages.designDefaults` | platform | Copied only when a site first adopts a different theme or an operator explicitly applies defaults. |
 | **Deployable theme** | `theme-packages` | platform | Repository visibility, strategy, manifest, synced/pinned commit, and optional allowed GHCR repository/visibility. |
 | **Immutable build** | `theme-artifacts` | platform | One commit's verified image repository + digest, workflow provenance, and build state. |
 | **Coolify connection** | `deploy-targets` | platform | Encrypted API token, lane placements, Git capabilities, and registry capabilities. |

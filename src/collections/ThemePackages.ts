@@ -4,20 +4,15 @@ import { platformAdmin } from '@/access/platformAdmin'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { BUILD_PACKS, parseRepository, isSafeGitRef } from '@/lib/deploy/manifest'
 import { slugKey } from '@/lib/saas/plans'
+import { DESIGN_RADIUS } from '@/lib/theme-design'
+import { isHexColor } from '@/lib/theme'
 
 /**
  * A **deployable** theme: a GitHub repository built against `docs/THEME_API.md`,
  * registered here so a site can be pointed at it.
  *
- * ## Why this is not `theme-templates`
- *
- * `theme-templates` is *paint* — hex tokens copied onto a site's `theme` document by
- * `applyThemeTemplate`, with no code, no build and no runtime. A row here is a
- * *program*: a repo, a ref, a build pack, a port, an env contract, a lifecycle. The
- * two are related (a package names the template whose tokens it wants applied when a
- * site adopts it) and must not be merged, for the same reason that collection's own
- * header gives for not merging itself with `theme`: conflating a catalogue with a
- * live artefact means editing the catalogue changes what is running in production.
+ * It is the canonical Theme catalogue: a repo, a ref, a build pack, a port, an env
+ * contract, a lifecycle, and optional defaults copied only when a site adopts it.
  *
  * ## The manifest is the source of truth, not this form
  *
@@ -473,14 +468,19 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
       label: 'عرضه',
       fields: [
         {
-          name: 'themeTemplate',
-          type: 'relationship',
-          relationTo: 'theme-templates',
-          label: 'توکن‌های پیش‌فرض',
-          admin: {
-            description:
-              'وقتی سایتی این پوسته را می‌گیرد، رنگ‌های این پوستهٔ آماده روی آن کپی می‌شود. کپی است، نه پیوند.',
-          },
+          name: 'designDefaults',
+          type: 'group',
+          label: 'پیش‌فرض‌های طراحی',
+          access: readOnly,
+          admin: { readOnly: true, description: 'از مانیفست خوانده می‌شود و فقط هنگام پذیرش پوسته در سایت کپی می‌شود.' },
+          fields: [
+            { name: 'primary', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
+            { name: 'accent', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
+            { name: 'background', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
+            { name: 'foreground', type: 'text', validate: (value: unknown) => isHexColor(value) || value == null ? true : 'رنگ hex نامعتبر است.' },
+            { name: 'radius', type: 'select', options: DESIGN_RADIUS.map((value) => ({ label: value, value })) },
+            { name: 'lineHeight', type: 'number', min: 1.4, max: 2.4 },
+          ],
         },
         {
           name: 'defaultTarget',

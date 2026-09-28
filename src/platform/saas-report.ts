@@ -55,7 +55,7 @@ export const saasOverview = async (req: PayloadRequest, opts: { days?: unknown }
     billingIntegrationHealth(req),
     countOf(req, 'plugins'),
     countOf(req, 'plugins', { enabled: { equals: true } }),
-    countOf(req, 'theme-templates', { active: { equals: true } }),
+    countOf(req, 'theme-packages', { status: { equals: 'published' } }),
     countOf(req, 'webhooks'),
     countOf(req, 'webhooks', { enabled: { equals: true } }),
     countOf(req, 'webhooks', { consecutiveFailures: { greater_than: 0 } }),
@@ -126,7 +126,7 @@ export const pluginsForSite = async (
  * apply, and a token the template is missing must not blank the site's current
  * value. That is why this is an explicit field list and not a spread.
  */
-export const applyThemeTemplate = async (
+export const applyThemeDesignDefaults = async (
   req: PayloadRequest,
   site: Record<string, unknown>,
   reference: string,
@@ -134,10 +134,10 @@ export const applyThemeTemplate = async (
   const ref = String(reference ?? '').trim()
   if (!ref) return { message: 'پوسته‌ای انتخاب نشده است.', ok: false }
 
-  const template = isUuid(ref)
+  const themePackage = isUuid(ref)
     ? await req.payload.findByID({
         id: ref,
-        collection: 'theme-templates',
+        collection: 'theme-packages',
         depth: 0,
         disableErrors: true,
         overrideAccess: true,
@@ -145,7 +145,7 @@ export const applyThemeTemplate = async (
       })
     : (
         await req.payload.find({
-          collection: 'theme-templates',
+          collection: 'theme-packages',
           depth: 0,
           limit: 1,
           overrideAccess: true,
@@ -154,9 +154,9 @@ export const applyThemeTemplate = async (
         })
       ).docs[0]
 
-  if (!template) return { message: `پوستهٔ «${ref}» پیدا نشد.`, ok: false }
+  if (!themePackage) return { message: `پوستهٔ «${ref}» پیدا نشد.`, ok: false }
 
-  const tokens = (template as { tokens?: Record<string, unknown> }).tokens ?? {}
+  const tokens = (themePackage as { designDefaults?: Record<string, unknown> }).designDefaults ?? {}
   const data: Record<string, unknown> = {}
   for (const key of ['accent', 'background', 'foreground', 'lineHeight', 'primary', 'radius'] as const) {
     if (tokens[key] !== undefined && tokens[key] !== null && tokens[key] !== '') data[key] = tokens[key]
@@ -190,5 +190,5 @@ export const applyThemeTemplate = async (
         req,
       })
 
-  return { id: String(doc.id), ok: true, theme: String((template as { key?: unknown }).key ?? ref) }
+  return { id: String(doc.id), ok: true, theme: String((themePackage as { key?: unknown }).key ?? ref) }
 }
