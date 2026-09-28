@@ -72,6 +72,15 @@ export const syncThemePackage = async (
   }
 
   const { manifest } = result
+  const deploymentPatch = manifest.deployment
+    ? {
+        allowedDeploymentStrategies: ['coolify_build', 'registry_image'],
+        deploymentStrategy: manifest.deployment.strategy,
+        registryImageRepository: manifest.deployment.registryImageRepository,
+        registryProvider: manifest.deployment.registryProvider,
+        registryVisibility: manifest.deployment.registryVisibility,
+      }
+    : {}
 
   await req.payload.update({
     collection: 'theme-packages',
@@ -80,6 +89,7 @@ export const syncThemePackage = async (
       buildPack: manifest.build.buildPack,
       contractVersion: manifest.contractVersion,
       defaultRef: requestedRef,
+      ...deploymentPatch,
       envSchema: manifest.env,
       runtimeSettingsSchema: manifest.settings,
       contentSlotsSchema: manifest.contentSlots,

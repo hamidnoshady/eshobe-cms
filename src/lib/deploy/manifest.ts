@@ -134,6 +134,25 @@ export type ManifestBuild = {
   startCommand: null | string
 }
 
+export const DEPLOYMENT_STRATEGIES = ['coolify_build', 'registry_image'] as const
+export type ManifestDeploymentStrategy = (typeof DEPLOYMENT_STRATEGIES)[number]
+
+export const REGISTRY_PROVIDERS = ['ghcr'] as const
+export type RegistryProvider = (typeof REGISTRY_PROVIDERS)[number]
+
+export const REGISTRY_VISIBILITY = ['public', 'private'] as const
+export type RegistryVisibility = (typeof REGISTRY_VISIBILITY)[number]
+
+const GHCR_REPOSITORY_PATTERN =
+  /^ghcr\.io\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._/-]*$/i
+
+export type ManifestDeployment = {
+  registryImageRepository: null | string
+  registryProvider: null | RegistryProvider
+  registryVisibility: RegistryVisibility
+  strategy: ManifestDeploymentStrategy
+}
+
 export type ManifestDesign = {
   accent?: string
   background?: string
@@ -147,6 +166,7 @@ export type ThemeManifest = {
   build: ManifestBuild
   capabilities: Record<string, boolean>
   contractVersion: number
+  deployment: ManifestDeployment | null
   env: ManifestEnvVar[]
   settings: ManifestRuntimeSetting[]
   contentSlots: ManifestContentSlot[]
@@ -429,6 +449,71 @@ const safeBuildString = (
   return trimmed
 }
 
+const parseDeployment = (raw: unknown, errors: string[]): ManifestDeployment | null => {
+  if (raw === undefined || raw === null) return null
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push('«deployment» باید یک شیء باشد.')
+    return null
+  }
+  const row = raw as Record<string, unknown>
+  const allowed = new Set([
+    'registryImageRepository',
+    'registryProvider',
+    'registryVisibility',
+    'strategy',
+  ])
+  for (const key of Object.keys(row)) {
+    if (!allowed.has(key)) errors.push(`کلید deployment.${key} پشتیبانی نمی‌شود.`)
+  }
+
+  const strategyRaw = str(row.strategy)
+  if (
+    !strategyRaw ||
+    !(DEPLOYMENT_STRATEGIES as readonly string[]).includes(strategyRaw)
+  ) {
+    errors.push(`«deployment.strategy» باید یکی از ${DEPLOYMENT_STRATEGIES.join('، ')} باشد.`)
+    return null
+  }
+  const strategy = strategyRaw as ManifestDeploymentStrategy
+
+  const registryProviderRaw = str(row.registryProvider)
+  let registryProvider: null | RegistryProvider = null
+  if (registryProviderRaw) {
+    if (!(REGISTRY_PROVIDERS as readonly string[]).includes(registryProviderRaw)) {
+      errors.push(`«deployment.registryProvider» باید یکی از ${REGISTRY_PROVIDERS.join('، ')} باشد.`)
+    } else registryProvider = registryProviderRaw as RegistryProvider
+  }
+
+  const visibilityRaw = str(row.registryVisibility) ?? 'public'
+  if (!(REGISTRY_VISIBILITY as readonly string[]).includes(visibilityRaw)) {
+    errors.push(`«deployment.registryVisibility» باید public یا private باشد.`)
+  }
+  const registryVisibility = (
+    (REGISTRY_VISIBILITY as readonly string[]).includes(visibilityRaw)
+      ? visibilityRaw
+      : 'public'
+  ) as RegistryVisibility
+
+  const registryImageRepository = str(row.registryImageRepository)
+  if (strategy === 'registry_image') {
+    if (!registryImageRepository) {
+      errors.push('«deployment.registryImageRepository» برای استقرار registry_image الزامی است.')
+    } else if (!GHCR_REPOSITORY_PATTERN.test(registryImageRepository)) {
+      errors.push('«deployment.registryImageRepository» باید به شکل ghcr.io/owner/image باشد.')
+    }
+    if (!registryProvider) {
+      errors.push('«deployment.registryProvider» برای استقرار registry_image الزامی است.')
+    }
+  }
+
+  return {
+    registryImageRepository,
+    registryProvider,
+    registryVisibility,
+    strategy,
+  }
+}
+
 const parseBuild = (raw: unknown, errors: string[]): ManifestBuild => {
   const row = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<
     string,
@@ -564,6 +649,7 @@ export const parseThemeManifest = (
   }
 
   const build = parseBuild(row.build, errors)
+  const deployment = parseDeployment(row.deployment, errors)
   const env = parseEnv(row.env, errors)
   const settings = parseSettings(row.settings, errors)
   const contentSlots = parseContentSlots(row.contentSlots, errors)
@@ -581,6 +667,7 @@ export const parseThemeManifest = (
       build,
       capabilities,
       contractVersion,
+      deployment,
       env,
       settings,
       contentSlots,

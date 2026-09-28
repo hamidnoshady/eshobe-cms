@@ -1523,6 +1523,12 @@ Complete example using the current field names:
     "radius": "md",
     "lineHeight": 1.8
   },
+  "deployment": {
+    "strategy": "registry_image",
+    "registryProvider": "ghcr",
+    "registryImageRepository": "ghcr.io/owner/theme",
+    "registryVisibility": "public"
+  },
   "build": {
     "buildPack": "dockerfile",
     "baseDirectory": "/",
@@ -1577,6 +1583,7 @@ Complete example using the current field names:
 | `proxiesApi` | boolean | no | `false` | boolean only | Required for Coolify-first direct production because `/api/*` hits the theme container. |
 | `capabilities` | object | no | `{}` | `Record<string, boolean>`; non-true values become `false` | Metadata for filtering/reporting; not an execution surface. |
 | `design` | object | no | `{}` | keys exactly `primary`, `accent`, `background`, `foreground`, `radius`, `lineHeight` | Optional design defaults copied on adoption/reset only. Unknown keys reject the manifest. |
+| `deployment` | object | no | omitted | see below; unknown deployment keys reject | GHCR/registry strategy synced into the theme package on manifest sync. |
 | `build` | object | no | `{}` | see below; unknown build keys reject | Instructions projected to Coolify. Treat as untrusted repository input. |
 | `env` | array | no | `[]` | max 50 entries; see below | Deployment environment declarations. Values are never taken from the manifest. |
 | `settings` | object | no | `{}` | max 50 entries; see below | Safe runtime presentation settings returned through `GET /api/site`; no rebuild needed. |
@@ -1618,6 +1625,18 @@ dockercompose
 
 Unknown build keys (for example `build.command`) are rejected instead of ignored because they
 are execution-adjacent input from an untrusted repository.
+
+#### `deployment`
+
+Optional. When present, manifest sync copies these fields onto the theme package row so
+preview/production use immutable GHCR digests instead of Coolify source builds.
+
+| Key | Type | Required | Validation |
+|---|---|---:|---|
+| `strategy` | string | yes | `coolify_build` or `registry_image` |
+| `registryProvider` | string | yes when `strategy` is `registry_image` | `ghcr` |
+| `registryImageRepository` | string | yes when `strategy` is `registry_image` | `ghcr.io/owner/image` |
+| `registryVisibility` | string | no | `public` (default) or `private` |
 
 #### `env`
 
@@ -1683,6 +1702,33 @@ can change without rebuilding the container and are returned under `GET /api/sit
 
 Stored values are validated before save and again before returning through `/api/site`; unknown
 or incorrectly typed settings are rejected.
+
+Themes implement presentation behaviour (for example a home-page logo intro); the CMS only
+declares the schema, validates tenant overrides, and exposes merged values on
+`themeRuntime.settings`.
+
+Example (Graphite home intro — animation logic lives in the theme repository):
+
+```json
+{
+  "settings": {
+    "introAnimation": {
+      "type": "boolean",
+      "default": true,
+      "labelEn": "Home logo intro animation",
+      "labelFa": "انیمیشن لوگوی صفحه اول"
+    },
+    "introDuration": {
+      "type": "number",
+      "default": 7000,
+      "min": 0,
+      "max": 20000,
+      "labelEn": "Intro duration in milliseconds",
+      "labelFa": "مدت انیمیشن به میلی‌ثانیه"
+    }
+  }
+}
+```
 
 #### `contentSlots`
 
@@ -1761,9 +1807,10 @@ GitHub repository
   ↓ production
 ```
 
-The package may declare `deploymentStrategy: registry_image`, `registryProvider: ghcr`,
-`registryImageRepository` and `registryVisibility` in the CMS. The manifest still controls the
-runtime/build contract. The CI callback supplies repository, commit SHA, image repository,
+The theme package may declare `deployment.strategy: registry_image` in `eshobe.theme.json`
+(manifest sync copies it to the CMS row) or set `deploymentStrategy`, `registryProvider`,
+`registryImageRepository` and `registryVisibility` manually in the admin. The manifest still
+controls the runtime/build contract. The CI callback supplies repository, commit SHA, image repository,
 `sha256:` digest, workflow URL/id, SBOM/provenance flags and timing. The CMS verifies:
 
 - callback HMAC `X-Eshobe-Signature-256: sha256=<HMAC raw body>` with
