@@ -92,7 +92,6 @@ describe('admin nav visibility (config-level)', () => {
       'site-entitlements',
       'feature-flags',
       'plugins',
-      'theme-templates',
       'theme-packages',
       'theme-artifacts',
       'deploy-targets',

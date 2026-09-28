@@ -563,7 +563,7 @@ describe('extensions', () => {
     }
   })
 
-  it('copies a theme template onto a site, as a copy and not a link', async () => {
+  it('copies a theme package design default onto a site, as a copy and not a link', async () => {
     /**
      * This test repaints a *seeded* site's live theme, and `tenancy.int.spec.ts` and
      * `headless.int.spec.ts` both assert acme's exact seeded colour. Restoring it in
@@ -580,12 +580,17 @@ describe('extensions', () => {
       })
     ).docs[0]
 
-    const template = await payload.create({
-      collection: 'theme-templates',
+    const themePackage = await payload.create({
+      collection: 'theme-packages',
       data: {
-        key: 'test-template',
-        name: 'قالب تست',
-        tokens: { accent: '#ff0000', primary: '#00ff00' },
+        defaultRef: 'main',
+        designDefaults: { accent: '#ff0000', primary: '#00ff00' },
+        key: 'test-theme-package',
+        name: 'پوستهٔ تست',
+        provider: 'github',
+        repository: 'hamidnoshady/test-theme',
+        status: 'draft',
+        visibility: 'public',
       },
       overrideAccess: true,
     })
@@ -593,7 +598,7 @@ describe('extensions', () => {
     try {
       const res = await applyThemeEndpoint.handler!(
         await reqAsAdmin({
-          ...withBody({ theme: 'test-template' }),
+          ...withBody({ theme: 'test-theme-package' }),
           routeParams: { id: siteId.acme },
         } as Partial<PayloadRequest>),
       )
@@ -609,32 +614,11 @@ describe('extensions', () => {
       const doc = after.docs[0] as unknown as Record<string, unknown>
       expect(doc.primary).toBe('#00ff00')
       expect(doc.accent).toBe('#ff0000')
-      /**
-       * A template is a *complete* palette, not a patch: every token field in the
-       * group carries a `defaultValue`, so the two written above arrived alongside a
-       * full set of defaults and `radius` moved with them. That is intended — half a
-       * palette applied over another half is how a site ends up with a teal button
-       * on a maroon header.
-       *
-       * The allowlist in `applyThemeTemplate` is therefore not about partial
-       * templates; it is about *time*. A token added to `theme` in a later release
-       * has no field in the templates stored today, so it stays `undefined` here and
-       * is left alone rather than blanked — which is what the next assertion pins.
-       */
-      expect(doc.radius).toBe('md')
-
-      // Change one token by hand, re-apply, and the site is back to the template:
-      // the copy is authoritative at the moment it is made, and nothing links back.
+      // Changing package defaults never repaints a live site; explicit application does.
       await payload.update({
-        collection: 'theme',
-        data: { primary: '#111111' },
-        id: String(doc.id),
-        overrideAccess: true,
-      })
-      await payload.update({
-        collection: 'theme-templates',
-        data: { tokens: { accent: '#ff0000', primary: '#222222' } },
-        id: String(template.id),
+        collection: 'theme-packages',
+        data: { designDefaults: { accent: '#ff0000', primary: '#222222' } },
+        id: String(themePackage.id),
         overrideAccess: true,
       })
 
@@ -646,9 +630,9 @@ describe('extensions', () => {
       })
       // Editing the catalogue entry did **not** repaint the live site. This is the
       // whole reason the template is copied rather than related.
-      expect(unchanged.primary).toBe('#111111')
+      expect(unchanged.primary).toBe('#00ff00')
     } finally {
-      await payload.delete({ collection: 'theme-templates', id: String(template.id), overrideAccess: true })
+      await payload.delete({ collection: 'theme-packages', id: String(themePackage.id), overrideAccess: true })
       if (original) {
         await payload.update({
           collection: 'theme',

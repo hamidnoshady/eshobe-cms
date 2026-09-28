@@ -121,7 +121,7 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     // «طراحی و انتشار» — design *and* publishing. A customer's only tenant-scoped
     // resource here is their theme (`theme`, one doc per site). Theme catalogue,
     // domain and deployment are all platform-owned collections
-    // (`theme-templates`, `deploy-targets`, `site-deployments` — `hiddenFromCustomers`),
+    // (`theme-packages`, `deploy-targets`, `site-deployments` — `hiddenFromCustomers`),
     // so they are not customer nav destinations; domain is edited on the site
     // settings screen. The group carries the product name so the section reads as
     // the customer's design & publishing home even though it fronts one collection.
@@ -165,8 +165,7 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     label: 'محصول',
     entities: [
       collection('feature-flags', 'قابلیت‌ها'),
-      collection('theme-templates', 'پوسته‌ها'),
-      collection('theme-packages', 'بسته‌های پوسته'),
+      collection('theme-packages', 'پوسته‌ها'),
       collection('plugins', 'افزونه‌ها'),
     ],
   },

@@ -58,7 +58,7 @@ const CUSTOMER_TARGET = [
  */
 const PLATFORM_TARGET = [
   { entities: ['sites', 'users'], label: 'مشتریان' },
-  { entities: ['feature-flags', 'theme-templates', 'theme-packages', 'plugins'], label: 'محصول' },
+  { entities: ['feature-flags', 'theme-packages', 'plugins'], label: 'محصول' },
   {
     entities: [
       'reseller-domains',
@@ -163,7 +163,7 @@ describe('sidebar information architecture', () => {
       groups.flatMap((g) => g.entities).find((e) => e.slug === slug)?.label
 
     expect(label('feature-flags')).toBe('قابلیت‌ها')
-    expect(label('theme-templates')).toBe('پوسته‌ها')
+    expect(label('theme-packages')).toBe('پوسته‌ها')
     expect(label('plugins')).toBe('افزونه‌ها')
     expect(label('storage-connections')).toBe('ذخیره‌سازی اشیا')
     expect(label('deploy-targets')).toBe('سرورهای انتشار')

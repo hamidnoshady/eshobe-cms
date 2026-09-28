@@ -124,6 +124,15 @@ export type ManifestBuild = {
   startCommand: null | string
 }
 
+export type ManifestDesign = {
+  accent?: string
+  background?: string
+  foreground?: string
+  lineHeight?: number
+  primary?: string
+  radius?: 'none' | 'sm' | 'md' | 'lg'
+}
+
 export type ThemeManifest = {
   build: ManifestBuild
   capabilities: Record<string, boolean>
@@ -131,6 +140,7 @@ export type ThemeManifest = {
   env: ManifestEnvVar[]
   settings: ManifestRuntimeSetting[]
   contentSlots: ManifestContentSlot[]
+  design: ManifestDesign
   key: string
   locales: string[]
   name: string
@@ -139,6 +149,32 @@ export type ThemeManifest = {
   proxiesApi: boolean
   previewUrl: null | string
   siteTypes: ThemeSiteType[]
+}
+
+const parseDesign = (raw: unknown, errors: string[]): ManifestDesign => {
+  if (raw == null) return {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push('«design» باید یک شیء باشد.')
+    return {}
+  }
+  const row = raw as Record<string, unknown>
+  const allowed = new Set(['primary', 'accent', 'background', 'foreground', 'radius', 'lineHeight'])
+  for (const key of Object.keys(row)) if (!allowed.has(key)) errors.push(`کلید design.${key} پشتیبانی نمی‌شود.`)
+  const out: ManifestDesign = {}
+  for (const key of ['primary', 'accent', 'background', 'foreground'] as const) {
+    if (row[key] === undefined) continue
+    if (typeof row[key] !== 'string' || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(row[key])) errors.push(`design.${key} باید رنگ hex باشد.`)
+    else out[key] = row[key]
+  }
+  if (row.radius !== undefined) {
+    if (!['none', 'sm', 'md', 'lg'].includes(String(row.radius))) errors.push('design.radius نامعتبر است.')
+    else out.radius = row.radius as ManifestDesign['radius']
+  }
+  if (row.lineHeight !== undefined) {
+    if (typeof row.lineHeight !== 'number' || !Number.isFinite(row.lineHeight) || row.lineHeight < 1.4 || row.lineHeight > 2.4) errors.push('design.lineHeight باید بین ۱٫۴ و ۲٫۴ باشد.')
+    else out.lineHeight = row.lineHeight
+  }
+  return out
 }
 
 const SCHEMA_KEY_PATTERN = /^[a-z][A-Za-z0-9]{0,63}$/
@@ -451,6 +487,7 @@ export const parseThemeManifest = (
   const env = parseEnv(row.env, errors)
   const settings = parseSettings(row.settings, errors)
   const contentSlots = parseContentSlots(row.contentSlots, errors)
+  const design = parseDesign(row.design, errors)
 
   const previewUrl = str(row.preview) ?? str(row.previewUrl)
   if (previewUrl && !/^https:\/\//i.test(previewUrl)) {
@@ -467,6 +504,7 @@ export const parseThemeManifest = (
       env,
       settings,
       contentSlots,
+      design,
       key,
       locales,
       name: name!,

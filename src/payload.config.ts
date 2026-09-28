@@ -46,7 +46,6 @@ import { Subscriptions } from './collections/Subscriptions'
 import { Theme } from './collections/Theme'
 import { ThemePackages } from './collections/ThemePackages'
 import { ThemeArtifacts } from './collections/ThemeArtifacts'
-import { ThemeTemplates } from './collections/ThemeTemplates'
 import { UsageRecords } from './collections/UsageRecords'
 import { Users } from './collections/Users'
 import { WebhookDeliveries } from './collections/WebhookDeliveries'
@@ -299,19 +298,17 @@ export default buildConfig({
     BillingReplayNonces,
     FeatureFlags,
     Plugins,
-    ThemeTemplates,
     /**
      * Wave 11 — deployable themes.
      *
      * `theme-packages` (a GitHub repo built against docs/THEME_API.md) and
      * `deploy-targets` (a Coolify connection) are the operator's catalogue and
      * infrastructure, so they take the documented multi-tenant exception alongside
-     * `theme-templates`. `site-deployments` and `site-theme-settings` each carry
+     * `theme-packages`. `site-deployments` and `site-theme-settings` each carry
      * exactly one site and are registered with the plugin — see `src/plugins/index.ts`.
      *
-     * `theme-packages` is deliberately separate from `theme-templates`: one is a
-     * program with a build and a port, the other is a set of hex tokens. Merging
-     * them would mean editing a colour catalogue could redeploy production.
+     * `theme-packages` is the canonical deployable-theme catalogue. Its manifest
+     * supplies design defaults, copied only on explicit adoption.
      */
     ThemePackages,
     ThemeArtifacts,

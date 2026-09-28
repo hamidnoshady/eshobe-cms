@@ -8,7 +8,7 @@ import { PLATFORM_EVENT_NAMES, isPlatformEvent } from '@/lib/saas/events'
 import { quotaReportForSite, resolveEntitlement, usageForSite } from '@/platform/entitlements'
 import { emitPlatformEvent } from '@/platform/webhooks'
 import { recordUsage } from '@/platform/usage'
-import { applyThemeTemplate, pluginsForSite, saasOverview } from '@/platform/saas-report'
+import { applyThemeDesignDefaults, pluginsForSite, saasOverview } from '@/platform/saas-report'
 
 import { json, param, requireOperator, search, siteById } from './platformShared'
 
@@ -399,7 +399,7 @@ export const themesListEndpoint: Endpoint = {
     if (denied) return denied
 
     const { docs } = await req.payload.find({
-      collection: 'theme-templates',
+      collection: 'theme-packages',
       depth: 0,
       limit: 200,
       overrideAccess: true,
@@ -411,23 +411,23 @@ export const themesListEndpoint: Endpoint = {
     return json({
       ok: true,
       themes: (docs as unknown as Record<string, unknown>[]).map((doc) => ({
-        active: doc.active === true,
+        active: doc.status === 'published',
         description: doc.description ?? null,
         id: String(doc.id),
-        isDefault: doc.isDefault === true,
+        isDefault: false,
         key: String(doc.key ?? ''),
         name: String(doc.name ?? ''),
         siteTypes: Array.isArray(doc.siteTypes) ? (doc.siteTypes as unknown[]).map(String) : [],
-        tokens: doc.tokens ?? {},
+        tokens: doc.designDefaults ?? {},
       })),
     })
   },
 }
 
 /**
- * `POST /api/platform/sites/:id/theme` — apply a catalogue template to a site.
+ * `POST /api/platform/sites/:id/theme` — explicitly copy a theme's defaults to a site.
  *
- * A copy, not a link: see `ThemeTemplates`. `{ theme: "<key or uuid>" }`.
+ * A copy, not a link. `{ theme: "<key or uuid>" }`.
  */
 export const applyThemeEndpoint: Endpoint = {
   path: '/platform/sites/:id/theme',
@@ -441,7 +441,7 @@ export const applyThemeEndpoint: Endpoint = {
     const { body, error } = await readBody(req)
     if (error) return error
 
-    const result = await applyThemeTemplate(req, site, String(body?.theme ?? ''))
+    const result = await applyThemeDesignDefaults(req, site, String(body?.theme ?? ''))
     if (!result.ok) return json(result, 400)
 
     await emitPlatformEvent(req, {

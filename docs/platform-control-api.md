@@ -198,7 +198,7 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
   fallback when no projection has arrived.
 - **A theme template is copied, never linked.** Editing the catalogue must not
   repaint twenty live customers, and after a copy nobody could tell which sites had
-  been customised since. `applyThemeTemplate` writes an explicit token allowlist, so
+  been customised since. `applyThemeDesignDefaults` writes an explicit token allowlist, so
   a token added to `theme` in a later release is left alone on templates stored
   today rather than blanked.
 - **Secrets leave the process exactly once.** A webhook signing secret is readable
@@ -233,7 +233,7 @@ Same guard as §1 (`isPlatformAdminOrPlatformKey`), `cache-control: no-store`, P
   `/secret|password|token|credential|apikey|api_key|keyhash|privatekey|authorization/i`,
   truncates strings to 200 chars and keeps at most 40 fields.
 - **Catalogue collections are not tenant-scoped.** `plans`, `feature-flags`,
-  `plugins`, `theme-templates`, `webhooks` and `webhook-deliveries` are deliberately
+  `plugins`, `theme-packages`, `webhooks` and `webhook-deliveries` are deliberately
   absent from the multi-tenant plugin's map: the plugin's injected `site` field is
   *required* by construction, so a platform-level row would be unsavable, and "which
   customer owns the Pro plan?" has no answer. The per-customer half —
