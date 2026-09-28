@@ -234,6 +234,15 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
         />
       </Section>
 
+      {/* The one action this report suggests: the deploy console is a tab on this
+          same document, and it is platform-admin only — the link spares an operator
+          the hunt for the tab; the view behind it enforces who may act. */}
+      <p style={{ margin: 0 }}>
+        <a href={`/admin/collections/sites/${siteId}/deployment`}>
+          استقرار و پیش‌نمایش پوسته (تب «استقرار پوسته») — فقط برای کارکنان سکو
+        </a>
+      </p>
+
       {report.deployment.previewOpenUrl ? (
         <p style={{ margin: 0 }}>
           <a href={report.deployment.previewOpenUrl} rel="noopener noreferrer" target="_blank">

@@ -94,13 +94,24 @@ API and admin UI prefer `lane`. Older callers may still send `domainMode=preview
 `domainMode=direct` (mapped to production). New `edge` deploys are rejected unless
 `ESHOBE_LEGACY_CADDY_EDGE=1`.
 
-Operator flow:
+Operator flow — one console, one order:
 
 1. Register/sync/publish the package.
 2. Assign the package to the site (`POST …/theme-assignment` or admin UI).
 3. Deploy preview → review on wildcard URL.
 4. Verify customer DNS.
 5. Publish production (`lane=production`) — reuses the same production binding/app on updates.
+
+The console is the **«استقرار پوسته»** tab on the site document
+(`/admin/collections/sites/:id/deployment`) — platform staff only; a customer's own
+staff do not see the tab, the view refuses them, and every route behind it re-checks.
+The panel's section **«پوسته و میزبانی»** is the whole flow in one place: the primary
+action is **«استقرار پیش‌نمایش (package-key)»** (posts `{ lane: "preview", package }`),
+and publishing to the domain is the section after it. A direct link to the tab sits on
+the **«نمای ۳۶۰ مشتری»** overview pane. Rows in **«انتشارها»** (`site-deployments`) are
+history: `create` on that collection is closed to everybody, admins included — a row is
+born in `createDeployment` with its artifact and hostnames already resolved, and a
+hand-made row (no artifact, no preview hostname) is a row that can only fail at run time.
 
 ---
 
@@ -140,9 +151,16 @@ POST …/deployment ─► queued ─► creating ─► building ─► verifyi
 2. **Run** — the jobs queue (`advanceDeployments`, once a minute; `POST …/poll` does the
    same step on demand). The row is claimed `queued → creating`, the site is re-checked
    (a site suspended while its deploy waited is refused), and then:
+   - an incomplete row is repaired first, before anything plans from it: a registry row
+     that arrived without its artifact link gets the ready artifact for its commit
+     (its own ref when that is a sha, else what the package would deploy now — never
+     overriding an artifact an operator chose), and a row missing its preview hostname
+     gets one derived exactly as `createDeployment` derives it;
    - the Coolify application is found by its deterministic name or created — **`appUuid` is
      stored before anything else can fail**; a reused application is re-pointed at the new
-     branch/commit and hostnames before it builds;
+     branch/commit/image and hostnames before it builds, via `PATCH` with only the fields
+     Coolify's update route accepts (no placement or credential fields, which its allowlist
+     rejects);
    - a `role: "site"` API key is minted for this deployment;
    - the environment is written (`buildEnvironment` — platform values last, so a tenant
      value can never shadow them; tenant secrets decrypted only here);
@@ -339,6 +357,9 @@ invalidates every stored token and tenant secret; there is no re-encryption job.
 | Stays «در صف» | The jobs queue is not running (`JOBS_AUTORUN`, `src/instrumentation.ts`); «بررسی وضعیت» advances it by hand. |
 | `failed` with «تنظیمات پوسته کامل نیست» | A required tenant variable is empty — the customer fills it in «تنظیمات پوسته», then redeploy. |
 | `failed` at verification with the domain message | The primary domain changed during the build. Verify the new domain, redeploy. |
+| `failed` with «برای این کامیت هنوز تصویر آماده و تأییدشده‌ای وجود ندارد» | A registry-strategy package whose commit has no ready `theme-artifacts` row. The CI callback (see `docs/theme-artifacts.md`) registers one; wait for the build or deploy the artifact that exists. A row that arrives without an artifact is repaired automatically at run time — this message now means the registry genuinely has nothing ready for that commit. |
+| `failed` at re-pointing with Coolify «Validation failed» | The PATCH contract changed: `src/deploy/coolify.ts` `repointApplication` builds the body from Coolify's update-route allowlist; its doc comment records the shapes (digest pin as `repo@sha256` name + bare-hash tag). |
+| Domain or preview URL 503 «no available server» | Coolify's container health check could not connect: apps get `health_check_host: 127.0.0.1` pinned for exactly this (IPv6 `localhost` → `::1` refused). If a container is unhealthy, its port binding is the next thing to check. |
 | Live, but the customer domain shows the built-in site | `edge`: is the site's domain verified and equal to the row's `domain`? Is `theme-routes.caddy` current (`GET /api/platform/routing`, the web log's `theme routes:` lines)? Is Caddy running with `--watch`? |
 | `needsRedeploy` in the console | §7 — the domain moved after the deploy. |
 | «نسخهٔ جدید موجود است» never appears | Run a sync: the notice compares against the commit the last sync resolved. |

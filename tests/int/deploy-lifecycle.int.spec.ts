@@ -316,6 +316,24 @@ beforeAll(async () => {
     overrideAccess: true,
     where: { site: { equals: siteId } },
   })
+  // `theme_artifacts` restricts package deletion — a previous run's rows for the
+  // fixture keys go first, or the package cleanup below is refused.
+  const stalePackages = await payload.find({
+    collection: 'theme-packages',
+    depth: 0,
+    limit: 10,
+    overrideAccess: true,
+    pagination: false,
+    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two'] } },
+  })
+  const staleIds = stalePackages.docs.map((doc) => String(doc.id))
+  if (staleIds.length) {
+    await payload.delete({
+      collection: 'theme-artifacts',
+      overrideAccess: true,
+      where: { themePackage: { in: staleIds } },
+    })
+  }
   await payload.delete({
     collection: 'theme-packages',
     overrideAccess: true,
@@ -397,12 +415,23 @@ beforeEach(async () => {
     context: { eshobeThemePackageSync: true },
     data: {
       defaultRef: 'main',
+      deploymentStrategy: 'coolify_build',
       designDefaults: {},
       pinnedCommit: null,
+      registryImageRepository: null,
+      registryProvider: null,
+      registryVisibility: 'public',
       syncedCommitSha: SHA_MAIN,
     },
     id: packageId,
     overrideAccess: true,
+  })
+  // The registry-lane tests register their own artifacts per test; their
+  // immutable key is unique per (package, commit, digest).
+  await payload.delete({
+    collection: 'theme-artifacts',
+    overrideAccess: true,
+    where: { themePackage: { equals: packageId } },
   })
   await resetSite()
   await updateTheme({
@@ -445,6 +474,12 @@ afterAll(async () => {
     status: original.status,
   })
   await updateSite({ domainVerified: original.domainVerified })
+  // `theme_artifacts` restricts package deletion — this run's rows go first.
+  await payload.delete({
+    collection: 'theme-artifacts',
+    overrideAccess: true,
+    where: { themePackage: { equals: packageId } },
+  })
   await payload.delete({
     collection: 'theme-packages',
     overrideAccess: true,
@@ -990,6 +1025,259 @@ describe('a preview is a rehearsal', () => {
     expect(after.renderedBy).toBe('deployment')
     expect(after.activeDeployment).toBe(productionId)
     expect(callsTo('POST', /\/stop$/)).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Registry images — the immutable-artifact lane, including the rows that used to
+// arrive without one
+// ---------------------------------------------------------------------------
+
+/** Flip the fixture package to the registry lane. undone by `beforeEach`. */
+const asRegistryPackage = async () => {
+  await payload.update({
+    collection: 'theme-packages',
+    context: { eshobeThemePackageSync: true },
+    data: {
+      deploymentStrategy: 'registry_image',
+      registryImageRepository: 'ghcr.io/owner/lifecycle-theme',
+      registryProvider: 'ghcr',
+      registryVisibility: 'public',
+    },
+    id: packageId,
+    overrideAccess: true,
+  })
+}
+
+const DIGEST_MAIN = `sha256:${'d'.repeat(64)}`
+const DIGEST_NEXT = `sha256:${'e'.repeat(64)}`
+
+/** A ready `theme-artifacts` row for a commit, as the CI callback would register. */
+const readyArtifact = async (commitSha: string, digest: string) =>
+  payload.create({
+    collection: 'theme-artifacts',
+    data: {
+      // The collection's hook recomputes this; the field is required at the type
+      // level, so it is supplied rather than relied on to be absent.
+      immutableKey: `${packageId}:${commitSha}:${digest}`,
+      commitSha,
+      imageDigest: digest,
+      imageRepository: 'ghcr.io/owner/lifecycle-theme',
+      imageTag: `sha-${commitSha.slice(0, 8)}`,
+      ref: 'main',
+      registryProvider: 'ghcr',
+      repository: 'hamidnoshady/lifecycle-theme',
+      source: 'github_actions',
+      status: 'ready',
+      themePackage: packageId,
+    },
+    overrideAccess: true,
+  })
+
+describe('a registry-image deployment', () => {
+  it('is created with its artifact and preview hostname already on the row', async () => {
+    await asRegistryPackage()
+    const artifact = await readyArtifact(SHA_MAIN, DIGEST_MAIN)
+    const req = await reqAsAdmin()
+
+    const created = await createDeployment({
+      domainMode: 'preview',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+
+    const queued = await row(created.deploymentId)
+    expect(queued.artifactSource).toBe('registry_image')
+    expect(String(queued.themeArtifact)).toBe(String((artifact as { id: string }).id))
+    expect(queued.imageRepository).toBe('ghcr.io/owner/lifecycle-theme')
+    expect(queued.imageDigest).toBe(DIGEST_MAIN)
+    expect(queued.commitSha).toBe(SHA_MAIN)
+    expect(String(queued.previewDomain)).toMatch(/-preview\.sites\.lifecycle\.invalid$/)
+    expect(queued.domain).toBe(queued.previewDomain)
+
+    // …and the row's fields are what actually runs: the application Coolify is
+    // asked for is the artifact's image at the artifact's digest.
+    await advanceDeployments(req)
+    const build = callsTo('POST', /\/applications\/dockerimage$/)[0]!
+    expect(build.body?.docker_registry_image_name).toBe(
+      `ghcr.io/owner/lifecycle-theme@${DIGEST_MAIN}`,
+    )
+    expect(build.body?.docker_registry_image_tag).toBe('')
+    expect(build.body?.health_check_host).toBe('127.0.0.1')
+    expect((await row(created.deploymentId)).status).toBe('building')
+  })
+
+  it('repairs a bare queued row — artifact link, ref, preview hostname — before planning', async () => {
+    await asRegistryPackage()
+    const artifact = await readyArtifact(SHA_MAIN, DIGEST_MAIN)
+    const req = await reqAsAdmin()
+
+    // The row the «انتشارها» create form used to produce: no artifact, no ref,
+    // no hostnames. It reached runDeployment and failed with «برای این کامیت هنوز
+    // تصویر آماده و تأییدشده‌ای وجود ندارد» while GHCR and theme_artifacts were
+    // both ready.
+    const bare = await payload.create({
+      collection: 'site-deployments',
+      data: {
+        artifactSource: 'source_build',
+        domainMode: 'preview',
+        lane: 'preview',
+        site: siteId,
+        status: 'queued',
+        target: targetId,
+        themePackage: packageId,
+      },
+      overrideAccess: true,
+    })
+    const bareId = String((bare as { id: string }).id)
+
+    await advanceDeployments(req)
+
+    const repaired = await row(bareId)
+    expect(repaired.status).toBe('building')
+    expect(repaired.artifactSource).toBe('registry_image')
+    expect(String(repaired.themeArtifact)).toBe(String((artifact as { id: string }).id))
+    expect(repaired.imageDigest).toBe(DIGEST_MAIN)
+    expect(repaired.commitSha).toBe(SHA_MAIN)
+    expect(repaired.ref).toBe('main')
+    expect(String(repaired.previewDomain)).toMatch(/-preview\.sites\.lifecycle\.invalid$/)
+    expect(repaired.domain).toBe(repaired.previewDomain)
+    expect(repaired.appUuid).toBe('app-1')
+
+    // The application Coolify is asked for is the repaired artifact, not a source
+    // build of the repository.
+    const build = callsTo('POST', /\/applications\/dockerimage$/)[0]!
+    expect(build.body?.docker_registry_image_name).toBe(
+      `ghcr.io/owner/lifecycle-theme@${DIGEST_MAIN}`,
+    )
+
+    await advanceDeployments(req)
+    expect((await row(bareId)).status).toBe('live')
+  })
+
+  it('still refuses, with the reason on the row, when no artifact is ready for the commit', async () => {
+    await asRegistryPackage()
+    const req = await reqAsAdmin()
+
+    const bare = await payload.create({
+      collection: 'site-deployments',
+      data: {
+        artifactSource: 'source_build',
+        domainMode: 'preview',
+        lane: 'preview',
+        site: siteId,
+        status: 'queued',
+        target: targetId,
+        themePackage: packageId,
+      },
+      overrideAccess: true,
+    })
+    const bareId = String((bare as { id: string }).id)
+
+    await advanceDeployments(req)
+
+    const failed = await row(bareId)
+    expect(failed.status).toBe('failed')
+    expect(String(failed.lastError)).toContain(
+      'برای این کامیت هنوز تصویر آماده و تأییدشده‌ای وجود ندارد',
+    )
+    // Nothing was asked of Coolify — no half-created application.
+    expect(callsTo('POST', /\/applications\//)).toHaveLength(0)
+  })
+
+  it('re-points an existing application through the PATCH-only contract', async () => {
+    await asRegistryPackage()
+    const first = await readyArtifact(SHA_MAIN, DIGEST_MAIN)
+    const req = await reqAsAdmin()
+
+    const created = await createDeployment({
+      domainMode: 'preview',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
+    if (!created.ok) throw new Error(created.message)
+    await advanceDeployments(req)
+    await advanceDeployments(req)
+    expect((await row(created.deploymentId)).status).toBe('live')
+
+    // A newer synced commit with its own artifact: the redeploy reuses the
+    // application and must PATCH only what Coolify's update route accepts.
+    await payload.update({
+      collection: 'theme-packages',
+      context: { eshobeThemePackageSync: true },
+      data: { syncedCommitSha: SHA_NEXT },
+      id: packageId,
+      overrideAccess: true,
+    })
+    await readyArtifact(SHA_NEXT, DIGEST_NEXT)
+
+    const redeploy = await siteDeploymentRedeployEndpoint.handler!(
+      await reqAsAdmin({ ...withParams({ id: siteId }), ...withBody({ upgrade: true }) }),
+    )
+    expect(redeploy.status).toBe(202)
+    const { deployment: redeployedId } = await bodyOf(redeploy)
+
+    await advanceDeployments(req)
+    await advanceDeployments(req)
+    expect((await row(redeployedId)).status).toBe('live')
+
+    const patch = callsTo('PATCH', /\/applications\/app-1$/)[0]!
+    expect(patch.body).toMatchObject({
+      // The stored shape, not the create shape — the full `image@sha256:hash`
+      // reference in the name column is `docker_registry_image_name is invalid`
+      // on PATCH, and placement/credential fields are `not allowed`.
+      docker_registry_image_name: 'ghcr.io/owner/lifecycle-theme@sha256',
+      docker_registry_image_tag: DIGEST_NEXT.replace('sha256:', ''),
+      health_check_host: '127.0.0.1',
+    })
+    const body = (patch.body ?? {}) as Record<string, unknown>
+    for (const forbidden of [
+      'project_uuid',
+      'server_uuid',
+      'environment_name',
+      'docker_registry_uuid',
+      'github_app_uuid',
+      'private_key_uuid',
+    ]) {
+      expect(body, forbidden).not.toHaveProperty(forbidden)
+    }
+
+    // The row that ran is the new artifact's, and it reuses the application.
+    const live = await row(redeployedId)
+    expect(live.imageDigest).toBe(DIGEST_NEXT)
+    expect(live.appUuid).toBe('app-1')
+    expect(String(live.themeArtifact)).not.toBe(String((first as { id: string }).id))
+  })
+
+  it('repairs the preview hostname of a row that arrived without one, for any strategy', async () => {
+    // A source-build row can also arrive bare (the same hand-made-row path); the
+    // repair is not registry-specific.
+    const req = await reqAsAdmin()
+    const bare = await payload.create({
+      collection: 'site-deployments',
+      data: {
+        domainMode: 'preview',
+        lane: 'preview',
+        site: siteId,
+        status: 'queued',
+        target: targetId,
+        themePackage: packageId,
+      },
+      overrideAccess: true,
+    })
+    const bareId = String((bare as { id: string }).id)
+
+    await advanceDeployments(req)
+
+    const repaired = await row(bareId)
+    expect(repaired.status).toBe('building')
+    expect(String(repaired.previewDomain)).toMatch(/-preview\.sites\.lifecycle\.invalid$/)
+    expect(repaired.domain).toBe(repaired.previewDomain)
+    expect(callsTo('POST', /\/applications\/public$/)).toHaveLength(1)
   })
 })
 

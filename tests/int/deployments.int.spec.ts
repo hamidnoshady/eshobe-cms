@@ -795,6 +795,67 @@ describe('the status machine, in the database', () => {
       overrideAccess: true,
     })
   })
+
+  it('refuses to create a row directly, even for a platform admin', async () => {
+    // The «انتشارها» create form was the source of bare queued rows: no artifact
+    // link, no preview hostname, nothing `runDeployment` could plan from. Rows are
+    // born in `createDeployment` (which runs `overrideAccess`) and nowhere else —
+    // so the collection's create access is closed to everybody, admins included.
+    //
+    // `overrideAccess: false` is explicit here because the Local API defaults it
+    // to `true` (the REST layer the admin form goes through passes `false`); the
+    // access rule is meaningless in a test that silently skips it.
+    const req = await reqAsAdmin()
+
+    const result = await req.payload
+      .create({
+        collection: 'site-deployments',
+        data: {
+          domainMode: 'preview',
+          lane: 'preview',
+          site: siteId.acme,
+          status: 'queued',
+          target: targetId,
+          themePackage: packageId,
+        },
+        depth: 0,
+        overrideAccess: false,
+        req,
+      })
+      .then(
+        (doc) => ({ created: String(doc.id) }),
+        (err: { name?: string; statusCode?: number }) => ({
+          name: err.name,
+          statusCode: err.statusCode,
+        }),
+      )
+
+    expect(result).toMatchObject({ name: 'Forbidden' })
+    expect(result).not.toHaveProperty('created')
+
+    const { totalDocs } = await payload.count({
+      collection: 'site-deployments',
+      where: { site: { equals: siteId.acme } },
+    })
+    expect(totalDocs).toBe(0)
+
+    // The deploy service itself is unaffected: its create runs `overrideAccess`.
+    const site = (await payload.findByID({
+      collection: 'sites',
+      depth: 0,
+      id: siteId.acme,
+      overrideAccess: true,
+    })) as unknown as Record<string, unknown>
+    const created = await createDeployment({ packageRef: 'test-theme', req, site })
+    expect(created.ok).toBe(true)
+    if (created.ok) {
+      await payload.delete({
+        collection: 'site-deployments',
+        id: created.deploymentId,
+        overrideAccess: true,
+      })
+    }
+  })
 })
 
 describe('the routing table', () => {

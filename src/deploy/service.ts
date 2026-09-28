@@ -690,7 +690,10 @@ export const runDeployment = async (
   req: PayloadRequest,
   deploymentId: string,
 ): Promise<DeployOutcome> => {
-  const deployment = (await req.payload.findByID({
+  // `let`, not `const`: the repair step below rewrites an incomplete row and keeps
+  // this copy in sync with what was persisted, so the rest of the run reads the
+  // repaired values rather than the ones that arrived.
+  let deployment = (await req.payload.findByID({
     collection: 'site-deployments',
     depth: 0,
     disableErrors: true,
@@ -764,7 +767,6 @@ export const runDeployment = async (
 
   const domainMode = String(deployment.domainMode ?? 'preview') as DomainMode
   const lane = laneForDeployment(deployment)
-  const previewDomain = deployment.previewDomain ? String(deployment.previewDomain) : null
   const siteDomain = String(site.domain ?? '')
 
   // The customer's domain is read now, not copied from create time: the row must
@@ -774,6 +776,86 @@ export const runDeployment = async (
   }
 
   const themeKey = String(pkg.key ?? 'theme')
+
+  // An empty `ref` is not the package's default — `''` is a value, not a gap. Rows
+  // written by hand (or by an older writer) have reached the queue with it.
+  const ref = String(deployment.ref ?? '') || effectiveRefFor(pkg)
+
+  // ---------------------------------------------------------------------------
+  // 0. Repair an incomplete row before anything else reads it.
+  //
+  // Rows have reached the queue without their artifact fields and without a
+  // preview hostname — written by hand from «انتشارها» before `access.create`
+  // closed that door, or by an older writer. A registry row in that state failed
+  // below with «برای این کامیت هنوز تصویر آماده و تأییدشده‌ای وجود ندارد» even
+  // while GHCR and `theme_artifacts` were both ready, because the plan only sees
+  // the row. Both values are re-derived exactly as `createDeployment` derives
+  // them and persisted, so a repaired row is indistinguishable from a
+  // well-formed one — and the srv1 database trigger that used to paper over this
+  // can be dropped.
+  // ---------------------------------------------------------------------------
+  const repair: Record<string, unknown> = {}
+
+  if (!String(deployment.ref ?? '').trim()) repair.ref = ref
+
+  if (!deployment.previewDomain) {
+    const wildcard = String(targetDoc.previewWildcardDomain ?? targetDoc.wildcardDomain ?? '')
+    const hostname = previewHostname(wildcard, site, themeKey, variantFor(domainMode))
+    if (hostname) {
+      repair.previewDomain = hostname
+      if (domainMode === 'preview' && !deployment.domain) repair.domain = hostname
+    }
+  }
+
+  const registryStrategy = pkg.deploymentStrategy === 'registry_image'
+  const linkedArtifactId = idOf(deployment.themeArtifact)
+  let artifact: null | Record<string, unknown> = null
+  if (linkedArtifactId) {
+    artifact = (await req.payload.findByID({
+      collection: 'theme-artifacts',
+      depth: 0,
+      disableErrors: true,
+      id: String(linkedArtifactId),
+      overrideAccess: true,
+      req,
+    })) as null | Record<string, unknown>
+  }
+  if (!artifact && registryStrategy) {
+    // A registry row that arrived with no artifact — or whose linked one has since
+    // been deleted — resolves what the package would run now: its own ref when that
+    // is a sha, else the package's pinned/synced commit. An operator's explicit
+    // artifact choice is respected while it still exists — this lookup never
+    // overrides it, and an unready chosen artifact still refuses below.
+    const desiredCommit = isCommitSha(ref) ? ref.toLowerCase() : latestPackageCommit(pkg)
+    if (desiredCommit) {
+      artifact = await readyArtifactForCommit(req, String(pkg.id), desiredCommit)
+    }
+  }
+
+  if (artifact && String(artifact.id) !== String(linkedArtifactId ?? '')) {
+    Object.assign(repair, {
+      artifactSource: 'registry_image',
+      themeArtifact: String(artifact.id),
+      imageRepository: artifact.imageRepository ? String(artifact.imageRepository) : null,
+      imageTag: artifact.imageTag ? String(artifact.imageTag) : null,
+      imageDigest: artifact.imageDigest ? String(artifact.imageDigest) : null,
+      commitSha: artifact.commitSha ? String(artifact.commitSha).toLowerCase() : null,
+    })
+  }
+
+  if (Object.keys(repair).length) {
+    await req.payload.update({
+      collection: 'site-deployments',
+      data: repair,
+      depth: 0,
+      id: deploymentId,
+      overrideAccess: true,
+      req,
+    })
+    deployment = { ...deployment, ...repair }
+  }
+
+  const previewDomain = deployment.previewDomain ? String(deployment.previewDomain) : null
 
   const bindingResult = await ensureThemeBinding({
     applicationHostname: previewDomain,
@@ -803,23 +885,17 @@ export const runDeployment = async (
   const pinnedTarget = coolifyTargetForBinding(target, binding)
   const client = new CoolifyClient(pinnedTarget)
   const appName = String(binding.appName ?? bindingAppName(String(site.id), themeKey, lane))
-  const ref = String(deployment.ref ?? effectiveRefFor(pkg))
   // A sha is a commit, not a branch: Coolify clones `git_branch` and then checks out
   // `git_commit_sha`, so a pinned or rolled-back deployment clones the default branch.
   const branch = isCommitSha(ref) ? String(pkg.defaultRef || 'main') : ref
-  const sourceCommitSha = isCommitSha(ref)
-    ? ref.toLowerCase()
-    : await resolveCommitSha(String(pkg.repository), ref)
-  const artifact = idOf(deployment.themeArtifact)
-    ? ((await req.payload.findByID({
-        collection: 'theme-artifacts',
-        depth: 0,
-        disableErrors: true,
-        id: String(idOf(deployment.themeArtifact)),
-        overrideAccess: true,
-        req,
-      })) as null | Record<string, unknown>)
-    : null
+  // A registry row's commit is its artifact's commit; GitHub is only asked when a
+  // source build genuinely needs the ref resolved.
+  const sourceCommitSha =
+    artifact && registryStrategy
+      ? null
+      : isCommitSha(ref)
+        ? ref.toLowerCase()
+        : await resolveCommitSha(String(pkg.repository), ref)
   const commitSha = artifact?.commitSha ? String(artifact.commitSha).toLowerCase() : sourceCommitSha
   const planResult = resolveDeploymentPlan({
     artifact,
@@ -957,40 +1033,37 @@ export const runDeployment = async (
       await persistBindingApp(req, bindingId, { appUuid, applicationHostname: previewDomain })
     }
 
-    const sourcePatch =
-      plan.source.type === 'registry-image'
-        ? {
-            docker_registry_image_name: `${plan.source.image}@${plan.source.digest}`,
-            docker_registry_image_tag: '',
-            docker_registry_uuid: plan.access.registryCredentialUuid ?? null,
-          }
-        : {
-            git_repository:
-              plan.access.gitMethod === 'public'
-                ? `https://github.com/${repo.owner}/${repo.name}`
-                : `${repo.owner}/${repo.name}`,
-            git_branch: plan.source.branch,
-            git_commit_sha: plan.source.commitSha ?? 'HEAD',
-            build_pack: plan.source.buildPack,
-            base_directory: manifest.build.baseDirectory,
-            build_command: manifest.build.buildCommand,
-            install_command: manifest.build.installCommand,
-            start_command: manifest.build.startCommand,
-            publish_directory: manifest.build.publishDirectory,
-            dockerfile_location: manifest.build.dockerfileLocation,
-            github_app_uuid: plan.access.githubAppUuid ?? null,
-            private_key_uuid: plan.access.privateKeyUuid ?? null,
-          }
-    const repointed = await client.updateApplication(appUuid, {
-      ...sourcePatch,
+    // Only PATCH-accepted fields, built by the client — `repointApplication`
+    // documents why placement and credential fields are absent here. The registry
+    // digest travels in the stored shape (`repo@sha256` name + bare-hash tag);
+    // anything richer is a 422 `Validation failed` from Coolify's PATCH allowlist.
+    const repointed = await client.repointApplication(appUuid, {
       domains: domains.join(','),
-      environment_name: plan.placement.environmentName,
-      project_uuid: plan.placement.projectUuid,
-      server_uuid: plan.placement.serverUuid,
-      ports_exposes: String(manifest.build.port),
-      health_check_enabled: Boolean(manifest.build.healthCheckPath),
-      health_check_path: manifest.build.healthCheckPath,
-      health_check_port: String(manifest.build.port),
+      healthCheckPath: manifest.build.healthCheckPath,
+      port: manifest.build.port,
+      source:
+        plan.source.type === 'registry-image'
+          ? {
+              type: 'registry-image',
+              image: plan.source.image,
+              digest: plan.source.digest,
+            }
+          : {
+              type: 'git',
+              repository:
+                plan.access.gitMethod === 'public'
+                  ? `https://github.com/${repo.owner}/${repo.name}`
+                  : `${repo.owner}/${repo.name}`,
+              branch: plan.source.branch,
+              commitSha: plan.source.commitSha ?? null,
+              buildPack: plan.source.buildPack,
+              baseDirectory: manifest.build.baseDirectory,
+              buildCommand: manifest.build.buildCommand,
+              dockerfileLocation: manifest.build.dockerfileLocation,
+              installCommand: manifest.build.installCommand,
+              publishDirectory: manifest.build.publishDirectory,
+              startCommand: manifest.build.startCommand,
+            },
     })
     if (!repointed.ok) {
       return fail(
