@@ -211,7 +211,7 @@ describe('admin visibility', () => {
     'usage-records',
     'feature-flags',
     'plugins',
-    'theme-templates',
+    'theme-packages',
     'webhooks',
     'webhook-deliveries',
     'audit-log',
