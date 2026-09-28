@@ -1,9 +1,6 @@
 import { parseThemeManifest, type ThemeManifest } from '@/lib/deploy/manifest'
 
-/**
- * Theme package rows must store the raw `eshobe.theme.json` object. Parsed manifests
- * encode `settings` as an array and break `manifestOf()` on read.
- */
+/** Parse a theme package's stored `manifest` JSON (GitHub object or post-sync normalized shape). */
 export const parseStoredThemeManifest = (
   raw: Record<string, unknown>,
   contractVersion = 1,

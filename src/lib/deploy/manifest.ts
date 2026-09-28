@@ -215,10 +215,89 @@ const parseDesign = (raw: unknown, errors: string[]): ManifestDesign => {
 
 const SCHEMA_KEY_PATTERN = /^[a-z][A-Za-z0-9]{0,63}$/
 
+/** One runtime setting row — shared by GitHub's object map and the normalized array sync stores. */
+const parseRuntimeSettingRow = (
+  key: string,
+  row: Record<string, unknown>,
+  errors: string[],
+): ManifestRuntimeSetting | null => {
+  const type = str(row.type)
+  if (!type || !(RUNTIME_SETTING_TYPES as readonly string[]).includes(type)) {
+    errors.push(`نوع settings.${key} باید یکی از ${RUNTIME_SETTING_TYPES.join('، ')} باشد.`)
+    return null
+  }
+  let options: ManifestRuntimeSetting['options']
+  if (type === 'select') {
+    if (!Array.isArray(row.options) || !row.options.length || row.options.length > 50) {
+      errors.push(`settings.${key}.options برای select الزامی است.`)
+      return null
+    }
+    options = row.options.flatMap((option) => {
+      if (!option || typeof option !== 'object' || Array.isArray(option)) return []
+      const item = option as Record<string, unknown>
+      const optionValue = str(item.value)
+      return optionValue && optionValue.length <= 100
+        ? [{ labelEn: str(item.labelEn), labelFa: str(item.labelFa), value: optionValue }]
+        : []
+    })
+    if (options.length !== row.options.length) {
+      errors.push(`settings.${key}.options نامعتبر است.`)
+      return null
+    }
+  }
+  const defaultValue = row.default
+  const validDefault =
+    defaultValue === undefined ||
+    (type === 'boolean' && typeof defaultValue === 'boolean') ||
+    (type === 'number' && typeof defaultValue === 'number' && Number.isFinite(defaultValue)) ||
+    ((type === 'text' || type === 'select') && typeof defaultValue === 'string')
+  if (
+    !validDefault ||
+    (type === 'select' &&
+      defaultValue !== undefined &&
+      !options?.some((o) => o.value === defaultValue))
+  ) {
+    errors.push(`settings.${key}.default با نوع آن سازگار نیست.`)
+    return null
+  }
+  return {
+    default: defaultValue as boolean | number | string | undefined,
+    help: str(row.help),
+    key,
+    labelEn: str(row.labelEn),
+    labelFa: str(row.labelFa),
+    max: typeof row.max === 'number' ? row.max : undefined,
+    min: typeof row.min === 'number' ? row.min : undefined,
+    options,
+    type: type as RuntimeSettingType,
+  }
+}
+
 const parseSettings = (raw: unknown, errors: string[]): ManifestRuntimeSetting[] => {
   if (raw == null) return []
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    errors.push('«settings» باید یک شیء باشد.')
+  if (Array.isArray(raw)) {
+    if (raw.length > 50) errors.push('«settings» نباید بیش از ۵۰ گزینه داشته باشد.')
+    const seen = new Set<string>()
+    const out: ManifestRuntimeSetting[] = []
+    for (const [index, value] of raw.slice(0, 50).entries()) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        errors.push(`settings[${index}] نامعتبر است.`)
+        continue
+      }
+      const row = value as Record<string, unknown>
+      const key = str(row.key)
+      if (!key || !SCHEMA_KEY_PATTERN.test(key) || seen.has(key)) {
+        errors.push(`settings[${index}] کلید تکراری یا نامعتبر دارد.`)
+        continue
+      }
+      seen.add(key)
+      const parsed = parseRuntimeSettingRow(key, row, errors)
+      if (parsed) out.push(parsed)
+    }
+    return out
+  }
+  if (typeof raw !== 'object') {
+    errors.push('«settings» باید یک شیء یا آرایه باشد.')
     return []
   }
   const entries = Object.entries(raw as Record<string, unknown>)
@@ -234,54 +313,8 @@ const parseSettings = (raw: unknown, errors: string[]): ManifestRuntimeSetting[]
       errors.push(`گزینهٔ پوستهٔ «${key}» نامعتبر است.`)
       continue
     }
-    const row = value as Record<string, unknown>
-    const type = str(row.type)
-    if (!type || !(RUNTIME_SETTING_TYPES as readonly string[]).includes(type)) {
-      errors.push(`نوع settings.${key} باید یکی از ${RUNTIME_SETTING_TYPES.join('، ')} باشد.`)
-      continue
-    }
-    let options: ManifestRuntimeSetting['options']
-    if (type === 'select') {
-      if (!Array.isArray(row.options) || !row.options.length || row.options.length > 50) {
-        errors.push(`settings.${key}.options برای select الزامی است.`)
-        continue
-      }
-      options = row.options.flatMap((option) => {
-        if (!option || typeof option !== 'object' || Array.isArray(option)) return []
-        const item = option as Record<string, unknown>
-        const optionValue = str(item.value)
-        return optionValue && optionValue.length <= 100
-          ? [{ labelEn: str(item.labelEn), labelFa: str(item.labelFa), value: optionValue }]
-          : []
-      })
-      if (options.length !== row.options.length) errors.push(`settings.${key}.options نامعتبر است.`)
-    }
-    const defaultValue = row.default
-    const validDefault =
-      defaultValue === undefined ||
-      (type === 'boolean' && typeof defaultValue === 'boolean') ||
-      (type === 'number' && typeof defaultValue === 'number' && Number.isFinite(defaultValue)) ||
-      ((type === 'text' || type === 'select') && typeof defaultValue === 'string')
-    if (
-      !validDefault ||
-      (type === 'select' &&
-        defaultValue !== undefined &&
-        !options?.some((o) => o.value === defaultValue))
-    ) {
-      errors.push(`settings.${key}.default با نوع آن سازگار نیست.`)
-      continue
-    }
-    out.push({
-      default: defaultValue as boolean | number | string | undefined,
-      help: str(row.help),
-      key,
-      labelEn: str(row.labelEn),
-      labelFa: str(row.labelFa),
-      max: typeof row.max === 'number' ? row.max : undefined,
-      min: typeof row.min === 'number' ? row.min : undefined,
-      options,
-      type: type as RuntimeSettingType,
-    })
+    const parsed = parseRuntimeSettingRow(key, value as Record<string, unknown>, errors)
+    if (parsed) out.push(parsed)
   }
   return out
 }
