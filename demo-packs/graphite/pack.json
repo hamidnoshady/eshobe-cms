@@ -1,0 +1,501 @@
+{
+  "key": "graphite",
+  "siteType": "portfolio",
+  "name": {
+    "fa": "گرافیت — دفتر معماری",
+    "en": "Graphite — architecture office"
+  },
+  "description": {
+    "fa": "دو دستهٔ «پروژه‌ها» و «آموزش» با ۶ پروژه و ۳ رویداد آموزشی، فارسی و انگلیسی، همراه با تصویر.",
+    "en": "Projects and Education categories with 6 projects and 3 workshops, in Persian and English, with images."
+  },
+  "categories": [
+    {
+      "slug": "projects",
+      "title": {
+        "fa": "پروژه‌ها",
+        "en": "Projects"
+      }
+    },
+    {
+      "slug": "education",
+      "title": {
+        "fa": "آموزش",
+        "en": "Education"
+      }
+    }
+  ],
+  "posts": [
+    {
+      "slug": "sea-house",
+      "category": "projects",
+      "image": "sea-house.jpg",
+      "title": {
+        "fa": "خانه ساحلی",
+        "en": "Sea House"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مکان",
+            "نوشهر"
+          ],
+          [
+            "سال",
+            "1402"
+          ],
+          [
+            "مساحت",
+            "320 متر مربع"
+          ],
+          [
+            "وضعیت",
+            "اجراشده"
+          ]
+        ],
+        "en": [
+          [
+            "Location",
+            "Nowshahr"
+          ],
+          [
+            "Year",
+            "1402"
+          ],
+          [
+            "Area",
+            "320 m²"
+          ],
+          [
+            "Status",
+            "Completed"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "ویلایی رو به دریا با حیاط‌های میانی و بازشوهای بزرگ برای نور و نسیم.",
+        "en": "A seaside villa with inner courts and large openings for light and breeze."
+      },
+      "more": {
+        "fa": "مصالح بومی و بتن نمایان، هماهنگ با اقلیم شمال، ساختار ساده و ماندگار را می‌سازند.",
+        "en": "Local materials and exposed concrete suit the northern climate and keep the structure simple and lasting."
+      }
+    },
+    {
+      "slug": "courtyard-office",
+      "category": "projects",
+      "image": "courtyard-office.jpg",
+      "title": {
+        "fa": "دفتر حیاط‌دار",
+        "en": "Courtyard Office"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مکان",
+            "تهران"
+          ],
+          [
+            "سال",
+            "1401"
+          ],
+          [
+            "مساحت",
+            "860 متر مربع"
+          ],
+          [
+            "وضعیت",
+            "اجراشده"
+          ]
+        ],
+        "en": [
+          [
+            "Location",
+            "Tehran"
+          ],
+          [
+            "Year",
+            "1401"
+          ],
+          [
+            "Area",
+            "860 m²"
+          ],
+          [
+            "Status",
+            "Completed"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "ساختمان اداری با حیاط مرکزی که همهٔ طبقات را به هم پیوند می‌دهد.",
+        "en": "An office building whose central courtyard ties every floor together."
+      },
+      "more": {
+        "fa": "نور طبیعی تا عمق پلان می‌رسد و فضاهای جمعی در اطراف حیاط شکل می‌گیرند.",
+        "en": "Daylight reaches deep into the plan and shared spaces gather around the court."
+      }
+    },
+    {
+      "slug": "brick-library",
+      "category": "projects",
+      "image": "brick-library.jpg",
+      "title": {
+        "fa": "کتابخانهٔ آجری",
+        "en": "Brick Library"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مکان",
+            "اصفهان"
+          ],
+          [
+            "سال",
+            "1400"
+          ],
+          [
+            "مساحت",
+            "1450 متر مربع"
+          ],
+          [
+            "وضعیت",
+            "اجراشده"
+          ]
+        ],
+        "en": [
+          [
+            "Location",
+            "Isfahan"
+          ],
+          [
+            "Year",
+            "1400"
+          ],
+          [
+            "Area",
+            "1450 m²"
+          ],
+          [
+            "Status",
+            "Completed"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "کتابخانهٔ محله با پوستهٔ آجری و سالن‌های مطالعهٔ نیمه‌باز.",
+        "en": "A neighbourhood library with a brick skin and semi-open reading halls."
+      },
+      "more": {
+        "fa": "الگوی آجرچینی نور را فیلتر می‌کند و شب‌ها ساختمان مثل فانوس می‌درخشد.",
+        "en": "The brick pattern filters light, and at night the building glows like a lantern."
+      }
+    },
+    {
+      "slug": "hillside-cabin",
+      "category": "projects",
+      "image": "hillside-cabin.jpg",
+      "title": {
+        "fa": "کلبهٔ دامنه",
+        "en": "Hillside Cabin"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مکان",
+            "الموت"
+          ],
+          [
+            "سال",
+            "1402"
+          ],
+          [
+            "مساحت",
+            "96 متر مربع"
+          ],
+          [
+            "وضعیت",
+            "اجراشده"
+          ]
+        ],
+        "en": [
+          [
+            "Location",
+            "Alamut"
+          ],
+          [
+            "Year",
+            "1402"
+          ],
+          [
+            "Area",
+            "96 m²"
+          ],
+          [
+            "Status",
+            "Completed"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "کلبه‌ای کوچک روی شیب با چوب و سنگ محلی.",
+        "en": "A small cabin on a slope, built from local timber and stone."
+      },
+      "more": {
+        "fa": "پلان فشرده و ایوان رو به دره، حداقل دخالت در زمین را ممکن کرده است.",
+        "en": "A compact plan and a porch facing the valley keep the intervention in the land minimal."
+      }
+    },
+    {
+      "slug": "market-renewal",
+      "category": "projects",
+      "image": "market-renewal.jpg",
+      "title": {
+        "fa": "بازآفرینی بازار",
+        "en": "Market Renewal"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مکان",
+            "تبریز"
+          ],
+          [
+            "سال",
+            "1399"
+          ],
+          [
+            "مساحت",
+            "2100 متر مربع"
+          ],
+          [
+            "وضعیت",
+            "اجراشده"
+          ]
+        ],
+        "en": [
+          [
+            "Location",
+            "Tabriz"
+          ],
+          [
+            "Year",
+            "1399"
+          ],
+          [
+            "Area",
+            "2100 m²"
+          ],
+          [
+            "Status",
+            "Completed"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "مرمت و بازطراحی یک راستهٔ بازار با حفظ ساختار تاریخی.",
+        "en": "Restoration and redesign of a bazaar row that keeps its historic structure."
+      },
+      "more": {
+        "fa": "سقف‌های تاقی بازسازی شد و روشنایی و تأسیسات بدون آسیب به بنا اضافه شد.",
+        "en": "The vaulted roofs were restored and lighting and services added without harming the fabric."
+      }
+    },
+    {
+      "slug": "school-pavilion",
+      "category": "projects",
+      "image": "school-pavilion.jpg",
+      "title": {
+        "fa": "آلاچیق مدرسه",
+        "en": "School Pavilion"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مکان",
+            "شیراز"
+          ],
+          [
+            "سال",
+            "1401"
+          ],
+          [
+            "مساحت",
+            "210 متر مربع"
+          ],
+          [
+            "وضعیت",
+            "اجراشده"
+          ]
+        ],
+        "en": [
+          [
+            "Location",
+            "Shiraz"
+          ],
+          [
+            "Year",
+            "1401"
+          ],
+          [
+            "Area",
+            "210 m²"
+          ],
+          [
+            "Status",
+            "Completed"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "فضای باز آموزشی با سازهٔ چوبی سبک برای حیاط مدرسه.",
+        "en": "An open learning space with a light timber frame for a school yard."
+      },
+      "more": {
+        "fa": "ساخت مرحله‌ای و قطعات پیش‌ساخته زمان اجرا را در تعطیلات تابستان جا داد.",
+        "en": "Phased building with prefabricated parts fit the works into the summer break."
+      }
+    },
+    {
+      "slug": "sketching-basics",
+      "category": "education",
+      "image": "sketching-basics.jpg",
+      "title": {
+        "fa": "مبانی طراحی دستی",
+        "en": "Sketching Basics"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مدت",
+            "۸ ساعت"
+          ],
+          [
+            "سطح",
+            "مقدماتی"
+          ],
+          [
+            "شهریه",
+            "رایگان"
+          ]
+        ],
+        "en": [
+          [
+            "Duration",
+            "8 hours"
+          ],
+          [
+            "Level",
+            "Beginner"
+          ],
+          [
+            "Fee",
+            "Free"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "کارگاه یک‌روزه برای یادگیری خط، سایه و پرسپکتیو در طراحی معماری.",
+        "en": "A one-day workshop on line, shade and perspective for architectural sketching."
+      },
+      "more": {
+        "fa": "ظرفیت محدود است و وسایل در محل تأمین می‌شود.",
+        "en": "Places are limited and materials are provided on site."
+      }
+    },
+    {
+      "slug": "portfolio-review",
+      "category": "education",
+      "image": "portfolio-review.jpg",
+      "title": {
+        "fa": "بازبینی نمونه‌کار",
+        "en": "Portfolio Review"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مدت",
+            "۴ ساعت"
+          ],
+          [
+            "سطح",
+            "متوسط"
+          ],
+          [
+            "شهریه",
+            "رایگان"
+          ]
+        ],
+        "en": [
+          [
+            "Duration",
+            "4 hours"
+          ],
+          [
+            "Level",
+            "Intermediate"
+          ],
+          [
+            "Fee",
+            "Free"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "جلسهٔ گروهی برای نقد و بهبود نمونه‌کار دانشجویان و فارغ‌التحصیلان.",
+        "en": "A group session to critique and improve student and graduate portfolios."
+      },
+      "more": {
+        "fa": "هر شرکت‌کننده حداکثر ده صفحه ارائه می‌کند.",
+        "en": "Each participant presents up to ten pages."
+      }
+    },
+    {
+      "slug": "site-visit-day",
+      "category": "education",
+      "image": "site-visit-day.jpg",
+      "title": {
+        "fa": "روز بازدید کارگاه",
+        "en": "Site Visit Day"
+      },
+      "facts": {
+        "fa": [
+          [
+            "مدت",
+            "۳ ساعت"
+          ],
+          [
+            "سطح",
+            "همه"
+          ],
+          [
+            "شهریه",
+            "رایگان"
+          ]
+        ],
+        "en": [
+          [
+            "Duration",
+            "3 hours"
+          ],
+          [
+            "Level",
+            "All"
+          ],
+          [
+            "Fee",
+            "Free"
+          ]
+        ]
+      },
+      "text": {
+        "fa": "بازدید از یک پروژهٔ در حال ساخت و گفت‌وگو با مجری و مهندس ناظر.",
+        "en": "A visit to a building site with the contractor and site engineer."
+      },
+      "more": {
+        "fa": "کلاه ایمنی و کفش مناسب همراه داشته باشید.",
+        "en": "Bring a hard hat and sturdy shoes."
+      }
+    }
+  ]
+}

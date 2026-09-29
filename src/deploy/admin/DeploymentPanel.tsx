@@ -8,6 +8,7 @@ import { SelectInput } from '@payloadcms/ui/fields/Select'
 import { formatDate } from '@/lib/format'
 
 import { ActionButton } from './ActionButton'
+import { DemoPackPanel } from './DemoPackPanel'
 import { ReadinessChecklist } from './ReadinessChecklist'
 
 /**
@@ -595,6 +596,8 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           </>
         )}
       </section>
+
+      <DemoPackPanel siteId={siteId} siteType={siteType} />
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <h2 style={{ margin: 0 }}>پیش‌نمایش</h2>
