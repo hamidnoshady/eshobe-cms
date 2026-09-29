@@ -1,5 +1,7 @@
 import React from 'react'
 
+import { Gutter } from '@payloadcms/ui'
+
 import type { DocumentViewServerProps } from 'payload'
 
 import { siteStaffRole, themeSettingsView } from '@/deploy/tenantSettings'
@@ -43,9 +45,14 @@ export const ThemeSettingsView: React.FC<DocumentViewServerProps> = async ({ doc
   const view = await themeSettingsView(req, siteId, role)
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <ThemeSettingsForm initial={view} siteId={siteId} siteName={String(site.name ?? '')} />
-    </div>
+    <Gutter>
+      <ThemeSettingsForm
+        initial={view}
+        siteId={siteId}
+        siteLocales={(Array.isArray(site.availableLocales) ? site.availableLocales : ['fa']).map(String)}
+        siteName={String(site.name ?? '')}
+      />
+    </Gutter>
   )
 }
 

@@ -242,3 +242,211 @@ a.eshobe-card:hover {
     white-space: nowrap;
   }
 }
+
+/**
+ * The site's theme screens — «استقرار پوسته» and «تنظیمات پوسته»
+ * (`src/deploy/admin/*`). Custom document views, so they get none of Payload's
+ * edit-view layout for free; these classes give them the same card, spacing and
+ * muted-text vocabulary from Payload's own tokens instead of inline styles. Logical
+ * properties only — the admin runs RTL.
+ */
+.theme-console {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 1.25);
+  max-width: 64rem;
+  padding-block: calc(var(--base) * 1.5);
+
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+  }
+
+  .btn {
+    margin-block: 0;
+  }
+
+  code {
+    font-size: 0.85em;
+    overflow-wrap: anywhere;
+  }
+}
+
+.theme-console__intro {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.4);
+}
+
+.theme-console__muted {
+  color: var(--theme-elevation-600);
+  margin: 0;
+}
+
+.theme-console__meta {
+  align-items: center;
+  color: var(--theme-elevation-600);
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--base) * 0.5);
+}
+
+.theme-card {
+  background: var(--theme-elevation-0);
+  border: 1px solid var(--theme-elevation-150);
+  border-radius: var(--style-radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.75);
+  padding: var(--base);
+}
+
+.theme-card__head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--base) * 0.6);
+  justify-content: space-between;
+}
+
+.theme-card__title {
+  align-items: center;
+  display: flex;
+  font-size: 1.15rem;
+  gap: calc(var(--base) * 0.6);
+}
+
+.theme-card__step {
+  background: var(--theme-elevation-100);
+  border-radius: 50%;
+  display: inline-grid;
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  height: 1.9rem;
+  place-items: center;
+  width: 1.9rem;
+
+  &--done {
+    background: var(--theme-success-100);
+    color: var(--theme-success-750);
+  }
+}
+
+.theme-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--base) * 0.6);
+}
+
+.theme-facts {
+  column-gap: calc(var(--base) * 1.25);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0;
+  row-gap: calc(var(--base) * 0.35);
+
+  dt {
+    color: var(--theme-elevation-600);
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+.theme-lanes {
+  display: grid;
+  gap: var(--base);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.theme-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.35);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    align-items: baseline;
+    display: flex;
+    gap: calc(var(--base) * 0.5);
+  }
+}
+
+.theme-checklist__icon {
+  flex-shrink: 0;
+  font-weight: 700;
+  text-align: center;
+  width: 1rem;
+
+  &--ok {
+    color: var(--theme-success-500);
+  }
+
+  &--warn {
+    color: var(--theme-warning-500);
+  }
+
+  &--blocked {
+    color: var(--theme-error-500);
+  }
+}
+
+.theme-history {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.6);
+}
+
+.theme-history__row {
+  border-block-end: 1px solid var(--theme-elevation-100);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.4);
+  padding-block-end: calc(var(--base) * 0.6);
+
+  &:last-child {
+    border-block-end: 0;
+  }
+}
+
+.theme-log {
+  background: var(--theme-elevation-50);
+  border-radius: var(--style-radius-s);
+  font-size: 0.8rem;
+  max-height: 18rem;
+  overflow: auto;
+  padding: calc(var(--base) * 0.6);
+  white-space: pre-wrap;
+}
+
+.theme-form {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 1.25);
+  max-width: 48rem;
+}
+
+.theme-form__fields {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.25);
+}
+
+.theme-form__footer {
+  align-items: center;
+  background: var(--theme-bg);
+  border-block-start: 1px solid var(--theme-elevation-100);
+  display: flex;
+  gap: var(--base);
+  inset-block-end: 0;
+  padding-block: calc(var(--base) * 0.75);
+  position: sticky;
+  z-index: 1;
+}

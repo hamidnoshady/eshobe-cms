@@ -137,11 +137,14 @@ test.describe('the deployment and theme-settings tabs', () => {
     const acme = sites.docs.find((doc: { domain: string }) => doc.domain === 'acme.localhost')
 
     await page.goto(`${base}/admin/collections/sites/${acme.id}/deployment`)
-    await expect(page.getByRole('heading', { name: /پوسته و میزبانی سایت/ }).first()).toBeVisible({
+    await expect(page.getByRole('heading', { name: /استقرار پوسته/ }).first()).toBeVisible({
       timeout: 60_000,
     })
-    await expect(page.getByRole('heading', { name: 'اکنون چه چیزی سرویس می‌دهد؟' })).toBeVisible()
-    await expect(page.getByText('با رندرکنندهٔ داخلی سرویس داده می‌شود')).toBeVisible()
+    // The three steps, in order — the whole flow of getting a theme onto a domain.
+    await expect(page.getByRole('heading', { level: 2, name: /انتخاب پوسته/ })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: /پیش‌نمایش$/ })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: /انتشار روی دامنه/ })).toBeVisible()
+    await expect(page.getByText('دامنه با رندرکنندهٔ داخلی سرویس می‌شود')).toBeVisible()
 
     await page.goto(`${base}/admin/collections/sites/${acme.id}/theme-settings`)
     await expect(page.getByRole('heading', { name: /تنظیمات پوسته/ }).first()).toBeVisible({ timeout: 60_000 })

@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react'
 
+import { Banner, SelectInput } from '@payloadcms/ui'
+
 import { ActionButton } from './ActionButton'
 
 type Pack = { description: Record<string, string>; key: string; name: Record<string, string>; siteType: string }
@@ -30,26 +32,30 @@ export const DemoPackPanel: React.FC<{ siteId: string; siteType: string }> = ({ 
   const url = `/api/platform/sites/${siteId}/demo-pack`
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <h2 style={{ margin: 0 }}>داده نمونه</h2>
-      <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
-        محتوای آماده (دسته‌ها، نوشته‌ها و تصویر) برای اینکه پیش‌نمایش پوسته خالی نباشد. فقط موارد
-        موجود‌نبوده اضافه می‌شود؛ چیزی تغییر یا حذف نمی‌شود.
+    <section className="theme-card">
+      <div className="theme-card__head">
+        <h2 className="theme-card__title">داده نمونه</h2>
+      </div>
+      <p className="theme-console__muted">
+        محتوای آماده (صفحه‌ها، دسته‌ها، نوشته‌ها و تصویر) تا پیش‌نمایش پوسته خالی نباشد. فقط
+        آنچه وجود ندارد اضافه می‌شود؛ چیزی تغییر یا حذف نمی‌شود و اجرای دوباره چیزی اضافه نمی‌کند.
       </p>
       {packs.length === 0 ? (
-        <div className="banner banner--type-default">برای این نوع سایت بستهٔ نمونه‌ای وجود ندارد.</div>
+        <Banner type="info">برای این نوع سایت بستهٔ نمونه‌ای وجود ندارد.</Banner>
       ) : (
         <>
-          <select onChange={(e) => setKey(e.target.value)} style={{ maxWidth: '24rem' }} value={key}>
-            {packs.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.name.fa ?? p.key}
-              </option>
-            ))}
-          </select>
-          {selected?.description.fa && <p style={{ margin: 0 }}>{selected.description.fa}</p>}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <ActionButton body={{ dryRun: true, pack: key }} disabled={!key} label="پیش‌نمایش تغییرات" url={url} />
+          <SelectInput
+            description={selected?.description.fa}
+            label="بستهٔ نمونه"
+            name="demo-pack"
+            onChange={(option) =>
+              setKey(String((option as { value?: string } | null)?.value ?? ''))
+            }
+            options={packs.map((p) => ({ label: p.name.fa ?? p.key, value: p.key }))}
+            path="demo-pack"
+            value={key}
+          />
+          <div className="theme-actions">
             <ActionButton
               body={{ pack: key }}
               confirm="داده نمونه به این سایت اضافه می‌شود. ادامه می‌دهید؟"
@@ -58,6 +64,7 @@ export const DemoPackPanel: React.FC<{ siteId: string; siteType: string }> = ({ 
               style="primary"
               url={url}
             />
+            <ActionButton body={{ dryRun: true, pack: key }} disabled={!key} label="فقط نشان بده چه اضافه می‌شود" url={url} />
           </div>
         </>
       )}

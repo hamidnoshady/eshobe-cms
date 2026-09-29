@@ -1,5 +1,7 @@
 import React from 'react'
 
+import { Gutter } from '@payloadcms/ui'
+
 import type { DocumentViewServerProps } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
@@ -45,7 +47,7 @@ export const DeploymentView: React.FC<DocumentViewServerProps> = ({ doc, initPag
   }
 
   return (
-    <div style={{ padding: '2rem' }}>
+    <Gutter>
       <DeploymentPanel
         domainVerified={site.domainVerified === true}
         siteDomain={String(site.domain ?? '')}
@@ -53,7 +55,7 @@ export const DeploymentView: React.FC<DocumentViewServerProps> = ({ doc, initPag
         siteName={String(site.name ?? '')}
         siteType={String(site.type ?? 'business')}
       />
-    </div>
+    </Gutter>
   )
 }
 

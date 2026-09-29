@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 
-import { Button } from '@payloadcms/ui/elements/Button'
+import { Banner, Button, ConfirmationModal, toast, useModal } from '@payloadcms/ui'
+
 import { useRouter } from 'next/navigation'
 
 /**
@@ -25,7 +26,11 @@ import { useRouter } from 'next/navigation'
  *
  * `confirm` is opt-in because some of these are destructive: stopping a live
  * deployment takes a customer's storefront back to the built-in renderer, and that
- * should cost one deliberate click more than refreshing a build log.
+ * should cost one deliberate click more than refreshing a build log. It opens Payload's
+ * own confirmation modal — the same one «حذف» uses — not the browser's `confirm()`.
+ *
+ * A success is a Payload toast, as a save is; a failure stays on screen under the
+ * button, because it is the one message somebody has to read and act on.
  */
 export type ActionButtonProps = {
   /** Body to POST. Omitted entirely when absent — some routes take none. */
@@ -41,6 +46,8 @@ export type ActionButtonProps = {
   style?: 'danger' | 'none' | 'primary' | 'secondary'
   /** A `/api/...` path. Relative by design: the browser is not the sandbox. */
   url: string
+  /** Heading of the confirmation modal; defaults to the button label. */
+  confirmHeading?: string
 }
 
 type Result = { ok: boolean; text: string }
@@ -48,6 +55,7 @@ type Result = { ok: boolean; text: string }
 export const ActionButton: React.FC<ActionButtonProps> = ({
   body,
   confirm,
+  confirmHeading,
   disabled,
   label,
   onSuccess,
@@ -56,12 +64,22 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
   url,
 }) => {
   const router = useRouter()
+  const { openModal } = useModal()
+  const modalSlug = `confirm-action-${useId().replace(/[^a-z0-9]/gi, '')}`
   const [pending, setPending] = useState(false)
-  const [result, setResult] = useState<null | Result>(null)
+  const [error, setError] = useState<null | string>(null)
+
+  const setResult = (result: null | Result) => {
+    if (!result) return setError(null)
+    if (result.ok) {
+      setError(null)
+      toast.success(result.text)
+    } else {
+      setError(result.text)
+    }
+  }
 
   const run = async () => {
-    if (confirm && !window.confirm(confirm)) return
-
     setPending(true)
     setResult(null)
 
@@ -118,15 +136,25 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
         <Button
           buttonStyle={style === 'danger' ? 'error' : style}
           disabled={pending || disabled}
-          onClick={run}
+          onClick={() => (confirm ? openModal(modalSlug) : void run())}
           type="button"
         >
           {pending ? 'در حال اجرا…' : label}
         </Button>
       </div>
 
-      {result && (
-        <div className={`banner banner--type-${result.ok ? 'success' : 'error'}`}>{result.text}</div>
+      {error && <Banner type="error">{error}</Banner>}
+
+      {confirm && (
+        <ConfirmationModal
+          body={confirm}
+          cancelLabel="انصراف"
+          confirmingLabel="در حال اجرا…"
+          confirmLabel="تأیید"
+          heading={confirmHeading ?? label}
+          modalSlug={modalSlug}
+          onConfirm={run}
+        />
       )}
     </div>
   )

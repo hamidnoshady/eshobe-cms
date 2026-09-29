@@ -130,9 +130,23 @@ Operator flow — one console, one order:
 The console is the **«استقرار پوسته»** tab on the site document
 (`/admin/collections/sites/:id/deployment`) — platform staff only; a customer's own
 staff do not see the tab, the view refuses them, and every route behind it re-checks.
-The panel's section **«پوسته و میزبانی»** is the whole flow in one place: the primary
-action is **«استقرار پیش‌نمایش (package-key)»** (posts `{ lane: "preview", package }`),
-and publishing to the domain is the section after it. A direct link to the tab sits on
+It is laid out as the flow itself — a readiness checklist, a «روی دامنه» / «پیش‌نمایش»
+status pair saying which commit runs where, then three numbered steps with one primary
+action each:
+
+| Step | Button | Request |
+|---|---|---|
+| ۱ انتخاب پوسته | «ثبت این پوسته برای سایت» | `POST …/theme-assignment { package }` |
+| ۲ پیش‌نمایش | «ساخت پیش‌نمایش» | `POST …/deployment { lane: "preview", package }` — the package's latest commit |
+| ۳ انتشار روی دامنه | «انتشار نسخهٔ ‹sha› روی دامنه» | `POST …/deployment { lane: "production", package, artifact }` — the **live preview's artifact**, so what ships is what was reviewed |
+
+Step 3 also has «اجرای دوبارهٔ نسخهٔ فعلی» (`POST …/redeploy { lane: "production" }`):
+the *current* production build again — for changed «تنظیمات پوسته» variables, a new
+primary domain (`needsRedeploy`) or a broken container. It never ships a newer version;
+that is what the three steps are for. `/redeploy` resolves its source row within the
+`lane` it is given, so a preview redeploy can never rebuild production. Stop, revert
+and rollback live in the collapsed «توقف و بازگشت» and «تاریخچهٔ استقرارها» sections.
+A direct link to the tab sits on
 the **«نمای ۳۶۰ مشتری»** overview pane. Rows in **«انتشارها»** (`site-deployments`) are
 history: `create` on that collection is closed to everybody, admins included — a row is
 born in `createDeployment` with its artifact and hostnames already resolved, and a

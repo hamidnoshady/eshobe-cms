@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  contentSlotSearchWhere,
-  fetchAllContentSlotOptions,
-} from '@/deploy/admin/contentSlotOptions'
+import { fetchAllContentSlotOptions } from '@/deploy/admin/contentSlotOptions'
 import { parseThemeManifest, validateRuntimeSettings } from '@/lib/deploy/manifest'
 
 /**
@@ -43,9 +40,5 @@ describe('theme settings form logic', () => {
       return { docs: [{ id: '100', title: 'T100' }], hasNextPage: false }
     }, 'page')
     expect(pages).toHaveLength(101)
-  })
-
-  it('builds search filters used by the slot picker', () => {
-    expect(contentSlotSearchWhere('post', 'news')?.or).toBeTruthy()
   })
 })
