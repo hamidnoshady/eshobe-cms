@@ -181,6 +181,16 @@ fetch('https://cms.example.com/api/site', {
 })
 ```
 
+> **A deployed theme uses the key, not `Host`.** `ESHOBE_CMS_URL` is the CMS's public
+> address, usually behind the same Coolify/Traefik proxy that serves the theme — and that
+> proxy routes by `Host`. Rewriting `Host` to the customer domain sends the request back
+> into the theme's own container (production) or to no router at all (preview): every
+> lookup times out and the site renders empty. Send `Authorization: Bearer
+> $ESHOBE_API_KEY` with the CMS's own `Host`. A site key scopes every public read —
+> pages, posts, categories, header, footer, media — to its site, and also reads drafts,
+> so filter `where[_status][equals]=published` yourself and never attach the key to
+> visitor traffic other than draft-free reads (`/api/site`, `/api/media/file/*`).
+
 ### CORS
 `payload.config.ts` `cors: [ getServerSideURL(), ...API_CORS_ORIGINS ]`. Extra origins must be listed in `API_CORS_ORIGINS` env (comma-separated) to allow credentialed requests. No wildcard.
 

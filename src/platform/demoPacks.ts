@@ -18,11 +18,32 @@ import { localeOrder } from '@/platform/snapshot'
  *    deletes, so a second click adds nothing.
  *  - **`site` is the URL's site**, never anything in the pack.
  *  - A pack names one `siteType` and is refused on any other.
+ *
+ * Pages matter as much as posts: a theme's section routes (`/about`, `/services`,
+ * `/contact`, the home page's metadata) are filled from pages whose slug is the section
+ * key, and a pack that ships only posts leaves those routes empty on a fresh site.
  */
 
 type L = Record<string, string>
+type PackPage = {
+  contact?: {
+    address: L
+    email?: string
+    heading: L
+    hours: L
+    latitude?: number
+    longitude?: number
+    phones?: string[]
+  }
+  description: L
+  paragraphs: Record<string, string[]>
+  slug: string
+  title: L
+}
 type Pack = {
   categories: { slug: string; title: L }[]
+  /** The pages a theme binds to its sections (home, about, services, contact). Optional for older packs. */
+  pages?: PackPage[]
   description: L
   key: string
   name: L
@@ -80,6 +101,63 @@ const factList = (rows: [string, string][], d: string) => ({
   direction: d, format: '', indent: 0, listType: 'bullet', start: 1, tag: 'ul', type: 'list', version: 1,
 })
 const dirOf = (locale: string) => (locale === 'fa' ? 'rtl' : 'ltr')
+const heading = (t: string, tag: string, d: string) => ({
+  children: [text(t)], direction: d, format: '', indent: 0, tag, type: 'heading', version: 1,
+})
+const root = (children: unknown[], d: string) => ({
+  root: { children, direction: d, format: '', indent: 0, type: 'root', version: 1 },
+})
+
+/** One page in one locale. Built by the same function for every locale, so rows pair by index. */
+const pageData = (p: PackPage, locale: string) => {
+  const d = dirOf(locale)
+  const layout: Record<string, unknown>[] = [
+    {
+      blockType: 'content',
+      columns: [{ richText: root((p.paragraphs[locale] ?? []).map((t) => para(t, d)), d), size: 'full' }],
+    },
+  ]
+  if (p.contact) {
+    const c = p.contact
+    layout.push({
+      address: c.address[locale] ?? '',
+      blockType: 'contact',
+      email: c.email,
+      heading: c.heading[locale] ?? '',
+      hours: c.hours[locale] ?? '',
+      latitude: c.latitude,
+      longitude: c.longitude,
+      phones: c.phones,
+    })
+  }
+  return {
+    generateSlug: false,
+    hero: { richText: root([heading(p.title[locale] ?? '', 'h1', d)], d), type: 'lowImpact' },
+    layout,
+    meta: { description: p.description[locale] ?? '', title: p.title[locale] ?? '' },
+    slug: p.slug,
+    title: p.title[locale] ?? '',
+  }
+}
+
+/**
+ * Copies the default-locale document's row ids onto a second-locale write. `layout` is an
+ * unlocalized array with localized text inside: a row without its id is a new row, and the
+ * array is replaced — which deletes the first locale's text (CLAUDE.md, «Payload»).
+ */
+const withIds = <T,>(next: T, prev: unknown): T => {
+  if (Array.isArray(next)) {
+    return next.map((row, i) => withIds(row, Array.isArray(prev) ? prev[i] : undefined)) as T
+  }
+  if (next && typeof next === 'object') {
+    const before = (prev && typeof prev === 'object' ? prev : {}) as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(next)) out[key] = withIds(value, before[key])
+    if (typeof before.id === 'string' && !('id' in out)) out.id = before.id
+    return out as T
+  }
+  return next
+}
 const body = (p: Pack['posts'][number], locale: string) => ({
   root: {
     children: [factList(p.facts[locale] ?? [], dirOf(locale)), para(p.text[locale] ?? '', dirOf(locale)), para(p.more[locale] ?? '', dirOf(locale))],
@@ -91,7 +169,7 @@ const body = (p: Pack['posts'][number], locale: string) => ({
 
 export type DemoPackResult =
   | { ok: false; reason: 'not_found' | 'type_mismatch' }
-  | { ok: true; summary: { categories: number; media: number; posts: number; skipped: number } }
+  | { ok: true; summary: { categories: number; media: number; pages: number; posts: number; skipped: number } }
 
 export const applyDemoPack = async (
   req: PayloadRequest,
@@ -109,7 +187,7 @@ export const applyDemoPack = async (
   const [first, ...rest] = locales
   if (!first) return { ok: false, reason: 'not_found' }
 
-  const summary = { categories: 0, media: 0, posts: 0, skipped: 0 }
+  const summary = { categories: 0, media: 0, pages: 0, posts: 0, skipped: 0 }
   const inSite = { site: { equals: siteId } }
   const opts = { depth: 0, fallbackLocale: false, limit: 1, locale: first, overrideAccess: true } as const
 
@@ -126,6 +204,25 @@ export const applyDemoPack = async (
       await payload.update({ collection: 'categories', data: { generateSlug: false, slug: c.slug, title: c.title[l] }, id: created.id, locale: l, overrideAccess: true } as never)
     }
     categoryIds.set(c.slug, created.id)
+  }
+
+  for (const p of pack.pages ?? []) {
+    const exists = (await payload.find({ ...opts, collection: 'pages', where: { and: [inSite, { slug: { equals: p.slug } }] } })).docs[0]
+    if (exists) { summary.skipped++; continue }
+    summary.pages++
+    if (dryRun) continue
+    const created = await payload.create({
+      collection: 'pages',
+      data: { ...pageData(p, first), _status: 'published', publishedAt: new Date().toISOString(), site: siteId },
+      locale: first, overrideAccess: true,
+    } as never)
+    for (const l of rest) {
+      const stored = (await payload.findByID({ collection: 'pages', depth: 0, id: created.id, locale: first, overrideAccess: true } as never)) as unknown as Record<string, unknown>
+      const data = pageData(p, l)
+      await payload.update({
+        collection: 'pages', data: { ...data, _status: 'published', layout: withIds(data.layout, stored.layout) }, id: created.id, locale: l, overrideAccess: true,
+      } as never)
+    }
   }
 
   for (const p of pack.posts) {

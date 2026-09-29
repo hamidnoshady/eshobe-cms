@@ -89,12 +89,30 @@ export const requestSiteId = async (req: PayloadRequest): Promise<null | string>
  * makes a leaked query much harder to read when one is being debugged.
  */
 const siteConstraint = async (req: PayloadRequest): Promise<null | { site: { equals: string } }> => {
+  // A site key names its tenant outright, whatever `Host` the call arrived on — the
+  // same rule `apiKeyAware` applies to pages and posts. A headless renderer calling the
+  // CMS's own address has no customer `Host` to send (a proxy that routes by `Host`
+  // would deliver the request somewhere else), and without this the key was treated as
+  // "authenticated, unscoped": every tenant's categories, header, footer and media.
+  const key = await requestApiKey(req)
+  if (key?.role === 'site' && key.siteId) return { site: { equals: key.siteId } }
+
   const siteId = await requestSiteId(req)
 
   // No tenant to scope to — see "When the host resolves to no site".
   if (!siteId) return null
 
   return { site: { equals: siteId } }
+}
+
+/**
+ * A key that names no site — a platform key, or a site key whose site is gone. It
+ * reads no content, the rule `apiKeyAware` already enforces for pages and posts;
+ * here it would otherwise fall through to the collection's own "anyone".
+ */
+const isSitelessApiKey = async (req: PayloadRequest): Promise<boolean> => {
+  const key = await requestApiKey(req)
+  return Boolean(key) && !(key!.role === 'site' && key!.siteId)
 }
 
 /**
@@ -136,6 +154,7 @@ export const scopedPublicRead =
   (base: Access = () => true): Access =>
   async (args) => {
     if (await isUnscopedAnonymousRequest(args.req)) return false
+    if (!args.req.user && (await isSitelessApiKey(args.req))) return false
 
     const allowed = await base(args)
     const site = await siteConstraint(args.req)
@@ -159,6 +178,7 @@ export const scopedPublishedRead =
   async (args) => {
     if (args.req.user) return base(args)
     if (await isUnscopedAnonymousRequest(args.req)) return false
+    if (await isSitelessApiKey(args.req)) return false
 
     const allowed = await base(args)
     const site = await siteConstraint(args.req)

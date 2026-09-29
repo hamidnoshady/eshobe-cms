@@ -265,6 +265,22 @@ describe('a site key', () => {
     }
   })
 
+  it('scopes Host-only collections to its own site when called on the CMS\'s own host', async () => {
+    // A deployed theme calls the CMS's public address with the key and no customer
+    // `Host` — the proxy in front routes by `Host`. Categories, header, footer and media
+    // are scoped by `scopedPublicRead`, which used to treat "key present, host names no
+    // site" as unscoped and hand back every tenant's rows.
+    const issued = await issueKey({ name: 'host-only test', role: 'site', siteId: siteId.acme })
+    const req = await reqWithKey(issued.key, 'cms.example.test')
+
+    for (const collection of ['categories', 'header', 'footer', 'media']) {
+      const docs = await read<{ site: unknown }>(req, collection)
+      const sites = new Set(docs.map((d) => (typeof d.site === 'object' ? (d.site as { id: string }).id : d.site)))
+      expect([...sites], collection).toEqual(docs.length ? [siteId.acme] : [])
+    }
+    expect(await read(req, 'categories', { site: { equals: siteId.studio } })).toHaveLength(0)
+  })
+
   it('cannot read or write a collection it holds no grant on', async () => {
     const issued = await issueKey({ name: 'sites test', role: 'site', siteId: siteId.acme })
     const req = await reqWithKey(issued.key)
@@ -351,6 +367,10 @@ describe('a platform key', () => {
     expect(sites.length).toBeGreaterThanOrEqual(2)
 
     await expect(read(req, 'pages')).rejects.toThrow()
+    for (const collection of ['categories', 'header', 'footer', 'media']) {
+      const onCmsHost = await reqWithKey(issued.key, 'cms.example.test')
+      await expect(read(onCmsHost, collection), collection).rejects.toThrow()
+    }
   })
 
   it('is listed back masked, never with the raw key', async () => {
