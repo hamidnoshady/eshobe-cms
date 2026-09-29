@@ -11,5 +11,5 @@ export async function Header() {
     ? await findGlobalForSite('header', site.id, { depth: 1, locale })
     : null
 
-  return <HeaderClient data={headerData} />
+  return <HeaderClient data={headerData} siteName={site?.name} />
 }

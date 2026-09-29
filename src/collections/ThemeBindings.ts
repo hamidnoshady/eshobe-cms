@@ -4,8 +4,6 @@ import { platformAdmin } from '@/access/platformAdmin'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { DEPLOYMENT_LANES, DEPLOYMENT_LANE_LABELS } from '@/lib/deploy/lane'
 
-const BINDING_STATES = ['active', 'provisioning', 'stopped', 'conflict'] as const
-
 /**
  * Persistent Coolify identity for (site × theme package × lane).
  *

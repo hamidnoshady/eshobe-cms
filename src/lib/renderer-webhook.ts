@@ -4,6 +4,7 @@ import type { PayloadRequest } from 'payload'
 
 import { decryptDeploySecret } from '@/lib/deploy/crypto'
 import { applicationHostOf } from '@/lib/deploy/status'
+import { deployOrigin } from '@/lib/deploy/previewUrl'
 
 /**
  * Tell the *other* renderers that a site's content changed.
@@ -67,7 +68,7 @@ export type RendererEndpoint = { secret: string; url: string }
  * author who reads their own environment can forge a cache purge at every other
  * customer on the fleet.
  *
- * So: the site's own live deployments contribute `https://<host>/api/revalidate`
+ * So: the site's own live deployments contribute `<scheme>://<host>/api/revalidate`
  * keyed by that deployment's `ESHOBE_REVALIDATE_SECRET`, where `<host>` is the
  * application's own hostname (`applicationHostOf` — its preview name, because in
  * `edge` mode Caddy keeps the customer domain's `/api/*` on the CMS), and the env var stays as a
@@ -100,7 +101,7 @@ export const rendererEndpointsFor = async (
     for (const row of docs as unknown as Record<string, unknown>[]) {
       const host = applicationHostOf(row)
       const secret = decryptDeploySecret(row.revalidateSecret as null | string)
-      if (host && secret) endpoints.push({ secret, url: `https://${host}/api/revalidate` })
+      if (host && secret) endpoints.push({ secret, url: `${deployOrigin(host)}/api/revalidate` })
     }
   } catch (error) {
     // Best-effort, like everything else on this path. A publish must not fail

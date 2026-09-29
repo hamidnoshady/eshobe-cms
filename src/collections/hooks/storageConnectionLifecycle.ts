@@ -38,7 +38,7 @@ const changedConfig = (data: Row, originalDoc: Row | undefined): boolean => {
 }
 
 /** Normalise provider defaults and vet the endpoint before save. */
-export const normaliseStorageConnection: CollectionBeforeChangeHook = async ({ data, req }) => {
+export const normaliseStorageConnection: CollectionBeforeChangeHook = async ({ data }) => {
   const input = (data ?? {}) as Row
   const defaults = applyProviderDefaults({
     endpoint: input.endpoint as string | null,

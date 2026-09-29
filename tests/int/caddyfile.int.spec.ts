@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest'
  * is a static regression test because the sandbox test environment has no Caddy
  * binary; the deployment smoke test validates the full compose stack.
  */
-const caddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8')
+// CRLF on a Windows checkout (core.autocrlf); the assertions below match LF-joined blocks.
+const caddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8').replaceAll('\r\n', '\n')
 
 const indexOf = (needle: string): number => {
   const index = caddyfile.indexOf(needle)

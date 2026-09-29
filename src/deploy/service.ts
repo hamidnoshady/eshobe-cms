@@ -1,6 +1,5 @@
 import type { PayloadRequest } from 'payload'
 
-import { generateApiKey } from '@/lib/api-keys'
 import {
   encryptDeploySecret,
   decryptDeploySecret,
@@ -41,6 +40,7 @@ import {
 } from './bindings'
 import { bindingAppName } from '@/lib/deploy/appIdentity'
 import { resolveDeployMode, type DeploymentLane } from '@/lib/deploy/lane'
+import { deployOrigin } from '@/lib/deploy/previewUrl'
 import { artifactByIdForPackage, readyArtifactForCommit } from './artifacts'
 import { resolveDeploymentPlan } from './plan'
 
@@ -612,18 +612,21 @@ const resolveTargetId = async (
  * The raw value exists in exactly one place after this returns — the Coolify
  * environment — and in this function's return value on the way there.
  */
-const mintSiteKey = async (
+export const mintSiteKey = async (
   req: PayloadRequest,
   site: Record<string, unknown>,
   themeName: string,
 ): Promise<{ id: string; raw: string }> => {
-  const { raw, hash, prefix } = generateApiKey()
+  // The `api-keys` collection mints the key itself (`mintOnCreate`, beforeValidate) and
+  // overwrites any hash or prefix passed in. So the raw value that matches the stored
+  // hash is the one that hook stashes on `req.context` — generating a second one here
+  // hands the theme a credential that authenticates nothing, and fails only when it
+  // reads a draft or calls a key-only route, never on a public read.
+  delete req.context.eshobeIssuedApiKey
 
   const doc = await req.payload.create({
     collection: 'api-keys',
     data: {
-      keyHash: hash,
-      keyPrefix: prefix,
       name: `پوستهٔ ${themeName} — ${String(site.domain ?? site.id)}`,
       role: 'site',
       site: String(site.id),
@@ -632,6 +635,10 @@ const mintSiteKey = async (
     overrideAccess: true,
     req,
   })
+
+  const raw = req.context.eshobeIssuedApiKey as string | undefined
+  delete req.context.eshobeIssuedApiKey
+  if (!raw) throw new Error('api-keys: the minting hook did not stash a raw key')
 
   return { id: String((doc as { id: unknown }).id), raw }
 }
@@ -916,13 +923,19 @@ export const runDeployment = async (
    * app must *not* also claim the domain in Coolify — two certificate authorities
    * racing for one hostname is a rate limit and an outage. It gets the preview name
    * only, and Caddy points at it.
+   *
+   * In `direct` the application answers on the customer domain **and** its own
+   * application hostname. The health check and the preview link always target the
+   * latter (`applicationHostOf`) — the customer's DNS may not have moved yet — so if
+   * the app did not claim it the proxy would answer 404 for a container that is fine,
+   * and every production publish would fail its own gate.
    */
   const domainHosts =
     lane === 'preview' || domainMode === 'edge'
       ? [previewDomain].filter(Boolean)
-      : [siteDomain].filter(Boolean)
+      : [...new Set([siteDomain, previewDomain].filter(Boolean))]
 
-  const domains = domainHosts.map((host) => `https://${host}`)
+  const domains = domainHosts.map((host) => deployOrigin(String(host)))
 
   if (!domains.length) {
     return fail(req, deploymentId, 'هیچ میزبانی برای این استقرار مشخص نشده است.')
@@ -1231,6 +1244,36 @@ export const promotionBlocker = (
 }
 
 /**
+ * Statuses that mean "the proxy has not learned about this container yet", not "the
+ * theme is broken". Coolify reports the build finished a beat before Traefik has loaded
+ * the new router, so the first request for a fresh hostname is a 404 from the proxy —
+ * failing the deployment on it turns every first publish into a coin flip.
+ */
+const NOT_ROUTED_YET = new Set([404, 502, 503, 504])
+
+/**
+ * One health probe, retried while the answer looks like propagation delay. Attempts and
+ * spacing are read per call so a test (or a slow machine) can tune them.
+ */
+const probeHealth = async (url: string): Promise<Response> => {
+  const attempts = Math.max(1, Number(process.env.DEPLOY_HEALTH_ATTEMPTS ?? 6))
+  const delayMs = Math.max(0, Number(process.env.DEPLOY_HEALTH_RETRY_MS ?? 5_000))
+  let response!: Response
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    response = await fetch(url, {
+      headers: { 'user-agent': 'eshobe-cms-healthcheck' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!NOT_ROUTED_YET.has(response.status) || attempt === attempts) break
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
+  }
+
+  return response
+}
+
+/**
  * The last gate: does it actually answer?
  *
  * A build that succeeded is not a site that works — a theme can compile perfectly and
@@ -1290,11 +1333,7 @@ export const verifyDeployment = async (
 
   let response: null | Response = null
   try {
-    response = await fetch(`https://${host}${path}`, {
-      headers: { 'user-agent': 'eshobe-cms-healthcheck' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
-    })
+    response = await probeHealth(`${deployOrigin(host)}${path}`)
   } catch (error) {
     await req.payload.update({
       collection: 'site-deployments',

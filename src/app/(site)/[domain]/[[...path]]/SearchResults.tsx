@@ -46,6 +46,35 @@ export const SearchResults: React.FC<{ page?: number; q?: string }> = async ({
       : undefined,
   })
 
+  // The index's own `slug` is a single value shared by every locale, so after the second
+  // locale syncs it holds *that* locale's slug and the Persian result links to an English
+  // URL that 404s. The post itself has the slug per locale: resolve each hit through it,
+  // and drop a hit the post has no translation for rather than link to nothing.
+  const postIds = docs
+    .map((doc) => {
+      const ref = doc.doc as unknown as { value?: { id?: string } | string } | null
+      return typeof ref?.value === 'object' ? ref.value?.id : ref?.value
+    })
+    .filter((id): id is string => typeof id === 'string')
+  const translated = postIds.length
+    ? await findForSite('posts', site.id, {
+        depth: 0,
+        fallbackLocale: false,
+        limit: postIds.length,
+        locale,
+        pagination: false,
+        select: { slug: true },
+        where: { id: { in: postIds } },
+      })
+    : { docs: [] }
+  const slugByPost = new Map(translated.docs.map((post) => [String(post.id), post.slug]))
+  const hits = docs.flatMap((doc) => {
+    const ref = doc.doc as unknown as { value?: { id?: string } | string } | null
+    const postId = typeof ref?.value === 'object' ? ref.value?.id : ref?.value
+    const slug = postId ? slugByPost.get(postId) : null
+    return slug ? [{ doc, slug }] : []
+  })
+
   return (
     <article className="pt-16 pb-24">
       <section className="container">
@@ -56,20 +85,15 @@ export const SearchResults: React.FC<{ page?: number; q?: string }> = async ({
         </div>
 
         <div className="mt-10 space-y-8">
-          {docs.map((doc) => {
-            const slug = typeof doc.slug === 'string' ? doc.slug : null
-            const href = slug ? localeHref(postPath(slug), locale, site.defaultLocale) : null
+          {hits.map(({ doc, slug }) => {
+            const href = localeHref(postPath(slug), locale, site.defaultLocale)
             const title = doc.title || doc.meta?.title || uiString('untitled', locale)
 
             return (
               <div className="border-b border-border pb-6" key={doc.id}>
-                {href ? (
-                  <Link className="text-xl font-semibold hover:underline" href={href}>
-                    {title}
-                  </Link>
-                ) : (
-                  <p className="text-xl font-semibold">{title}</p>
-                )}
+                <Link className="text-xl font-semibold hover:underline" href={href}>
+                  {title}
+                </Link>
 
                 {doc.meta?.description && (
                   <p className="mt-2 text-muted-foreground">{doc.meta.description}</p>
