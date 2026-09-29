@@ -71,6 +71,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Uploaded images are served through Node with no validator of their own;
+        // without this every page view re-downloads every image (performance audit §13).
+        // Not `immutable`: a theme's URLs carry no `updatedAt` tag, so a replaced file has
+        // to be able to show up within the hour.
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' }],
+        source: '/api/media/file/:path*',
+      },
+      {
         headers: [
           {
             key: 'Content-Security-Policy',

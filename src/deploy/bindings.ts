@@ -68,7 +68,7 @@ export type EnsureBindingResult =
 export const ensureThemeBinding = async (
   input: EnsureBindingInput,
 ): Promise<EnsureBindingResult> => {
-  const { lane, req, site, siteId, targetDoc, themeKey, themePackageId } = input
+  const { lane, req, siteId, targetDoc, themeKey, themePackageId } = input
   const bindingKey = bindingKeyOf(siteId, themePackageId, lane)
   const requestedTargetId = String(targetDoc.id)
   const infra = infrastructureFromTarget(targetDoc, lane)

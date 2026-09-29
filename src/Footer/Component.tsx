@@ -24,7 +24,7 @@ export async function Footer() {
           className="flex items-center"
           href={localeHref('/', locale, site?.defaultLocale ?? defaultLocale)}
         >
-          <Logo />
+          <Logo name={site?.name} />
         </Link>
 
         <div className="flex flex-col-reverse items-start md:flex-row gap-4 md:items-center">

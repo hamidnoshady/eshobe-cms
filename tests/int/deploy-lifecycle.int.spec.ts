@@ -77,6 +77,8 @@ const net = {
   counter: 0,
   deployOmitsUuid: false,
   healthStatus: 200,
+  /** Answers this many health probes with the proxy's 404 before the real status. */
+  healthNotRouted: 0,
   refs: { main: SHA_MAIN } as Record<string, string>,
   stopFails: false,
 }
@@ -122,7 +124,13 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
     return net.refs[ref] ? respond({ sha: net.refs[ref] }) : respond({ message: 'Not Found' }, 404)
   }
 
-  if (url.includes(`.${WILDCARD}`)) return new Response('ok', { status: net.healthStatus })
+  if (url.includes(`.${WILDCARD}`)) {
+    if (net.healthNotRouted > 0) {
+      net.healthNotRouted -= 1
+      return new Response('404 page not found', { status: 404 })
+    }
+    return new Response('ok', { status: net.healthStatus })
+  }
 
   return new Response('not stubbed', { status: 404 })
 }
@@ -406,6 +414,7 @@ beforeEach(async () => {
   net.counter = 0
   net.deployOmitsUuid = false
   net.healthStatus = 200
+  net.healthNotRouted = 0
   net.refs = { main: SHA_MAIN }
   net.stopFails = false
   await flushThemeRoutesRegeneration()
@@ -634,6 +643,15 @@ describe('an edge deployment, from queued to live', () => {
 
     await advanceDeployment(req, created.deploymentId)
     expect(await themeDoc()).toMatchObject({ accent: '#222222', primary: '#111111' })
+  })
+
+  it('waits out the proxy not knowing the hostname yet instead of failing the first publish', async () => {
+    net.healthNotRouted = 2
+
+    const id = await deployToLive('preview')
+
+    expect((await row(id)).status).toBe('live')
+    expect(callsTo('GET', new RegExp("/health$"))).toHaveLength(3)
   })
 
   it('does not apply production design defaults when health verification fails', async () => {

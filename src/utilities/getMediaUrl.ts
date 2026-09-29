@@ -15,5 +15,7 @@ export const getMediaUrl = (url: string | null | undefined, cacheTag?: string | 
     cacheTag = encodeURIComponent(cacheTag)
   }
 
-  return cacheTag ? `${url}?${cacheTag}` : url
+  // A Payload media url can already carry a query (`?prefix=sites/<id>/media`); a second `?`
+  // would fold the tag into the prefix value and the file would 404.
+  return cacheTag ? `${url}${url.includes('?') ? '&' : '?'}${cacheTag}` : url
 }

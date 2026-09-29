@@ -3,27 +3,17 @@ import React from 'react'
 
 interface Props {
   className?: string
-  loading?: 'lazy' | 'eager'
-  priority?: 'auto' | 'high' | 'low'
+  /** The site's own name — the wordmark until the site has a logo of its own. */
+  name?: string
 }
 
-export const Logo = (props: Props) => {
-  const { loading: loadingFromProps, priority: priorityFromProps, className } = props
-
-  const loading = loadingFromProps || 'lazy'
-  const priority = priorityFromProps || 'low'
-
-  return (
-    /* eslint-disable @next/next/no-img-element */
-    <img
-      alt="Payload Logo"
-      width={193}
-      height={34}
-      loading={loading}
-      fetchPriority={priority}
-      decoding="async"
-      className={clsx('max-w-[9.375rem] w-full h-[34px]', className)}
-      src="https://raw.githubusercontent.com/payloadcms/payload/3.x/packages/ui/src/assets/payload-logo-light.svg"
-    />
-  )
-}
+/**
+ * A text wordmark of the customer's own site name.
+ *
+ * It used to be Payload's logo, fetched from raw.githubusercontent.com on every page:
+ * every customer's header advertised the CMS vendor, and a visitor whose network
+ * blocks GitHub saw a broken image on a site that is otherwise self-hosted.
+ */
+export const Logo = ({ className, name }: Props) => (
+  <span className={clsx('text-xl font-bold leading-none tracking-tight', className)}>{name}</span>
+)

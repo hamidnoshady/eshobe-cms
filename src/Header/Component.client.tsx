@@ -13,9 +13,10 @@ import { HeaderNav } from './Nav'
 interface HeaderClientProps {
   /** Null until the site's editor saves a header, and on an unknown host. */
   data: Header | null
+  siteName?: string
 }
 
-export const HeaderClient: React.FC<HeaderClientProps> = ({ data }) => {
+export const HeaderClient: React.FC<HeaderClientProps> = ({ data, siteName }) => {
   /* Storing the value in a useState to avoid hydration errors */
   const [theme, setTheme] = useState<string | null>(null)
   const { headerTheme, setHeaderTheme } = useHeaderTheme()
@@ -36,7 +37,7 @@ export const HeaderClient: React.FC<HeaderClientProps> = ({ data }) => {
     <header className="container relative z-20   " {...(theme ? { 'data-theme': theme } : {})}>
       <div className="py-8 flex justify-between">
         <Link href={localeHref('/')}>
-          <Logo loading="eager" priority="high" className="invert dark:invert-0" />
+          <Logo name={siteName} />
         </Link>
         <HeaderNav data={data} />
       </div>

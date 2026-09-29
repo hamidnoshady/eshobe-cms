@@ -3,6 +3,7 @@ import type { PayloadRequest } from 'payload'
 import { contractVersion } from '@eshobe/site-runtime'
 
 import { DEPLOY_SECRET_READ_CONTEXT_KEY, readThemeSettingSecrets } from '@/collections/hooks/deploySecrets'
+import { deployOrigin } from '@/lib/deploy/previewUrl'
 import { validateTenantEnv, type ThemeManifest } from '@/lib/deploy/manifest'
 
 /**
@@ -51,9 +52,17 @@ export type EnvironmentResult = {
  * `NEXT_PUBLIC_SERVER_URL` is what every other part of this codebase treats as "where
  * this deployment answers" (`getServerSideURL`), so a theme reading content is
  * pointed at the same place the admin's own links are.
+ *
+ * `DEPLOY_CMS_URL` overrides it for the deployed theme only. On a developer machine the
+ * admin is `http://localhost:3000`, which inside a Coolify container is the container
+ * itself; the theme has to be told `http://host.docker.internal:3000` instead. In
+ * production the two are the same public origin and this stays unset.
  */
 const cmsOrigin = (): string =>
-  (process.env.NEXT_PUBLIC_SERVER_URL ?? 'http://localhost:3000').replace(/\/+$/, '')
+  (process.env.DEPLOY_CMS_URL || process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000').replace(
+    /\/+$/,
+    '',
+  )
 
 /** The site's store currency, if it has a store. A theme renders prices; it must not guess the unit. */
 const currencyFor = async (req: PayloadRequest, siteId: string): Promise<null | string> => {
@@ -166,7 +175,7 @@ export const buildEnvironment = async (input: EnvironmentInput): Promise<Environ
      * canonical domain. A theme that builds absolute URLs from `ESHOBE_SITE_DOMAIN`
      * while running on a preview host emits links nobody can follow.
      */
-    { key: 'ESHOBE_PUBLIC_ORIGIN', value: `https://${serviceDomain}` },
+    { key: 'ESHOBE_PUBLIC_ORIGIN', value: deployOrigin(serviceDomain) },
   ]
 
   if (currency) platform.push({ key: 'ESHOBE_CURRENCY', value: currency })

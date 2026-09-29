@@ -3,6 +3,7 @@ import React from 'react'
 import type { PayloadRequest, ServerProps } from 'payload'
 
 import type { Site } from '@/payload-types'
+import { deployOrigin } from '@/lib/deploy/previewUrl'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { customerSiteSummary } from '@/lib/customerSiteSummary'
@@ -151,7 +152,7 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
 
   const ordersHref = entityHref(adminRoute, collection('orders'))
   const productsHref = entityHref(adminRoute, collection('products'))
-  const siteUrl = site?.domain ? `https://${site.domain}` : null
+  const siteUrl = site?.domain ? deployOrigin(String(site.domain)) : null
   const statusLabel = site?.domainVerified
     ? 'دامنه تأییدشده'
     : site?.domain

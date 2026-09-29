@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   contentSlotSearchWhere,
   fetchAllContentSlotOptions,
-  mapContentDocsToOptions,
 } from '@/deploy/admin/contentSlotOptions'
 import { parseThemeManifest, validateRuntimeSettings } from '@/lib/deploy/manifest'
 
