@@ -924,16 +924,17 @@ export const runDeployment = async (
    * racing for one hostname is a rate limit and an outage. It gets the preview name
    * only, and Caddy points at it.
    *
-   * In `direct` the application answers on the customer domain **and** its own
-   * application hostname. The health check and the preview link always target the
-   * latter (`applicationHostOf`) — the customer's DNS may not have moved yet — so if
-   * the app did not claim it the proxy would answer 404 for a container that is fine,
-   * and every production publish would fail its own gate.
+   * A production (`direct`) deployment answers on **both** names: the customer's domain,
+   * and the application's own hostname. The health check (`verifyDeployment`) probes the
+   * application's own hostname on purpose — the customer's domain may still point
+   * somewhere else while DNS settles — so if Coolify is never told to route that name the
+   * check reaches Traefik's default certificate, fails with a bare «fetch failed», and the
+   * deploy sits in «در حال بررسی سلامت» forever even though the container is healthy.
    */
   const domainHosts =
     lane === 'preview' || domainMode === 'edge'
       ? [previewDomain].filter(Boolean)
-      : [...new Set([siteDomain, previewDomain].filter(Boolean))]
+      : [siteDomain, previewDomain].filter(Boolean)
 
   const domains = domainHosts.map((host) => deployOrigin(String(host)))
 

@@ -1334,15 +1334,17 @@ describe('suspension and archival', () => {
 
   it('suspending stops a live direct deployment too — its DNS never passed through Caddy', async () => {
     const liveId = await deployToLive('direct')
-    expect(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains).toContain(
-      `https://${String(original.domain)}`,
+    const preview = String((await row(liveId)).previewDomain)
+    // Both names are routed to the application. The health check below probes the
+    // application's own hostname, so a name Coolify was never told about would be
+    // unreachable in production while this file's mocked network answers it anyway.
+    const routed = String(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains).split(',')
+    expect(routed).toEqual(
+      expect.arrayContaining([`https://${String(original.domain)}`, `https://${preview}`]),
     )
 
     // The health check reached the application on its own hostname: the customer's
     // domain may still point at Caddy, whose built-in renderer would answer 200.
-    const preview = String((await row(liveId)).previewDomain)
-    // …which is why the application must actually answer there, next to the customer domain.
-    expect(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains).toContain(`https://${preview}`)
     expect(callsTo('GET', new RegExp(`^https://${preview}/health$`))).toHaveLength(1)
     expect(callsTo('GET', new RegExp(`^https://${String(original.domain)}/`))).toHaveLength(0)
 
