@@ -2,6 +2,7 @@ import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { loadThemeReadiness } from '@/deploy/readinessLoader'
+import { recentDeployments, redeploySource } from '@/deploy/siteDeploymentSummary'
 import { syncThemePackage } from '@/deploy/themePackageSync'
 import { previewHttpsUrl } from '@/lib/deploy/previewUrl'
 import { buildRoutingTable } from '@/deploy/routing'
@@ -19,7 +20,6 @@ import {
   DOMAIN_MODES,
   STALE_DOMAIN_MESSAGE,
   applicationHostOf,
-  isProductionMode,
   needsRedeploy,
   type DomainMode,
 } from '@/lib/deploy/status'
@@ -128,42 +128,6 @@ const deploymentOfSite = async (
     req,
   })) as null | Record<string, unknown>
   return doc && String(idOf(doc.site)) === String(site.id) ? doc : null
-}
-
-/**
- * The deployment a redeploy starts from: the one serving the customer's domain, else
- * a live preview, else the most recent attempt (a first deploy that failed is the
- * case a "try again" button exists for).
- */
-const redeploySource = (
-  site: Record<string, unknown>,
-  rows: Record<string, unknown>[],
-): null | Record<string, unknown> => {
-  const active = idOf(site.activeDeployment)
-  return (
-    rows.find((row) => active && String(row.id) === active) ??
-    rows.find((row) => row.status === 'live' && isProductionMode(row.domainMode)) ??
-    rows.find((row) => row.status === 'live') ??
-    rows.find((row) => row.status !== 'removed') ??
-    null
-  )
-}
-
-const recentDeployments = async (
-  req: PayloadRequest,
-  siteId: string,
-  limit = 25,
-): Promise<Record<string, unknown>[]> => {
-  const { docs } = await req.payload.find({
-    collection: 'site-deployments',
-    depth: 0,
-    limit,
-    overrideAccess: true,
-    req,
-    sort: '-createdAt',
-    where: { site: { equals: siteId } },
-  })
-  return docs as unknown as Record<string, unknown>[]
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +553,8 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
  * `POST /api/platform/sites/:id/deployment/redeploy` — build the site's theme again.
  *
  * The upgrade button and the retry button: a *new* row for the same package, target
- * and domain mode as the deployment the site runs (`redeploySource`), at the ref the
+ * and domain mode as the deployment the site runs (`redeploySource`; with `lane`, the
+ * latest row of that lane — a preview redeploy never rebuilds production), at the ref the
  * package would deploy now (`effectiveRefFor` — pin, else default branch), for the
  * site's *current* primary domain. That last part is what clears `needsRedeploy`
  * after a domain change.
@@ -633,7 +598,11 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
       return json({ message: '«lane» باید preview یا production باشد.', ok: false }, 400)
     }
 
-    const source = redeploySource(site, await recentDeployments(req, String(site.id)))
+    const source = redeploySource(
+      site,
+      await recentDeployments(req, String(site.id)),
+      isDeploymentLane(body?.lane) ? body.lane : undefined,
+    )
     if (!source) {
       return json(
         { message: 'این سایت هنوز استقراری ندارد؛ ابتدا یک پوسته مستقر کنید.', ok: false },

@@ -6,10 +6,38 @@ import { idOf } from '@/lib/ids'
 import { previewHttpsUrl } from '@/lib/deploy/previewUrl'
 import { applicationHostOf, isProductionMode, needsRedeploy } from '@/lib/deploy/status'
 
-const redeploySource = (
+const laneOf = (row: Record<string, unknown>): 'preview' | 'production' =>
+  row.lane === 'preview' || row.lane === 'production'
+    ? row.lane
+    : row.domainMode === 'preview'
+      ? 'preview'
+      : 'production'
+
+/**
+ * The deployment a redeploy starts from: the one serving the customer's domain, else a
+ * live preview, else the most recent attempt (a first deploy that failed is the case a
+ * "try again" button exists for).
+ *
+ * With a `lane`, that lane's own rows come first. Without it, a «redeploy the preview»
+ * started from the *production* row — the active deployment — and rebuilt production
+ * with its current artifact: a production restart behind a preview label, and no
+ * confirmation asked. Only when the lane has no row at all does the unscoped order apply,
+ * so a site's first preview can still be built from what production runs.
+ */
+export const redeploySource = (
   site: Record<string, unknown>,
   rows: Record<string, unknown>[],
+  lane?: 'preview' | 'production',
 ): null | Record<string, unknown> => {
+  if (lane) {
+    const inLane = rows.filter((row) => laneOf(row) === lane)
+    const active = idOf(site.activeDeployment)
+    const scoped =
+      inLane.find((row) => active && String(row.id) === active) ??
+      inLane.find((row) => row.status === 'live') ??
+      inLane.find((row) => row.status !== 'removed')
+    if (scoped) return scoped
+  }
   const active = idOf(site.activeDeployment)
   return (
     rows.find((row) => active && String(row.id) === active) ??
@@ -36,7 +64,11 @@ export type SiteDeploymentSummary = {
   updateLatestCommit: null | string
 }
 
-const recentDeployments = async (req: PayloadRequest, siteId: string, limit = 25) => {
+export const recentDeployments = async (
+  req: PayloadRequest,
+  siteId: string,
+  limit = 25,
+): Promise<Record<string, unknown>[]> => {
   const { docs } = await req.payload.find({
     collection: 'site-deployments',
     depth: 0,
