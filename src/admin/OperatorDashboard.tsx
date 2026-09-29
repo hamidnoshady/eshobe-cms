@@ -3,7 +3,7 @@ import React from 'react'
 import type { PayloadRequest, ServerProps } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
-import { formatNumber } from '@/lib/format'
+import { formatDate, formatNumber } from '@/lib/format'
 import { saasOverview } from '@/platform/saas-report'
 import { platformOverview } from '@/platform/report'
 
@@ -30,29 +30,6 @@ import { platformOverview } from '@/platform/report'
 
 type Props = Partial<ServerProps>
 
-const card = (accent: string): React.CSSProperties => ({
-  background: 'var(--theme-elevation-50)',
-  border: '1px solid var(--theme-elevation-100)',
-  borderRadius: 'var(--style-radius-m, 6px)',
-  borderInlineStartColor: accent,
-  borderInlineStartWidth: '3px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '.25rem',
-  minWidth: 0,
-  padding: '.9rem 1rem',
-})
-
-const gridStyle: React.CSSProperties = {
-  display: 'grid',
-  gap: '.75rem',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',
-}
-
-const valueStyle: React.CSSProperties = { fontSize: '1.6rem', fontWeight: 600, lineHeight: 1.2 }
-const labelStyle: React.CSSProperties = { color: 'var(--theme-elevation-600)', fontSize: '.8rem' }
-const noteStyle: React.CSSProperties = { color: 'var(--theme-elevation-500)', fontSize: '.75rem' }
-
 // Every rendered number goes through `formatNumber` (CLAUDE.md) — this panel is
 // Persian-only, and `fa` there means Persian digits and a Jalali calendar.
 const fa = (value: number): string => formatNumber(value, 'fa')
@@ -63,17 +40,20 @@ const Stat: React.FC<{
   note?: string
   value: number | string
 }> = ({ accent = 'var(--theme-elevation-200)', label, note, value }) => (
-  <div style={card(accent)}>
-    <span style={valueStyle}>{typeof value === 'number' ? fa(value) : value}</span>
-    <span style={labelStyle}>{label}</span>
-    {note ? <span style={noteStyle}>{note}</span> : null}
+  <div
+    className="eshobe-card"
+    style={{ borderInlineStartColor: accent, borderInlineStartWidth: '3px' }}
+  >
+    <span className="eshobe-card__value">{typeof value === 'number' ? fa(value) : value}</span>
+    <span className="eshobe-card__label">{label}</span>
+    {note ? <span className="eshobe-card__note">{note}</span> : null}
   </div>
 )
 
 const Section: React.FC<{ children: React.ReactNode; title: string }> = ({ children, title }) => (
   <section style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
     <h3 style={{ fontSize: '.95rem', margin: 0 }}>{title}</h3>
-    <div style={gridStyle}>{children}</div>
+    <div className="eshobe-grid">{children}</div>
   </section>
 )
 
@@ -108,7 +88,7 @@ const OperatorDashboard: React.FC<Props> = async ({ payload, user }) => {
   const storageUsable = fleet.infrastructure.storage.usable
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
+    <div className="eshobe-stack">
       <header style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
         <h2 style={{ margin: 0 }}>کنسول مدیریت سکو</h2>
         <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
@@ -141,7 +121,7 @@ const OperatorDashboard: React.FC<Props> = async ({ payload, user }) => {
         <Stat
           accent={outboxBacklog ? 'var(--theme-warning-500)' : 'var(--theme-success-500)'}
           label="صف ارسال مصرف"
-          note={saas.billing.oldestPendingAt ? `قدیمی‌ترین: ${saas.billing.oldestPendingAt}` : 'صف خالی است.'}
+          note={saas.billing.oldestPendingAt ? `قدیمی‌ترین: ${formatDate(saas.billing.oldestPendingAt, 'fa', { dateStyle: 'medium', timeStyle: 'short' })}` : 'صف خالی است.'}
           value={outboxBacklog}
         />
         <Stat
@@ -152,7 +132,11 @@ const OperatorDashboard: React.FC<Props> = async ({ payload, user }) => {
         <Stat
           label="آخرین ارسال موفق"
           value={saas.billing.lastSuccessfulPublishAt ? 'ثبت شده' : 'هنوز نه'}
-          note={saas.billing.lastSuccessfulPublishAt ?? undefined}
+          note={
+            saas.billing.lastSuccessfulPublishAt
+              ? formatDate(saas.billing.lastSuccessfulPublishAt, 'fa', { dateStyle: 'medium', timeStyle: 'short' })
+              : undefined
+          }
         />
         <Stat
           label="سایت بدون تصویر حق‌دسترسی"

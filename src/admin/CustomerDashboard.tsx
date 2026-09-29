@@ -38,34 +38,14 @@ type Props = Partial<ServerProps>
 
 const fa = (value: number): string => formatNumber(value, 'fa')
 
-const card: React.CSSProperties = {
-  background: 'var(--theme-elevation-50)',
-  border: '1px solid var(--theme-elevation-100)',
-  borderRadius: 'var(--style-radius-m, 6px)',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '.25rem',
-  minWidth: 0,
-  padding: '.9rem 1rem',
-}
-
-const gridStyle: React.CSSProperties = {
-  display: 'grid',
-  gap: '.75rem',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',
-}
-
-const valueStyle: React.CSSProperties = { fontSize: '1.6rem', fontWeight: 600, lineHeight: 1.2 }
-const labelStyle: React.CSSProperties = { color: 'var(--theme-elevation-600)', fontSize: '.8rem' }
-
 const StatLink: React.FC<{ href: string; label: string; value: number | string }> = ({
   href,
   label,
   value,
 }) => (
-  <a style={{ ...card, textDecoration: 'none', color: 'inherit' }} href={href}>
-    <span style={valueStyle}>{typeof value === 'number' ? fa(value) : value}</span>
-    <span style={labelStyle}>{label}</span>
+  <a className="eshobe-card" href={href}>
+    <span className="eshobe-card__value">{typeof value === 'number' ? fa(value) : value}</span>
+    <span className="eshobe-card__label">{label}</span>
   </a>
 )
 
@@ -88,7 +68,7 @@ const Action: React.FC<{ href: string; label: string; external?: boolean }> = ({
 const Section: React.FC<{ children: React.ReactNode; title: string }> = ({ children, title }) => (
   <section style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
     <h3 style={{ fontSize: '.95rem', margin: 0 }}>{title}</h3>
-    <div style={gridStyle}>{children}</div>
+    <div className="eshobe-grid">{children}</div>
   </section>
 )
 
@@ -170,7 +150,7 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, user }) => {
   })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
+    <div className="eshobe-stack">
       <header style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
         <h2 style={{ margin: 0 }}>{site?.name ? `مدیریت ${site.name}` : 'مدیریت سایت'}</h2>
         <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
