@@ -72,6 +72,7 @@ import { handoffEndpoint, handoffPostEndpoint } from './endpoints/handoff'
 import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { platformControlEndpoints } from './endpoints/platformControl'
+import { platformDemoPackEndpoints } from './endpoints/platformDemoPacks'
 import { platformOwnerBridgeEndpoints } from './endpoints/platformOwnerBridge'
 import { platformDeploymentEndpoints } from './endpoints/platformDeployments'
 import { platformBillingEndpoints } from './endpoints/platformBilling'
@@ -156,6 +157,7 @@ export default buildConfig({
     // collection slug never reaches this array.
     ...platformOwnerBridgeEndpoints,
     ...platformDeploymentEndpoints,
+    ...platformDemoPackEndpoints,
     ...platformControlEndpoints,
   ],
   globals: [

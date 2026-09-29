@@ -123,6 +123,9 @@ RUN adduser --system --uid 1001 nextjs
 # Remove this line if you do not have this folder
 COPY --from=builder /app/public ./public
 
+# Demo content packs (pack.json + images) read at runtime by the operator import.
+COPY --from=builder --chown=nextjs:nodejs /app/demo-packs ./demo-packs
+
 # Upload target for the media collection; compose mounts a volume here so
 # customer uploads survive redeploys. Must exist and be writable by `nextjs`
 # BEFORE the volume is first created, or Docker seeds it root-owned.
