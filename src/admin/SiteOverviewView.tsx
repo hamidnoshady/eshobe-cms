@@ -29,29 +29,6 @@ import { siteReportFor } from '@/platform/report'
  * never a credential, never a Coolify identifier.
  */
 
-const card = (accent: string): React.CSSProperties => ({
-  background: 'var(--theme-elevation-50)',
-  border: '1px solid var(--theme-elevation-100)',
-  borderInlineStartColor: accent,
-  borderInlineStartWidth: '3px',
-  borderRadius: 'var(--style-radius-m, 6px)',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '.25rem',
-  minWidth: 0,
-  padding: '.9rem 1rem',
-})
-
-const gridStyle: React.CSSProperties = {
-  display: 'grid',
-  gap: '.75rem',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',
-}
-
-const valueStyle: React.CSSProperties = { fontSize: '1.6rem', fontWeight: 600, lineHeight: 1.2 }
-const labelStyle: React.CSSProperties = { color: 'var(--theme-elevation-600)', fontSize: '.8rem' }
-const noteStyle: React.CSSProperties = { color: 'var(--theme-elevation-500)', fontSize: '.75rem' }
-
 const fa = (value: number): string => formatNumber(value, 'fa')
 
 const localeLabel = (code: string): string => locales.find((l) => l.code === code)?.label ?? code
@@ -79,17 +56,20 @@ const Stat: React.FC<{
   note?: string
   value: number | string
 }> = ({ accent = 'var(--theme-elevation-200)', label, note, value }) => (
-  <div style={card(accent)}>
-    <span style={valueStyle}>{typeof value === 'number' ? fa(value) : value}</span>
-    <span style={labelStyle}>{label}</span>
-    {note ? <span style={noteStyle}>{note}</span> : null}
+  <div
+    className="eshobe-card"
+    style={{ borderInlineStartColor: accent, borderInlineStartWidth: '3px' }}
+  >
+    <span className="eshobe-card__value">{typeof value === 'number' ? fa(value) : value}</span>
+    <span className="eshobe-card__label">{label}</span>
+    {note ? <span className="eshobe-card__note">{note}</span> : null}
   </div>
 )
 
 const Section: React.FC<{ children: React.ReactNode; title: string }> = ({ children, title }) => (
   <section style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
     <h3 style={{ fontSize: '.95rem', margin: 0 }}>{title}</h3>
-    <div style={gridStyle}>{children}</div>
+    <div className="eshobe-grid">{children}</div>
   </section>
 )
 
@@ -151,7 +131,7 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
   const failingGateways = report.gateways.filter((g) => g.enabled && g.selfTest === 'failed')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '2rem' }}>
+    <div className="eshobe-page">
       <header style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
         <h2 style={{ margin: 0 }}>نمای ۳۶۰ مشتری — {report.name}</h2>
         <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
@@ -292,10 +272,10 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
           <h3 style={{ fontSize: '.95rem', margin: 0 }}>وضعیت درگاه‌ها</h3>
           <ul style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', listStyle: 'none', margin: 0, padding: 0 }}>
             {report.gateways.map((g) => (
-              <li key={g.gateway} style={{ alignItems: 'center', display: 'flex', gap: '.5rem' }}>
+              <li key={g.gateway} style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
                 <code>{g.gateway}</code>
                 <span style={pill(g.enabled)}>{g.enabled ? 'فعال' : 'غیرفعال'}</span>
-                <span style={noteStyle}>
+                <span className="eshobe-card__note">
                   {g.selfTest ? SELF_TEST_LABEL[g.selfTest] : 'خودآزمون انجام‌نشده'}
                 </span>
               </li>
@@ -315,7 +295,7 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
         {report.aliases.length ? (
           <ul style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', listStyle: 'none', margin: 0, padding: 0 }}>
             {report.aliases.map((a) => (
-              <li key={a.hostname} style={{ alignItems: 'center', display: 'flex', gap: '.5rem' }}>
+              <li key={a.hostname} style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
                 <code>{a.hostname}</code>
                 <span style={pill(a.verified)}>{a.verified ? 'تأیید‌شده' : 'تأیید‌نشده'}</span>
               </li>

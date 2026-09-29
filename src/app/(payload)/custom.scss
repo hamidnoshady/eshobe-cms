@@ -2,7 +2,40 @@
  * Payload's admin ships no project-level overrides; this file is loaded by the admin
  * layout, and everything here is a fix for something the panel gets wrong for this
  * platform — not theming.
+ *
+ * Unlayered on purpose: Payload's own rules live in `@layer payload-default`, and any
+ * unlayered rule beats a layered one regardless of specificity, so nothing below needs
+ * `!important`.
  */
+
+/**
+ * The admin's Persian face. The public sites use Vazirmatn (CLAUDE.md); the operator and
+ * customer-staff panel uses IRANYekanX, which reads better at small UI sizes. Two weights
+ * only — 500/600 resolve to the nearest (400 / 700), so no fake-bold synthesis happens.
+ *
+ * Keyed on `html[lang='fa']` (Payload writes the admin language there), so the English
+ * admin keeps its system stack instead of shipping a Persian face for Latin text.
+ */
+@font-face {
+  font-family: 'IRANYekanX';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../fonts/iranyekanx/IRANYekanX-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IRANYekanX';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../../fonts/iranyekanx/IRANYekanX-Bold.woff2') format('woff2');
+}
+
+html[lang='fa'] {
+  --font-body:
+    'IRANYekanX', -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Roboto, Arial, sans-serif;
+}
 
 /**
  * The document header fades its action row with a pseudo-element gradient that is
@@ -20,6 +53,192 @@
  * while the site writes `dir="rtl"` (CLAUDE.md notes the same asymmetry in tests).
  */
 [dir='rtl'] .doc-controls__controls::after,
-[dir='RTL'] .doc-controls__controls::after {
+[dir='RTL'] .doc-controls__controls::after,
+[dir='rtl'] .doc-controls__meta::after,
+[dir='RTL'] .doc-controls__meta::after {
   display: none;
+}
+
+/**
+ * The «آخرین تغییر / ایجاد شد» row is a nowrap horizontal scroller. In RTL the overflow
+ * sits on the left, which on a phone reads as the timestamp being cut off with no cue
+ * that it scrolls. Wrap it instead — the row is short text, not a toolbar.
+ */
+@media (max-width: 768px) {
+  .doc-controls__content {
+    overflow: visible;
+  }
+
+  .doc-controls__meta {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+}
+
+/**
+ * Inline code, URLs and API paths are LTR islands inside a Persian sentence. Without
+ * isolation the bidi algorithm pulls a trailing `/` or `.` to the wrong side of the
+ * token (`/api/platform/overview` renders as `api/platform/overview/`).
+ * `isolate` + a monospace face keeps each token intact and lets it wrap inside its own
+ * box rather than pushing the page wider than the viewport.
+ */
+code,
+.eshobe-ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  overflow-wrap: anywhere;
+}
+
+/**
+ * Dashboards (`OperatorDashboard`, `CustomerDashboard`, `SiteOverviewView`).
+ *
+ * The cards used inline `minmax(11rem, 1fr)` with a fixed 2rem page padding — fine at
+ * 1280px, a cramped two-column grid at 375px and one that never dropped to a single
+ * column on a narrow phone. Classes here so the breakpoints can be media queries.
+ */
+.eshobe-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-block-end: 2rem;
+  min-width: 0;
+}
+
+.eshobe-grid {
+  display: grid;
+  gap: 0.75rem;
+  // min(100%, …) keeps a card from overflowing a container narrower than 11rem.
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+}
+
+.eshobe-card {
+  background: var(--theme-elevation-50);
+  border: 1px solid var(--theme-elevation-100);
+  border-radius: var(--style-radius-m, 6px);
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.9rem 1rem;
+  text-decoration: none;
+}
+
+a.eshobe-card:hover {
+  background: var(--theme-elevation-100);
+}
+
+.eshobe-card__value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.eshobe-card__label {
+  color: var(--theme-elevation-600);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.eshobe-card__note {
+  color: var(--theme-elevation-500);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.eshobe-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+  padding: clamp(1rem, 4vw, 2rem);
+}
+
+@media (max-width: 480px) {
+  // Two short cards per row read better than one wide, mostly-empty one.
+  .eshobe-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .eshobe-card {
+    padding: 0.7rem 0.75rem;
+  }
+
+  .eshobe-card__value {
+    font-size: 1.3rem;
+  }
+}
+
+/**
+ * The content-locale picker is absolutely positioned outside the header's clipped box.
+ * Payload places it with `right` in LTR and `right: unset; left` in RTL — but its phone
+ * breakpoint then sets `right` again *after* the RTL reset, so in RTL both edges are
+ * pinned: the picker stretches from `left` to `right` (~245px on a 375px screen) and
+ * sits on top of the breadcrumb. Unset `right` again inside the same breakpoint.
+ * `--base` is Payload's 20px unit; `2 * base` is what the LTR rule uses.
+ *
+ * The margin/gradient rules are the same class of mistake: `margin-right` and a
+ * left-to-right fade are physical, so in RTL they land on the wrong side of the actions.
+ */
+[dir='rtl'] {
+  .app-header__actions-wrapper,
+  .app-header__last-action {
+    margin-right: 0;
+    margin-left: var(--base);
+  }
+
+  .app-header__gradient-placeholder {
+    display: none;
+  }
+
+  @media (max-width: 768px) {
+    .app-header__localizer.localizer {
+      right: unset;
+      left: calc(var(--base) * 2);
+    }
+  }
+}
+
+/**
+ * The list view's bulk-selection bar is `position: fixed; width: 100%` with no inline
+ * inset, so it is placed at its *static* position (the content edge, inside the gutter)
+ * and then extends a full viewport width from there — past the far edge. In RTL that is
+ * the left edge, which is scrollable, so every list view on a phone scrolled sideways
+ * and pushed the title and search box half off-screen. Pin both edges instead.
+ */
+@media (max-width: 768px) {
+  .collection-list__list-selection {
+    inset-inline: var(--gutter-h);
+    width: auto;
+  }
+
+  /**
+   * The closed sidebar is `opacity: 0` (and `inert`), not removed: it keeps its full
+   * width inside a 0-wide grid track, and in RTL it overflows the *scrollable* edge.
+   * The phone layout then grows to 407px on a 375px screen and every page sits 32px
+   * off-centre. `clip` (not `hidden`) discards the overflow without turning the
+   * template into a scroll container, so the sidebar's `position: sticky` still works.
+   */
+  .template-default {
+    overflow-x: clip;
+  }
+}
+
+/**
+ * Payload's app header on a phone: let the breadcrumb shrink and truncate instead of
+ * pushing the page wider than the viewport.
+ */
+@media (max-width: 768px) {
+  .app-header__controls-wrapper,
+  .step-nav {
+    min-width: 0;
+  }
+
+  .step-nav {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
