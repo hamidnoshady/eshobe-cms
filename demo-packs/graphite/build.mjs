@@ -60,18 +60,97 @@ const posts = [
     'کلاه ایمنی و کفش مناسب همراه داشته باشید.', 'Bring a hard hat and sturdy shoes.'),
 ]
 
+const pages = [
+  {
+    slug: 'home',
+    title: { fa: 'گرافیت — دفتر معماری', en: 'Graphite — architecture office' },
+    description: {
+      fa: 'دفتر معماری گرافیت: طراحی خانه، فضای کار و ساختمان‌های عمومی با نگاهی ساده و ماندگار.',
+      en: 'Graphite architecture office: homes, workplaces and public buildings, designed simply and to last.',
+    },
+    paragraphs: {
+      fa: ['ما خانه، فضای کار و ساختمان‌های عمومی را با نور، مصالح بومی و ساختاری روشن طراحی می‌کنیم.'],
+      en: ['We design homes, workplaces and public buildings around daylight, local materials and a clear structure.'],
+    },
+  },
+  {
+    slug: 'about',
+    title: { fa: 'درباره ما', en: 'About' },
+    description: {
+      fa: 'گرافیت دفتری کوچک در تهران است که از سال ۱۳۹۲ روی پروژه‌های مسکونی و عمومی کار می‌کند.',
+      en: 'Graphite is a small Tehran studio working on residential and public projects since 2013.',
+    },
+    paragraphs: {
+      fa: [
+        'گرافیت دفتری کوچک در تهران است که از سال ۱۳۹۲ روی پروژه‌های مسکونی، اداری و عمومی کار می‌کند.',
+        'باور داریم معماری خوب از شناخت دقیق زمین، اقلیم و زندگی روزمرهٔ کسانی که در آن ساکن می‌شوند آغاز می‌شود.',
+        'تیم ما معماران، طراحان داخلی و مهندسان سازه را کنار هم می‌آورد تا هر پروژه از ایده تا اجرا یک‌دست بماند.',
+      ],
+      en: [
+        'Graphite is a small Tehran studio working on residential, office and public projects since 2013.',
+        'We believe good architecture starts with a close reading of the site, the climate and the everyday life of the people who will use it.',
+        'Our team brings architects, interior designers and structural engineers together so each project stays coherent from idea to construction.',
+      ],
+    },
+  },
+  {
+    slug: 'services',
+    title: { fa: 'خدمات', en: 'Services' },
+    description: {
+      fa: 'طراحی معماری، طراحی داخلی، نظارت بر اجرا و مشاورهٔ بازسازی.',
+      en: 'Architectural design, interior design, site supervision and renovation advice.',
+    },
+    paragraphs: {
+      fa: [
+        'طراحی معماری — از مطالعات اولیه و طرح مفهومی تا نقشه‌های اجرایی و اخذ پروانه.',
+        'طراحی داخلی — چیدمان، نورپردازی، انتخاب مصالح و طراحی مبلمان سفارشی.',
+        'نظارت بر اجرا — حضور منظم در کارگاه تا ساختمان همان‌گونه ساخته شود که طراحی شده است.',
+        'مشاورهٔ بازسازی — ارزیابی ساختمان موجود و پیشنهاد راه‌حل‌های کم‌هزینه و ماندگار.',
+      ],
+      en: [
+        'Architectural design — from early studies and concept design to construction drawings and permits.',
+        'Interior design — layout, lighting, material selection and bespoke furniture.',
+        'Site supervision — regular visits so the building is built the way it was designed.',
+        'Renovation advice — assessing an existing building and proposing lasting, economical solutions.',
+      ],
+    },
+  },
+  {
+    slug: 'contact',
+    title: { fa: 'تماس', en: 'Contact' },
+    description: {
+      fa: 'نشانی، تلفن و ساعات کاری دفتر گرافیت.',
+      en: 'Address, phone and office hours of Graphite.',
+    },
+    paragraphs: {
+      fa: ['برای گفت‌وگو دربارهٔ پروژهٔ خود با ما تماس بگیرید یا در ساعات کاری به دفتر سر بزنید.'],
+      en: ['Get in touch to talk about your project, or visit the studio during office hours.'],
+    },
+    contact: {
+      heading: { fa: 'دفتر', en: 'Studio' },
+      address: { fa: 'تهران، خیابان ولیعصر، کوچهٔ نمونه، پلاک ۱۲', en: '12 Sample Alley, Valiasr St, Tehran' },
+      hours: { fa: 'شنبه تا چهارشنبه، ۹ تا ۱۷', en: 'Saturday to Wednesday, 9:00–17:00' },
+      phones: ['02100000000'],
+      email: 'studio@example.com',
+      latitude: 35.7448,
+      longitude: 51.4105,
+    },
+  },
+]
+
 const pack = {
   key: 'graphite',
   siteType: 'portfolio',
   name: { fa: 'گرافیت — دفتر معماری', en: 'Graphite — architecture office' },
   description: {
-    fa: 'دو دستهٔ «پروژه‌ها» و «آموزش» با ۶ پروژه و ۳ رویداد آموزشی، فارسی و انگلیسی، همراه با تصویر.',
-    en: 'Projects and Education categories with 6 projects and 3 workshops, in Persian and English, with images.',
+    fa: 'صفحه‌های خانه، درباره ما، خدمات و تماس، دو دستهٔ «پروژه‌ها» و «آموزش» با ۶ پروژه و ۳ رویداد آموزشی، فارسی و انگلیسی، همراه با تصویر.',
+    en: 'Home, About, Services and Contact pages, plus Projects and Education categories with 6 projects and 3 workshops, in Persian and English, with images.',
   },
   categories: [
     { slug: 'projects', title: { fa: 'پروژه‌ها', en: 'Projects' } },
     { slug: 'education', title: { fa: 'آموزش', en: 'Education' } },
   ],
+  pages,
   posts,
 }
 writeFileSync(join(here, 'pack.json'), `${JSON.stringify(pack, null, 2)}\n`)

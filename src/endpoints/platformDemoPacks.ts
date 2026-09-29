@@ -48,10 +48,10 @@ export const demoPackImportEndpoint: Endpoint = {
       )
     }
 
-    const { categories, media, posts, skipped } = result.summary
+    const { categories, media, pages, posts, skipped } = result.summary
     return json({
       dryRun,
-      message: `${dryRun ? 'پیش‌نمایش: ' : 'انجام شد: '}${categories} دسته، ${posts} نوشته و ${media} تصویر ${dryRun ? 'ساخته می‌شود' : 'ساخته شد'}؛ ${skipped} مورد از قبل وجود داشت.`,
+      message: `${dryRun ? 'پیش‌نمایش: ' : 'انجام شد: '}${pages} صفحه، ${categories} دسته، ${posts} نوشته و ${media} تصویر ${dryRun ? 'ساخته می‌شود' : 'ساخته شد'}؛ ${skipped} مورد از قبل وجود داشت.`,
       ok: true,
       summary: result.summary,
     })
