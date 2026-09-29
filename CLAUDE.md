@@ -51,6 +51,8 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 
 ## Payload
 
+- **SVG uploads go through an allowlist, never a denylist.** `Media` accepts `image/svg+xml` only via `sanitizeSvgUpload` (`beforeOperation`, `src/lib/svg.ts`): drawing elements and attributes only, refuse-don't-repair, keyed on the *content* as well as the name. `/api/media/file/*` serves from the customer's own origin, so widening `mimeTypes` without that hook is stored XSS. `tests/int/svg.int.spec.ts` and `uploads.int.spec.ts` pin it.
+- **The customer panel is split by site type** (`src/lib/siteKind.ts`): `store` gets products/orders/payments in the sidebar and dashboard, every other type gets content and theme. Navigation only — the shop collections keep their access rules. The dashboard's «محتوای پوسته» section is read from the deployed theme's manifest `contentSlots`, so a slot a theme adds needs no CMS change.
 - **Never add `localized: true` to a field that already holds data** — it destroys that field's data. Needs a written migration.
 - Localize the text fields _inside_ blocks, never the `layout` array itself.
 - An unlocalized array field (`layout`) updated via the Local API on a second locale is _replaced_, not merged — a freshly built array destroys the default-locale text inside every row. Preserve each row's `id` (map over the existing doc's rows) — that is the whole difference between a translation and a rewrite. Admin writes send the ids, so this only bites Local-API/seed code.

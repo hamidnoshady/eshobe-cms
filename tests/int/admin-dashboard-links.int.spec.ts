@@ -20,6 +20,8 @@ import {
   CUSTOMER_QUICK_ACTIONS,
   CUSTOMER_STAT_LINKS,
   CUSTOMER_STAT_SLUGS,
+  quickActionsFor,
+  statLinksFor,
 } from '@/admin/dashboardLinks'
 import {
   createHref,
@@ -98,6 +100,28 @@ describe('customer dashboard links resolve against the real config', () => {
         `/admin/collections/${action.entity.slug}/create`,
       )
     }
+  })
+})
+
+describe('the dashboard is split by site type', () => {
+  const shopSlugs = ['products', 'orders']
+
+  it('a shop gets the shop shortcuts and tiles', () => {
+    const actions = quickActionsFor('store').map((a) => a.entity.slug)
+    const stats = statLinksFor('store').map((s) => s.entity.slug)
+    for (const slug of shopSlugs) {
+      expect(actions).toContain(slug)
+      expect(stats).toContain(slug)
+    }
+  })
+
+  it.each(['portfolio', 'business', null, undefined])('%s gets none of them', (type) => {
+    const slugs = [...quickActionsFor(type), ...statLinksFor(type)].map((a) => a.entity.slug)
+    for (const slug of shopSlugs) expect(slugs).not.toContain(slug)
+    // ...and still gets the content shortcuts.
+    expect(quickActionsFor(type).map((a) => a.entity.slug)).toEqual(
+      expect.arrayContaining(['pages', 'posts', 'media', 'header']),
+    )
   })
 })
 

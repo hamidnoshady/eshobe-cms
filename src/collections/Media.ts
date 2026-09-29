@@ -13,6 +13,7 @@ import { scopedPublicRead } from '../access/siteRead'
 import { authenticated } from '../access/authenticated'
 import { setMediaPrefix } from '../hooks/mediaPrefix'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
+import { sanitizeSvgUpload } from '@/hooks/sanitizeSvgUpload'
 import {
   accountMediaStorage,
   accountMediaStorageDelete,
@@ -64,6 +65,9 @@ export const Media: CollectionConfig = {
     },
   ],
   hooks: {
+    // An SVG is validated against an allowlist (and refused if it carries anything
+    // but drawing) before Payload sees the file. See `src/lib/svg.ts`.
+    beforeOperation: [sanitizeSvgUpload],
     // Namespaces the file's key in the object-storage bucket by site. No-op while
     // uploads are local.
     beforeChange: [setMediaPrefix],
@@ -83,34 +87,31 @@ export const Media: CollectionConfig = {
     adminThumbnail: 'thumbnail',
     focalPoint: true,
     /**
-     * What a customer may put in their media library — raster images, and
-     * nothing else.
+     * What a customer may put in their media library — raster images, and SVG that
+     * has passed the allowlist in `src/lib/svg.ts`.
      *
-     * This list does two jobs, and the second is the one that matters. Setting
-     * `mimeTypes` at all is what switches on Payload's **content-based** check:
-     * with the key absent, `checkFileRestrictions` only screens filenames
-     * against a list of executable extensions and never looks inside the file,
-     * so a `.png` holding markup uploads clean. With it set, the bytes are
-     * sniffed (`file-type`) and the detected type — not the browser's
-     * `Content-Type`, and not the extension — has to appear below.
+     * This list does two jobs. Setting `mimeTypes` at all is what switches on
+     * Payload's **content-based** check: with the key absent, `checkFileRestrictions`
+     * only screens filenames against a list of executable extensions and never looks
+     * inside the file, so a `.png` holding markup uploads clean. With it set, the
+     * bytes are sniffed (`file-type`) and the detected type — not the browser's
+     * `Content-Type`, and not the extension — has to appear below. `image/*` is
+     * deliberately not used: the wildcard would re-admit types by name.
      *
-     * `image/svg+xml` is deliberately absent, and `image/*` is deliberately not
-     * used in its place: the wildcard re-admits SVG by name inside that same
-     * check. An SVG is a script-bearing document, and `/api/media/file/*` is a
-     * Caddy carve-out serving it from the *customer's own* origin — so an SVG
-     * uploaded by any editor of any tenant is stored XSS against that site,
-     * its session cookie and its localStorage. Payload's `validateSvg` would
-     * screen the obvious payloads, but "sanitised SVG" is a moving target and
-     * nothing in this platform needs one: every media field is a photo, a logo
-     * or a gallery image (Team, MediaBlock, Gallery, Logos, Testimonials,
-     * Features, Products, heroes).
+     * `image/svg+xml` is listed because a logo is very often an SVG and a theme's
+     * landing mark looks wrong as a PNG. It is the one type that carries script, and
+     * `/api/media/file/*` is a Caddy carve-out serving uploads from the *customer's
+     * own origin*, so an SVG is admitted only through `sanitizeSvgUpload`, which runs
+     * first (`beforeOperation`) and accepts nothing but drawing elements and
+     * attributes — see the header of `src/lib/svg.ts` for what is refused and why
+     * it refuses instead of repairing. Payload then runs its own `validateSvg` over
+     * the result, and the file route answers SVG with `script-src 'none'`.
+     * `tests/int/uploads.int.spec.ts` pins the boundary: a scripted SVG, and an SVG
+     * wearing a `.png` name, are both still refused.
      *
-     * The cost, stated plainly: a customer whose logo is an SVG can no longer
-     * upload it and must supply a PNG or WebP. Files already stored are not
-     * re-validated and keep serving. If a real need for SVG appears, the answer
-     * is a sanitising pipeline on the way in, never widening this list.
+     * Files already stored are not re-validated and keep serving.
      */
-    mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
+    mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/svg+xml'],
     imageSizes: [
       {
         name: 'thumbnail',

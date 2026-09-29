@@ -21,6 +21,7 @@ import * as migration_20260927_160000_theme_bindings_lanes from './20260927_1600
 import * as migration_20260927_170000_theme_bindings_schema_repair from './20260927_170000_theme_bindings_schema_repair'
 import * as migration_20260927_210000_theme_artifact_architecture from './20260927_210000_theme_artifact_architecture'
 import * as migration_20260928_000000_theme_design_defaults from './20260928_000000_theme_design_defaults'
+import * as migration_20260928_120000_branding_home_logo from './20260928_120000_branding_home_logo'
 
 export const migrations = [
   {
@@ -137,5 +138,10 @@ export const migrations = [
     up: migration_20260928_000000_theme_design_defaults.up,
     down: migration_20260928_000000_theme_design_defaults.down,
     name: '20260928_000000_theme_design_defaults',
+  },
+  {
+    up: migration_20260928_120000_branding_home_logo.up,
+    down: migration_20260928_120000_branding_home_logo.down,
+    name: '20260928_120000_branding_home_logo',
   },
 ]

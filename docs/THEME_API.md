@@ -260,6 +260,12 @@ Accept: application/json
   "contractVersion": 1,
   "defaultLocale": "fa",
   "domain": "acme.ir",
+  "branding": {
+    "displayName": "فروشگاه نمونه", "shortName": null, "tagline": null,
+    "primaryLogo": { "id": "…", "url": "/api/media/file/logo.svg", "mimeType": "image/svg+xml", "width": 120, "height": 40, "alt": null, "updatedAt": "…" },
+    "compactLogo": null, "homeLogo": null, "lightLogo": null, "darkLogo": null, "favicon": null, "socialImage": null,
+    "displayNameFa": "فروشگاه نمونه", "logo": { "…": "= primaryLogo" }, "logoCompact": { "…": "= compactLogo, else primaryLogo" }, "defaultOgImage": { "…": "= socialImage" }
+  },
   "media": { "basePath": "/api/media/file", "origin": "https://acme.ir" },
   "name": "فروشگاه نمونه",
   "slug": "acme",
@@ -290,6 +296,12 @@ revalidation secrets, tenant secret values or encrypted ciphertext.
 ```json
 { "error": "unknown-host" }
 ```
+
+### Branding and logos
+`branding` is the customer's identity; every media value is `{ id, url, alt, mimeType, width, height, updatedAt }` or `null`.
+- `homeLogo` — the large mark a landing page shows (an intro animation, for instance). The customer uploads it in **هویت بصری › نشان صفحهٔ نخست**; **SVG is accepted**. A theme with such a place renders `homeLogo ?? primaryLogo`, and falls back to the site name as a wordmark when both are `null` — never to bundled artwork.
+- `logo`, `logoCompact`, `defaultOgImage`, `displayNameFa` are aliases of `primaryLogo`, `compactLogo` (else `primaryLogo`), `socialImage` and `displayName`, sent so a theme written against either spelling gets its logo.
+- An uploaded SVG has passed an allowlist (`src/lib/svg.ts`): drawing elements only, no script, no external references, ≤ 200 KB. Render it with `<img src>` (as with any raster) — never inline the fetched markup into the page.
 
 ### Headers & Caching
 - Success: `cache-control: public, s-maxage=30, stale-while-revalidate=300`, `vary: Host`, `etag: "<sha256>"`, `last-modified: <latest of site/store/theme updatedAt>`
@@ -521,6 +533,8 @@ See §9 for how to emit.
 | `prefix` | text, auto (object-storage namespace) |
 | `folder` | relation `payload-folders` |
 | `url`, `thumbnailURL`, `filename`, `mimeType`, `filesize`, `width`, `height`, `sizes` | auto (Payload upload) |
+
+Accepted types: JPEG, PNG, WebP, GIF, AVIF, and **SVG** that passes the allowlist in `src/lib/svg.ts` (anything with script, `<image>`, `<a>`, `<foreignObject>`, animation or an external reference is refused with a Persian reason). SVG has no `sizes`.
 
 Image sizes: `thumbnail 300w`, `square 500×500`, `small 600w`, `medium 900w`, `large 1400w`, `xlarge 1920w`, `og 1200×630 crop:center`.
 
