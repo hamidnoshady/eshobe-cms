@@ -1,7 +1,10 @@
 import { getTranslation } from '@payloadcms/translations'
 import { RenderServerComponent } from '@payloadcms/ui/elements/RenderServerComponent'
 import React from 'react'
-import type { ServerProps } from 'payload'
+import type { PayloadRequest, ServerProps } from 'payload'
+
+import { isPlatformAdmin } from '@/access/platformAdmin'
+import { customerSiteSummary } from '@/lib/customerSiteSummary'
 
 import { resolveNavGroups, type ResolvedNavGroup } from '../navigation'
 import { EshobeNavClient } from './EshobeNav.client'
@@ -32,7 +35,20 @@ const EshobeNav = async (props: NavServerProps): Promise<React.ReactNode> => {
   const adminRoute = payload.config.routes?.admin ?? '/admin'
   const visible = visibleEntities ?? { collections: [], globals: [] }
 
-  const groups = resolveNavGroups({ adminRoute, user, visible })
+  // A customer's shop section only makes sense on a shop site. Read tenant-scoped (the
+  // plugin narrows `sites` to the caller's own); a failed read leaves the type
+  // `undefined`, which hides nothing.
+  let siteType: null | string | undefined
+  if (!isPlatformAdmin(user)) {
+    try {
+      const req = { context: {}, payload, user } as unknown as PayloadRequest
+      siteType = (await customerSiteSummary(req, [])).site?.type
+    } catch (error) {
+      payload.logger.error({ err: error as Error, msg: 'nav site type lookup failed' })
+    }
+  }
+
+  const groups = resolveNavGroups({ adminRoute, siteType, user, visible })
 
   // Fill any label the map left to the config (leftovers/escape-hatch entities).
   const collectionLabel = (slug: string): string => {

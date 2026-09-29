@@ -155,9 +155,12 @@ export const siteDescriptor: Endpoint = {
       const media = value as Record<string, unknown>
       return {
         alt: typeof media.alt === 'string' ? media.alt : null,
+        height: typeof media.height === 'number' ? media.height : null,
         id: String(media.id ?? ''),
+        mimeType: typeof media.mimeType === 'string' ? media.mimeType : null,
         updatedAt: typeof media.updatedAt === 'string' ? media.updatedAt : null,
         url: typeof media.url === 'string' ? media.url : null,
+        width: typeof media.width === 'number' ? media.width : null,
       }
     }
     const loadThemePackage = async (id: null | string): Promise<null | Record<string, unknown>> => {
@@ -321,29 +324,33 @@ export const siteDescriptor: Endpoint = {
       // proxy (`/api/media/file/*`), not from the bucket URL, so the bucket stays
       // private.
       media: { basePath: '/api/media/file', origin: siteOrigin(site, req.origin) },
-      branding: branding
-        ? {
-            displayName: branding.displayName,
-            shortName: branding.shortName ?? null,
-            tagline: branding.tagline ?? null,
-            primaryLogo: publicMedia(branding.primaryLogo),
-            compactLogo: publicMedia(branding.compactLogo),
-            lightLogo: publicMedia(branding.lightLogo),
-            darkLogo: publicMedia(branding.darkLogo),
-            favicon: publicMedia(branding.favicon),
-            socialImage: publicMedia(branding.socialImage),
-          }
-        : {
-            displayName: site.name,
-            shortName: null,
-            tagline: null,
-            primaryLogo: null,
-            compactLogo: null,
-            lightLogo: null,
-            darkLogo: null,
-            favicon: null,
-            socialImage: null,
-          },
+      branding: (() => {
+        const primaryLogo = publicMedia(branding?.primaryLogo)
+        const compactLogo = publicMedia(branding?.compactLogo)
+        const homeLogo = publicMedia(branding?.homeLogo)
+        const socialImage = publicMedia(branding?.socialImage)
+        const displayName = (branding?.displayName as null | string | undefined) ?? site.name
+        return {
+          displayName,
+          shortName: (branding?.shortName as null | string | undefined) ?? null,
+          tagline: (branding?.tagline as null | string | undefined) ?? null,
+          primaryLogo,
+          compactLogo,
+          // The large mark a theme's landing page shows (an SVG is welcome). A theme that
+          // has no such place ignores it; one that does falls back to `primaryLogo`.
+          homeLogo,
+          lightLogo: publicMedia(branding?.lightLogo),
+          darkLogo: publicMedia(branding?.darkLogo),
+          favicon: publicMedia(branding?.favicon),
+          socialImage,
+          // The names deployed themes read (`docs/THEME_API.md` §branding). Aliases of the
+          // fields above, sent alongside them so neither generation of renderer goes blank.
+          displayNameFa: displayName,
+          logo: primaryLogo,
+          logoCompact: compactLogo ?? primaryLogo,
+          defaultOgImage: socialImage,
+        }
+      })(),
       name: site.name,
       slug: site.slug,
       status: site.status,

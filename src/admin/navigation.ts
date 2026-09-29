@@ -1,4 +1,5 @@
 import { isPlatformAdmin } from '@/access/platformAdmin'
+import { isShopSite, SHOP_COLLECTIONS } from '@/lib/siteKind'
 
 /**
  * The one place the admin sidebar's information architecture is described.
@@ -248,19 +249,35 @@ export type ResolvedNavGroup = { label: string; entities: ResolvedNavEntity[] }
  */
 export const resolveNavGroups = ({
   adminRoute,
+  siteType,
   user,
   visible,
 }: {
   adminRoute: string
+  /**
+   * The customer's site type. `store` keeps the shop section; any other *known* type
+   * drops it, because a portfolio has no products to manage. `undefined` — the type
+   * could not be read — hides nothing: a shop owner must never lose their orders to a
+   * failed lookup. Ignored for the operator console.
+   */
+  siteType?: null | string
   user: unknown
   visible: { collections: string[]; globals: string[] }
 }): ResolvedNavGroup[] => {
-  const map = isPlatformAdmin(user) ? PLATFORM_NAV : CUSTOMER_NAV
+  const operator = isPlatformAdmin(user)
+  const map = operator ? PLATFORM_NAV : CUSTOMER_NAV
+  const hideShop = !operator && typeof siteType === 'string' && !isShopSite(siteType)
+  const shopSlugs = new Set<string>(SHOP_COLLECTIONS)
   const visibleCollections = new Set(visible.collections)
   const visibleGlobals = new Set(visible.globals)
 
-  const isVisible = (e: NavEntityRef) =>
-    e.type === 'collection' ? visibleCollections.has(e.slug) : visibleGlobals.has(e.slug)
+  const isVisible = (e: NavEntityRef) => {
+    if (e.type === 'collection') {
+      if (hideShop && shopSlugs.has(e.slug)) return false
+      return visibleCollections.has(e.slug)
+    }
+    return visibleGlobals.has(e.slug)
+  }
 
   const hrefFor = (e: NavEntityRef): string => entityHref(adminRoute, e)
   const idFor = (e: NavEntityRef) =>
@@ -287,6 +304,7 @@ export const resolveNavGroups = ({
   const leftovers: ResolvedNavEntity[] = []
   for (const slug of visible.collections) {
     const e = collection(slug)
+    if (hideShop && shopSlugs.has(slug)) continue
     if (!placed.has(key(e)) && !INTERNAL_SUPPORT_COLLECTIONS.has(slug)) {
       leftovers.push({ ...e, href: hrefFor(e), id: idFor(e) })
     }

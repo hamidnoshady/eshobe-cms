@@ -28,6 +28,16 @@ export const SiteBranding: CollectionConfig<'site-branding'> = {
       ],
     },
     {
+      name: 'homeLogo',
+      type: 'upload',
+      relationTo: 'media',
+      label: 'نشان صفحهٔ نخست',
+      admin: {
+        description:
+          'نشان بزرگ صفحهٔ اول پوسته (انیمیشن ورودی). فایل SVG پشتیبانی می‌شود؛ اگر خالی بماند «نشان اصلی» به کار می‌رود.',
+      },
+    },
+    {
       type: 'row',
       fields: [
         { name: 'lightLogo', type: 'upload', relationTo: 'media', label: 'نشان روشن' },

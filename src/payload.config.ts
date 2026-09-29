@@ -1,3 +1,4 @@
+import { isPlatformAdmin } from '@/access/platformAdmin'
 import { postgresAdapter } from '@payloadcms/db-postgres'
 import { nodemailerAdapter } from '@payloadcms/email-nodemailer'
 import { getTenantFromCookie } from '@payloadcms/plugin-multi-tenant/utilities'
@@ -201,6 +202,18 @@ export default buildConfig({
        * still decides visibility. See `src/admin/nav/EshobeNav.tsx`.
        */
       Nav: '@/admin/nav/EshobeNav',
+    },
+    /**
+     * Payload seeds a full-width «collections» grid of every collection card. A
+     * customer's `CustomerDashboard` already lists their panel sections by site type
+     * (a shop has orders, a portfolio does not), so the stock grid would only repeat
+     * it — and show a portfolio the shop cards. The operator keeps the stock grid.
+     * `widgets` stays empty: Payload appends the built-in collections widget itself.
+     */
+    dashboard: {
+      defaultLayout: ({ req }) =>
+        isPlatformAdmin(req.user) ? [{ widgetSlug: 'collections', width: 'full' }] : [],
+      widgets: [],
     },
     importMap: {
       baseDir: path.resolve(dirname),

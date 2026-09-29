@@ -62,6 +62,26 @@ describe('media uploads', () => {
     expect(doc.mimeType).toBe('image/png')
   })
 
+  it('accepts a clean SVG logo and stores exactly the validated text', async () => {
+    const svg = Buffer.from(
+      '<?xml version="1.0"?><!-- made in a design tool --><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10z" fill="#111"/></svg>',
+      'utf8',
+    )
+
+    const doc = await upload({ data: svg, mimetype: 'image/svg+xml', name: 'mark.svg' })
+
+    expect(doc.mimeType).toBe('image/svg+xml')
+  })
+
+  it('refuses an SVG that is only script-free by luck — an element outside the allowlist', async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>',
+      'utf8',
+    )
+
+    await expect(upload({ data: svg, mimetype: 'image/svg+xml', name: 'mark.svg' })).rejects.toThrow()
+  })
+
   it('refuses an SVG, the one image type that carries script', async () => {
     // `/api/media/file/*` is a Caddy carve-out serving uploads from the customer's
     // own origin, so an accepted SVG is stored XSS against that site.
@@ -78,6 +98,16 @@ describe('media uploads', () => {
     // Only the bytes are not, which is what the allow-list makes Payload read.
     const svg = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      'utf8',
+    )
+
+    await expect(upload({ data: svg, mimetype: 'image/png', name: 'logo.png' })).rejects.toThrow()
+  })
+
+  it('holds a clean-looking SVG wearing a .png name to the same allowlist', async () => {
+    // Labelled a PNG, so it would skip a check keyed on the name — the content decides.
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><a href="https://evil.example"><rect width="1" height="1"/></a></svg>',
       'utf8',
     )
 

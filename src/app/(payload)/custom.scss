@@ -92,16 +92,73 @@ code,
 /**
  * Dashboards (`OperatorDashboard`, `CustomerDashboard`, `SiteOverviewView`).
  *
- * The cards used inline `minmax(11rem, 1fr)` with a fixed 2rem page padding — fine at
- * 1280px, a cramped two-column grid at 375px and one that never dropped to a single
- * column on a narrow phone. Classes here so the breakpoints can be media queries.
+ * Built from Payload's own tokens (`--theme-elevation-*`, `--style-radius-*`,
+ * `--base`) so a card reads as part of the panel in both themes, and mobile-first:
+ * everything is a single column of full-width, 44px-tall touch targets until there is
+ * room, then a grid. Classes rather than inline styles so the breakpoints can be
+ * media queries.
  */
 .eshobe-stack {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  margin-block-end: 2rem;
+  gap: calc(var(--base) * 1.25);
+  margin-block-end: calc(var(--base) * 1.5);
   min-width: 0;
+}
+
+.eshobe-hero {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.5);
+  min-width: 0;
+}
+
+.eshobe-hero__title {
+  font-size: clamp(1.35rem, 4.5vw, 1.9rem);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.eshobe-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.eshobe-chip {
+  align-items: center;
+  background: var(--theme-elevation-100);
+  border-radius: 999px;
+  color: var(--theme-elevation-800);
+  display: inline-flex;
+  font-size: 0.78rem;
+  gap: 0.35rem;
+  line-height: 1.6;
+  max-width: 100%;
+  padding: 0.1rem 0.7rem;
+
+  &--ok {
+    background: var(--theme-success-100, var(--theme-elevation-100));
+    color: var(--theme-success-800, var(--theme-elevation-800));
+  }
+
+  &--warn {
+    background: var(--theme-warning-100, var(--theme-elevation-100));
+    color: var(--theme-warning-800, var(--theme-elevation-800));
+  }
+}
+
+.eshobe-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.eshobe-section__title {
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 0;
 }
 
 .eshobe-grid {
@@ -123,10 +180,14 @@ code,
   overflow-wrap: anywhere;
   padding: 0.9rem 1rem;
   text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 a.eshobe-card:hover {
   background: var(--theme-elevation-100);
+  border-color: var(--theme-elevation-200);
 }
 
 .eshobe-card__value {
@@ -147,12 +208,146 @@ a.eshobe-card:hover {
   line-height: 1.6;
 }
 
+/* Quick actions: a grid of equal, full-width targets instead of wrapping pills, so a
+   phone gets two tidy columns rather than a ragged staircase. */
+.eshobe-actions {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9.5rem), 1fr));
+}
+
+.eshobe-action {
+  align-items: center;
+  background: var(--theme-elevation-50);
+  border: 1px solid var(--theme-elevation-150, var(--theme-elevation-100));
+  border-radius: var(--style-radius-m, 6px);
+  color: var(--theme-text);
+  display: flex;
+  font-size: 0.875rem;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.75rem;
+  text-align: center;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover {
+    background: var(--theme-elevation-100);
+    border-color: var(--theme-elevation-300);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--theme-elevation-800);
+    outline-offset: 2px;
+  }
+
+  &--primary {
+    background: var(--theme-elevation-800);
+    border-color: var(--theme-elevation-800);
+    color: var(--theme-elevation-0);
+
+    &:hover {
+      background: var(--theme-elevation-700);
+      border-color: var(--theme-elevation-700);
+    }
+  }
+}
+
+/* Theme content slots: one row per choice the theme asked for. Stacks on a phone. */
+.eshobe-list {
+  background: var(--theme-elevation-50);
+  border: 1px solid var(--theme-elevation-100);
+  border-radius: var(--style-radius-m, 6px);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.eshobe-list__row {
+  align-items: center;
+  display: grid;
+  gap: 0.35rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.7rem 1rem;
+
+  & + & {
+    border-block-start: 1px solid var(--theme-elevation-100);
+  }
+}
+
+.eshobe-list__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.eshobe-list__label {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.eshobe-list__hint {
+  color: var(--theme-elevation-500);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.eshobe-list__links {
+  display: flex;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+  font-size: 0.82rem;
+
+  a {
+    color: var(--theme-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+/* Panel sections: plain link rows, replacing the stock grid of collapsible cards. */
+.eshobe-links {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr));
+}
+
+.eshobe-link {
+  align-items: center;
+  border: 1px solid var(--theme-elevation-100);
+  border-radius: var(--style-radius-m, 6px);
+  color: var(--theme-text);
+  display: flex;
+  font-size: 0.875rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.85rem;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background: var(--theme-elevation-100);
+  }
+}
+
 .eshobe-page {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   min-width: 0;
   padding: clamp(1rem, 4vw, 2rem);
+}
+
+@media (min-width: 640px) {
+  .eshobe-list__row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .eshobe-list__links {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 480px) {
@@ -162,12 +357,33 @@ a.eshobe-card:hover {
     gap: 0.5rem;
   }
 
+  // An odd last tile spans the row instead of leaving a hole beside it.
+  .eshobe-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
   .eshobe-card {
     padding: 0.7rem 0.75rem;
   }
 
   .eshobe-card__value {
     font-size: 1.3rem;
+  }
+
+  .eshobe-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .eshobe-actions > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eshobe-card,
+  .eshobe-action,
+  .eshobe-link {
+    transition: none;
   }
 }
 

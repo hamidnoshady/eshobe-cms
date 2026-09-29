@@ -114,6 +114,29 @@ describe('sidebar information architecture', () => {
     expect(groups.map((g) => g.label)).not.toContain(OTHER_GROUP_LABEL)
   })
 
+  it('drops the shop section for a known non-shop site, and keeps it for a shop or an unknown type', () => {
+    const slugsFor = (siteType?: null | string) =>
+      resolveNavGroups({
+        adminRoute: '/admin',
+        siteType,
+        user: customer,
+        visible: everythingVisible(CUSTOMER_NAV),
+      })
+        .flatMap((g) => g.entities)
+        .map((e) => e.slug)
+    const shop = ['products', 'orders', 'payment-gateways', 'store']
+
+    for (const type of ['portfolio', 'business']) {
+      const slugs = slugsFor(type)
+      for (const slug of shop) expect(slugs).not.toContain(slug)
+      expect(slugs).toContain('posts')
+    }
+    for (const type of ['store', undefined]) {
+      const slugs = slugsFor(type)
+      for (const slug of shop) expect(slugs).toContain(slug)
+    }
+  })
+
   it('gives the customer their product-oriented labels, not raw collection names', () => {
     const groups = resolveNavGroups({
       adminRoute: '/admin',

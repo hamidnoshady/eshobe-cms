@@ -1672,6 +1672,10 @@ export interface SiteBranding {
   tagline?: string | null;
   primaryLogo?: (string | null) | Media;
   compactLogo?: (string | null) | Media;
+  /**
+   * نشان بزرگ صفحهٔ اول پوسته (انیمیشن ورودی). فایل SVG پشتیبانی می‌شود؛ اگر خالی بماند «نشان اصلی» به کار می‌رود.
+   */
+  homeLogo?: (string | null) | Media;
   lightLogo?: (string | null) | Media;
   darkLogo?: (string | null) | Media;
   favicon?: (string | null) | Media;
@@ -4176,6 +4180,7 @@ export interface SiteBrandingSelect<T extends boolean = true> {
   tagline?: T;
   primaryLogo?: T;
   compactLogo?: T;
+  homeLogo?: T;
   lightLogo?: T;
   darkLogo?: T;
   favicon?: T;
