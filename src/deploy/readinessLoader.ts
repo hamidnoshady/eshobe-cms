@@ -56,8 +56,9 @@ const stateOfSlot = async (
   }
 
   const unpublished = doc._status === 'draft'
+  const editHref = `/admin/collections/${collection}/${encodeURIComponent(id)}`
   if (!LOCALIZED.has(slot.type)) {
-    return { found: true, presentLocales: siteLocales, unpublished }
+    return { editHref, found: true, presentLocales: siteLocales, unpublished }
   }
 
   const presentLocales: string[] = []
@@ -78,7 +79,7 @@ const stateOfSlot = async (
     const hasSlug = slot.type === 'category' || typeof localized?.slug === 'string'
     if (hasTitle && hasSlug) presentLocales.push(locale)
   }
-  return { found: true, presentLocales, unpublished }
+  return { editHref, found: true, presentLocales, unpublished }
 }
 
 /**
