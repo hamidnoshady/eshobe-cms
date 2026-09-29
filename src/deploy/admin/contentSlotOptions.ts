@@ -31,20 +31,19 @@ export const mapContentDocsToOptions = (docs: Record<string, unknown>[]): Conten
   })
 
 /**
- * Walk every page so sites with more than 100 bindable rows still see them all.
- * Optional `search` narrows by title/name/filename/slug when the API supports it.
+ * Walk every page so sites with more than 100 bindable rows still see them all. The
+ * select filters the result as the user types; the list is one site's documents.
  */
 export const fetchAllContentSlotOptions = async (
-  fetchPage: (args: { page: number; search?: string; type: ContentSlotType }) => Promise<ListResponse>,
+  fetchPage: (args: { page: number; type: ContentSlotType }) => Promise<ListResponse>,
   type: ContentSlotType,
-  search?: string,
 ): Promise<ContentOption[]> => {
   const options: ContentOption[] = []
   let page = 1
   let hasNext = true
 
   while (hasNext) {
-    const payload = await fetchPage({ page, search, type })
+    const payload = await fetchPage({ page, type })
     options.push(...mapContentDocsToOptions(payload.docs ?? []))
     hasNext = Boolean(payload.hasNextPage && payload.nextPage)
     page = payload.nextPage ?? page + 1
@@ -53,16 +52,4 @@ export const fetchAllContentSlotOptions = async (
   }
 
   return options
-}
-
-export const contentSlotSearchWhere = (
-  type: ContentSlotType,
-  term: string,
-): Record<string, unknown> | undefined => {
-  const q = term.trim()
-  if (!q) return undefined
-  if (type === 'media') return { filename: { contains: q } }
-  if (type === 'form') return { title: { contains: q } }
-  if (type === 'category') return { title: { contains: q } }
-  return { or: [{ title: { contains: q } }, { slug: { contains: q } }] }
 }

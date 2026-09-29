@@ -35,6 +35,8 @@ export type ReadinessCheck = {
   blocks: null | ReadinessScope
   /** Who can fix it, so the console can point at the right screen. */
   owner: 'customer' | 'operator'
+  /** Where the fix happens — the admin screen of the document the check is about. */
+  href?: string
 }
 
 export type ReadinessSlot = {
@@ -52,6 +54,8 @@ export type SlotState = null | {
   presentLocales: string[]
   /** A page/post that exists but is still a draft. */
   unpublished: boolean
+  /** The document's admin edit URL, so a check about it can link straight there. */
+  editHref?: string
 }
 
 export type ReadinessVariable = {
@@ -84,6 +88,10 @@ export type ThemeReadiness = {
   readyForPreview: boolean
   readyForProduction: boolean
 }
+
+/** Locale codes read as Persian words — «en» means nothing to a site owner. */
+const LOCALE_NAMES: Record<string, string> = { en: 'انگلیسی', fa: 'فارسی' }
+const localeNames = (codes: string[]): string => codes.map((code) => LOCALE_NAMES[code] ?? code).join('، ')
 
 const slotLabel = (slot: ReadinessSlot): string => `«${slot.labelFa?.trim() || slot.key}»`
 
@@ -185,6 +193,7 @@ export const computeThemeReadiness = (input: ReadinessInput): ThemeReadiness => 
         id: `slot-draft:${slot.key}`,
         message: `محتوای انتخاب‌شده برای ${label} هنوز منتشر نشده و بازدیدکننده آن را نمی‌بیند.`,
         owner: 'customer',
+        ...(state.editHref ? { href: state.editHref } : {}),
         status: slot.required ? 'blocked' : 'warn',
       })
       continue
@@ -192,12 +201,21 @@ export const computeThemeReadiness = (input: ReadinessInput): ThemeReadiness => 
 
     // `fallbackLocale: false` is how renderers read: an untranslated page is a 404 on that
     // locale's URL, not the default language's text.
+    //
+    // The fix is never in «تنظیمات پوسته» — the theme only points at the document. It is
+    // the document's own translation (the admin's locale switcher, which the link opens
+    // on the missing language), or dropping the language from the site if it is not
+    // wanted. Saying where is the whole difference between a warning and a riddle.
     const missing = input.siteLocales.filter((locale) => !state.presentLocales.includes(locale))
     if (missing.length) {
+      const names = localeNames(missing)
       checks.push({
         blocks: null,
+        ...(state.editHref
+          ? { href: `${state.editHref}?locale=${encodeURIComponent(missing[0])}` }
+          : {}),
         id: `slot-locale:${slot.key}`,
-        message: `${label} به زبان ${missing.join('، ')} ترجمه/منتشر نشده است؛ نسخهٔ آن زبان خالی یا ۴۰۴ نشان داده می‌شود.`,
+        message: `${label} نسخهٔ ${names} ندارد و آن نسخهٔ سایت برایش خالی یا ۴۰۴ می‌ماند. آن را باز کنید، زبان ویرایشگر (بالای صفحه) را روی ${names} بگذارید، ترجمه کنید و منتشر کنید؛ اگر سایت به زبان ${names} نیاز ندارد، آن را از «زبان‌ها» در تنظیمات سایت حذف کنید.`,
         owner: 'customer',
         status: 'warn',
       })

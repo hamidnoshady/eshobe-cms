@@ -2,10 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { Button } from '@payloadcms/ui/elements/Button'
-import { SelectInput } from '@payloadcms/ui/fields/Select'
+import { Banner, Button, Collapsible, Pill, SelectInput } from '@payloadcms/ui'
 
-import { formatDate } from '@/lib/format'
+import { formatDate, formatNumber } from '@/lib/format'
 
 import { ActionButton } from './ActionButton'
 import { DemoPackPanel } from './DemoPackPanel'
@@ -14,29 +13,35 @@ import { ReadinessChecklist } from './ReadinessChecklist'
 /**
  * The per-site deployment console: `/admin/collections/sites/:id/deployment`.
  *
- * One screen answering the three questions an operator actually has — what is serving
- * this site, what can I put on it, and how do I get back — plus the history that makes
- * a rollback possible.
+ * ## Three steps, one action each
+ *
+ * A theme reaches a customer's domain in exactly one way: pick the theme, build a
+ * **preview** on its own subdomain and look at it, then **publish that same build** to
+ * the domain. The console is laid out as those three numbered steps, each with one
+ * primary button, above a status overview that says what runs where.
+ *
+ * It used to offer the same two operations under five labels («پیش‌نمایش نسخهٔ جدید» /
+ * «استقرار پیش‌نمایش», «انتشار آرتیفکت آزموده‌شده» / «انتشار روی دامنه», plus three
+ * «استقرار مجدد» buttons), and two of those did something other than their label:
+ * «استقرار مجدد production» rebuilt the artifact production already ran — an operator
+ * pressing it to ship a fix got the old version back — and «استقرار مجدد پیش‌نمایش»
+ * sent no lane, so the server started from the active deployment and rebuilt
+ * *production*, unconfirmed. Publishing now always names the build it ships (the
+ * preview's artifact and commit); re-running the current production build is a
+ * separate, confirmed, explicitly-worded action for what it is actually for — applying
+ * changed «تنظیمات پوسته» variables or a new primary domain.
  *
  * ## Why it polls
  *
- * A deploy is a queued job that takes minutes. The create call answers `202` and
- * returns immediately; without polling the operator is left looking at "در صف" with no
- * way to tell a slow build from a dead one except reloading by hand. The interval is
- * deliberately conservative — every tick is a Coolify API call on the operator's own
- * rate limit — and **stops as soon as nothing is pending**, so an idle console costs
- * nothing.
- *
- * `POST .../poll` is what advances a deployment: it starts a queued one and asks
- * Coolify for a building one's real state. The jobs queue does the same once a
- * minute without anybody watching; polling here only makes an attended deploy move
- * at the operator's pace. So this is not a passive refresh, which is exactly why it
- * must not run unattended in a loop forever.
+ * A deploy is a queued job that takes minutes. `POST .../poll` is what advances one: it
+ * starts a queued row and asks Coolify for a building one's real state. The interval is
+ * conservative — every tick is a Coolify API call — and stops as soon as nothing is
+ * pending, so an idle console costs nothing.
  *
  * ## What it derives, and what it does not
  *
- * Nothing. "Needs a redeploy" and "a new version is available" are computed by
- * `GET …/deployment` from the rows and packages; this component only renders them.
+ * "Needs a redeploy" and "a new version is available" are computed by
+ * `GET …/deployment`; this component only renders them.
  */
 
 type Deployment = {
@@ -76,11 +81,8 @@ type Deployment = {
 type UpdateInfo = {
   deployedCommit: null | string
   latestCommit: null | string
-  deployedDigest?: null | string
-  latestDigest?: null | string
   sourceUpdateAvailable?: boolean
   artifactReady?: boolean
-  deployableUpdateAvailable?: boolean
   packageRef: string
   updateAvailable: boolean
 }
@@ -101,7 +103,7 @@ const STATUS_LABELS: Record<string, string> = {
   building: 'در حال ساخت',
   creating: 'در حال ایجاد',
   failed: 'ناموفق',
-  live: 'در حال سرویس‌دهی',
+  live: 'فعال',
   queued: 'در صف',
   removed: 'حذف‌شده',
   stopped: 'متوقف',
@@ -109,41 +111,110 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const MODE_LABELS: Record<string, string> = {
-  direct: 'انتشار روی Coolify',
-  edge: 'Caddy (قدیمی)',
+  direct: 'دامنه',
+  edge: 'دامنه (Caddy قدیمی)',
   preview: 'پیش‌نمایش',
 }
-
-const isPreviewRow = (row: Deployment): boolean =>
-  row.lane === 'preview' || row.domainMode === 'preview'
-
-const isProductionRow = (row: Deployment): boolean =>
-  row.lane === 'production' || (row.domainMode !== 'preview' && row.domainMode !== '')
 
 /** Mirrors `isPending` in `src/lib/deploy/status.ts` — the states still expecting work. */
 const PENDING = new Set(['queued', 'creating', 'building', 'verifying'])
 
 const POLL_MS = 5000
 
-const bannerFor = (status: string): string => {
+const laneOf = (row: Deployment): 'preview' | 'production' =>
+  row.lane === 'preview' || row.lane === 'production'
+    ? row.lane
+    : row.domainMode === 'preview'
+      ? 'preview'
+      : 'production'
+
+const pillStyle = (status: string): 'error' | 'light-gray' | 'success' | 'warning' => {
   if (status === 'live') return 'success'
   if (status === 'failed') return 'error'
-  return 'default'
+  if (PENDING.has(status)) return 'warning'
+  return 'light-gray'
 }
 
-const shortSha = (sha: null | string): string => (sha ? sha.slice(0, 8) : '—')
+const StatusPill: React.FC<{ status: string }> = ({ status }) => (
+  <Pill pillStyle={pillStyle(status)} size="small">
+    {STATUS_LABELS[status] ?? status}
+  </Pill>
+)
 
-/**
- * Jalali, via the house helper rather than a bare `Intl` call.
- *
- * A build log read by an Iranian operator showing "September 22, 2026" is the exact
- * failure the repo's `no-restricted-syntax` rule exists to prevent — and a deployment
- * timeline is precisely where a misread date costs something.
- */
+const shortSha = (sha: null | string | undefined): string => (sha ? sha.slice(0, 8) : '—')
+
+/** Jalali, via the house helper — a deployment timeline is where a misread date costs something. */
 const formatWhen = (value: null | string): string => {
   if (!value) return '—'
   return formatDate(value, 'fa', { dateStyle: 'medium', timeStyle: 'short' }) || value
 }
+
+/** The row a lane shows: what is serving, else what is on its way, else the last attempt. */
+const laneRow = (rows: Deployment[], lane: 'preview' | 'production'): Deployment | null => {
+  const inLane = rows.filter((row) => laneOf(row) === lane && row.status !== 'removed')
+  return (
+    inLane.find((row) => PENDING.has(row.status)) ??
+    inLane.find((row) => row.status === 'live') ??
+    inLane[0] ??
+    null
+  )
+}
+
+const LaneSummary: React.FC<{
+  empty: string
+  row: Deployment | null
+  title: string
+  children?: React.ReactNode
+}> = ({ children, empty, row, title }) => (
+  <div className="theme-card">
+    <div className="theme-card__head">
+      <h3>{title}</h3>
+      {row && <StatusPill status={row.status} />}
+    </div>
+    {row ? (
+      <dl className="theme-facts">
+        <dt>پوسته</dt>
+        <dd>{row.packageName ?? '—'}</dd>
+        <dt>نسخه</dt>
+        <dd>
+          <code dir="ltr">{shortSha(row.commitSha)}</code>
+        </dd>
+        <dt>نشانی</dt>
+        <dd>
+          <code dir="ltr">{laneOf(row) === 'preview' ? (row.previewOpenUrl ?? '—') : (row.domain ?? '—')}</code>
+        </dd>
+        <dt>{row.status === 'live' ? 'فعال از' : 'آخرین تلاش'}</dt>
+        <dd>{formatWhen(row.deployedAt ?? row.createdAt)}</dd>
+      </dl>
+    ) : (
+      <p className="theme-console__muted">{empty}</p>
+    )}
+    {row?.status === 'failed' && row.lastError && <Banner type="error">{row.lastError}</Banner>}
+    {row?.attention && <Banner type="error">{row.attention}</Banner>}
+    {children}
+  </div>
+)
+
+const Step: React.FC<{
+  children: React.ReactNode
+  description: React.ReactNode
+  done: boolean
+  number: number
+  title: string
+}> = ({ children, description, done, number, title }) => (
+  <section className="theme-card">
+    <div className="theme-card__head">
+      <h2 className="theme-card__title">
+        <span className={`theme-card__step${done ? ' theme-card__step--done' : ''}`}>
+          {done ? '✓' : formatNumber(number, 'fa')}
+        </span>
+        {title}
+      </h2>
+    </div>
+    <p className="theme-console__muted">{description}</p>
+    {children}
+  </section>
+)
 
 export type DeploymentPanelProps = {
   siteDomain: string
@@ -162,7 +233,6 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
   siteType,
 }) => {
   const [deployments, setDeployments] = useState<Deployment[]>([])
-  const [current, setCurrent] = useState<Deployment | null>(null)
   const [update, setUpdate] = useState<null | UpdateInfo>(null)
   const [renderedBy, setRenderedBy] = useState<string>('platform')
   const [packages, setPackages] = useState<ThemePackage[]>([])
@@ -182,11 +252,8 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
       const response = await fetch(base, { credentials: 'same-origin' })
       const json = (await response.json()) as {
         assignedThemePackage?: null | string
-        current?: Deployment | null
         deployments?: Deployment[]
-        domainVerified?: boolean
         message?: string
-        primaryDomain?: null | string
         renderedBy?: string
         update?: null | UpdateInfo
       }
@@ -198,7 +265,6 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
 
       setError(null)
       setDeployments(json.deployments ?? [])
-      setCurrent(json.current ?? null)
       setUpdate(json.update ?? null)
       setRenderedBy(json.renderedBy ?? 'platform')
       setAssignedThemePackage(json.assignedThemePackage ?? null)
@@ -210,22 +276,14 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
   }, [base])
 
   useEffect(() => {
-    /**
-     * Wrapped in an async closure rather than a bare `void load()`: the state writes
-     * then land after an await instead of synchronously inside the effect body, which
-     * is both what `react-hooks/set-state-in-effect` asks for and the same shape the
-     * package-loading effect below already uses.
-     */
     const run = async () => {
       await load()
     }
-
     void run()
   }, [load])
 
   useEffect(() => {
     let alive = true
-
     const loadPackages = async () => {
       try {
         const response = await fetch('/api/platform/theme-packages', { credentials: 'same-origin' })
@@ -235,7 +293,6 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
         /* The banner from `load` already covers a dead connection. */
       }
     }
-
     void loadPackages()
     return () => {
       alive = false
@@ -275,69 +332,74 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
     return () => window.clearInterval(id)
   }, [base, load, pending])
 
-  const live = current?.status === 'live' ? current : null
-  const production = live && isProductionRow(live) ? live : null
-  const previewRow =
-    deployments.find((row) => isPreviewRow(row) && row.status === 'live') ??
-    deployments.find((row) => isPreviewRow(row) && PENDING.has(row.status)) ??
-    null
-  const productionPackageKey =
-    (production?.themePackage && packages.find((p) => p.id === production.themePackage)?.key) ||
-    packageKey
+  if (loading) return <p className="theme-console__muted">در حال بارگذاری…</p>
+
+  const productionRow = laneRow(deployments, 'production')
+  const previewRow = laneRow(deployments, 'preview')
+  const productionLive = productionRow?.status === 'live' ? productionRow : null
+  const previewLive = previewRow?.status === 'live' ? previewRow : null
 
   /**
    * Only published packages, and only those that declare this site's type. The server
-   * refuses the rest — offering them here would just be a menu of ways to get an
-   * error, and an operator cannot tell "not for this site" from "broken" from a 409.
+   * refuses the rest — offering them here would just be a menu of ways to get an error.
    */
   const eligible = packages.filter(
     (pkg) => pkg.status === 'published' && pkg.siteTypes.includes(siteType),
   )
-
-  const selected = eligible.find((pkg) => pkg.key === packageKey) ?? null
-  const assignedPkg: ThemePackage | undefined = assignedThemePackage
+  const assignedPkg = assignedThemePackage
     ? packages.find((p) => p.id === assignedThemePackage)
     : undefined
+  const selectedKey = packageKey || assignedPkg?.key || ''
+  const selected = eligible.find((pkg) => pkg.key === selectedKey) ?? null
 
   const productionBlocked = ((): null | string => {
     if (!domainVerified) {
-      return `دامنهٔ «${siteDomain}» هنوز تأیید نشده است. تأیید DNS فقط اجازهٔ انتشار روی دامنهٔ اصلی را می‌دهد؛ تا «انتشار روی دامنه» انجام نشود، پوسته روی دامنهٔ اصلی فعال نمی‌شود.`
+      return `دامنهٔ «${siteDomain}» هنوز تأیید نشده است؛ پس از تأیید DNS می‌توانید روی دامنه منتشر کنید. پیش‌نمایش همین حالا هم ممکن است.`
     }
     if (selected && !selected.proxiesApi) {
-      return 'این پوسته مسیرهای /api را پراکسی نمی‌کند و برای انتشار مستقیم روی Coolify مناسب نیست.'
+      return 'این پوسته مسیرهای /api را پراکسی نمی‌کند و روی دامنه قابل انتشار نیست.'
     }
     return null
   })()
 
-  const deployPackageKey = packageKey || assignedPkg?.key || ''
+  /** What «انتشار» ships: the reviewed preview build when there is one, else the package's latest. */
+  const publishCommit = previewLive?.commitSha ?? null
+  const alreadyPublished = Boolean(
+    productionLive && publishCommit && productionLive.commitSha === publishCommit,
+  )
+  const previewAhead = Boolean(
+    previewLive && productionLive && previewLive.commitSha !== productionLive.commitSha,
+  )
 
   /**
-   * A history row can only be re-run (rollback) if it knows what to run. A
-   * `registry_image` row without an artifact link and without a digest is a row that
-   * failed before anything was built — offering «بازگشت به این نسخه» on it just
-   * queues the same refusal again. Source-build rows re-run from their commit, so
-   * they stay eligible.
+   * A history row can only be re-run (rollback) if it knows what to run: a
+   * `registry_image` row with neither an artifact link nor a digest failed before
+   * anything was built.
    */
   const rowIsRerunnable = (row: Deployment): boolean =>
     row.artifactSource !== 'registry_image' || Boolean(row.themeArtifact || row.imageDigest)
 
-  if (loading) return <p>در حال بارگذاری…</p>
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '60rem' }}>
-      <div>
-        <h1>پوسته و میزبانی سایت — {siteName}</h1>
-        <p style={{ color: 'var(--theme-elevation-600)' }}>
-          دامنه: <code dir="ltr">{siteDomain}</code>
-          {!domainVerified && ' (تأیید نشده)'}
-        </p>
-        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
-          همهٔ استقرارها از همین صفحه شروع می‌شوند: ابتدا «استقرار پیش‌نمایش»، پس از بررسی
-          سلامت «انتشار روی دامنه». این تب فقط برای کارکنان سکو (مدیر پلتفرم) است.
+    <div className="theme-console">
+      <div className="theme-console__intro">
+        <h1>استقرار پوسته — {siteName}</h1>
+        <div className="theme-console__meta">
+          <code dir="ltr">{siteDomain}</code>
+          <Pill pillStyle={domainVerified ? 'success' : 'warning'} size="small">
+            {domainVerified ? 'دامنه تأیید شده' : 'دامنه تأیید نشده'}
+          </Pill>
+          <Pill pillStyle={renderedBy === 'deployment' ? 'success' : 'light-gray'} size="small">
+            {renderedBy === 'deployment' ? 'دامنه با پوستهٔ مستقر سرویس می‌شود' : 'دامنه با رندرکنندهٔ داخلی سرویس می‌شود'}
+          </Pill>
+        </div>
+        <p className="theme-console__muted">
+          سه قدم: پوسته را انتخاب کنید، پیش‌نمایش بسازید و روی زیردامنهٔ آن بررسی کنید، سپس همان
+          نسخه را روی دامنه منتشر کنید. پیش‌نمایش هیچ اثری روی سایت مشتری ندارد. این صفحه فقط برای
+          کارکنان سکو است.
         </p>
       </div>
 
-      {error && <div className="banner banner--type-error">{error}</div>}
+      {error && <Banner type="error">{error}</Banner>}
 
       <ReadinessChecklist
         refreshKey={`${assignedThemePackage ?? ''}:${deployments.map((row) => `${row.id}${row.status}`).join(',')}`}
@@ -346,513 +408,367 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
       />
 
       {/* ---------------------------------------------------------------- */}
-      {/* What is serving right now */}
+      {/* What runs where */}
       {/* ---------------------------------------------------------------- */}
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <h2 style={{ margin: 0 }}>اکنون چه چیزی سرویس می‌دهد؟</h2>
+      <div className="theme-lanes">
+        <LaneSummary
+          empty="هنوز چیزی روی دامنه منتشر نشده است."
+          row={productionRow}
+          title="روی دامنه"
+        >
+          {productionLive && productionLive.domain && (
+            <div className="theme-actions">
+              <Button buttonStyle="secondary" el="anchor" newTab size="small" url={`https://${productionLive.domain}`}>
+                باز کردن سایت
+              </Button>
+            </div>
+          )}
+        </LaneSummary>
+        <LaneSummary empty="هنوز پیش‌نمایشی ساخته نشده است." row={previewRow} title="پیش‌نمایش">
+          {previewLive?.previewOpenUrl && (
+            <div className="theme-actions">
+              <Button buttonStyle="secondary" el="anchor" newTab size="small" url={previewLive.previewOpenUrl}>
+                باز کردن پیش‌نمایش
+              </Button>
+            </div>
+          )}
+        </LaneSummary>
+      </div>
 
-        {renderedBy === 'deployment' && production ? (
-          <div className="banner banner--type-success">
-            پوستهٔ «{production.packageName ?? '—'}» روی <code dir="ltr">{production.domain}</code>{' '}
-            فعال است — {MODE_LABELS[production.domainMode] ?? production.domainMode}.
-          </div>
-        ) : (
-          <div className="banner banner--type-default">
-            دامنهٔ اصلی این سایت با رندرکنندهٔ داخلی سرویس داده می‌شود.
-            {live?.domainMode === 'preview' &&
-              ' یک پوسته فقط روی زیردامنهٔ پیش‌نمایش در حال اجراست.'}
-          </div>
-        )}
-
-        {current && (
-          <dl
-            style={{
-              columnGap: '1.5rem',
-              display: 'grid',
-              gridTemplateColumns: 'max-content 1fr',
-              margin: 0,
-              rowGap: '0.4rem',
-            }}
-          >
-            <dt>پوسته</dt>
-            <dd style={{ margin: 0 }}>{current.packageName ?? '—'}</dd>
-            <dt>وضعیت</dt>
-            <dd style={{ margin: 0 }}>{STATUS_LABELS[current.status] ?? current.status}</dd>
-            <dt>حالت دامنه</dt>
-            <dd style={{ margin: 0 }}>{MODE_LABELS[current.domainMode] ?? current.domainMode}</dd>
-            <dt>سرور</dt>
-            <dd style={{ margin: 0 }}>{current.targetName ?? '—'}</dd>
-            <dt>Runtime binding</dt>
-            <dd style={{ margin: 0 }}>
-              <code dir="ltr">{current.themeBinding ?? '—'}</code>
-            </dd>
-            {current.runtime && (
-              <>
-                <dt>Runtime / Infrastructure</dt>
-                <dd style={{ margin: 0 }}>
-                  <div>
-                    Coolify Application: <code dir="ltr">{current.runtime.appName ?? '—'}</code>
-                  </div>
-                  <div>
-                    Application UUID: <code dir="ltr">{current.runtime.appUuid ?? '—'}</code>
-                  </div>
-                  <div>
-                    Server: <code dir="ltr">{current.runtime.serverUuid ?? '—'}</code>
-                  </div>
-                  <div>
-                    Project: <code dir="ltr">{current.runtime.coolifyProjectUuid ?? '—'}</code>
-                  </div>
-                  <div>
-                    Environment: <code dir="ltr">{current.runtime.environmentName ?? '—'}</code>
-                  </div>
-                  <div>
-                    Runtime hostname:{' '}
-                    <code dir="ltr">{current.runtime.applicationHostname ?? '—'}</code>
-                  </div>
-                  <div>
-                    Binding state: <code dir="ltr">{current.runtime.bindingState ?? '—'}</code>
-                  </div>
-                </dd>
-              </>
-            )}
-            <dt>کامیت</dt>
-            <dd style={{ margin: 0 }}>
-              <code dir="ltr">{shortSha(current.commitSha)}</code>
-              {current.ref ? (
-                <>
-                  {' '}
-                  از <code dir="ltr">{current.ref}</code>
-                </>
-              ) : null}
-            </dd>
-            <dt>میزبان</dt>
-            <dd style={{ margin: 0 }}>
-              <code dir="ltr">{current.domain ?? '—'}</code>
-            </dd>
-            {current.previewDomain && current.previewDomain !== current.domain && (
-              <>
-                <dt>زیردامنهٔ پیش‌نمایش</dt>
-                <dd style={{ margin: 0 }}>
-                  <code dir="ltr">{current.previewDomain}</code>
-                </dd>
-              </>
-            )}
-          </dl>
-        )}
-
-        {current?.attention && (
-          <div className="banner banner--type-error" role="alert">
-            {current.attention}
-          </div>
-        )}
-
-        {update?.sourceUpdateAvailable && update.artifactReady === false && (
-          <div className="banner banner--type-default" role="status">
-            <strong>کامیت تازه شناسایی شد</strong>، اما آرتیفکت immutable آن هنوز آماده نیست؛ تا
-            پایان build امکان ارتقا وجود ندارد.
-          </div>
-        )}
-
-        {update?.updateAvailable && (
-          <div className="banner banner--type-info" role="status">
-            <strong>نسخهٔ جدید پوسته موجود است</strong> — کامیت{' '}
-            <code dir="ltr">{shortSha(update.deployedCommit)}</code> در production در حال اجراست؛
-            همگام‌سازی گیت‌هاب اکنون <code dir="ltr">{shortSha(update.latestCommit)}</code> (از{' '}
-            <code dir="ltr">{update.packageRef}</code>) را پیشنهاد می‌دهد.
-            {previewRow?.commitSha === update.latestCommit && previewRow.status === 'live' ? (
-              <> یک پیش‌نمایش با این کامیت آماده است.</>
-            ) : null}
-          </div>
-        )}
-
-        {previewRow?.previewOpenUrl && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-            <Button buttonStyle="secondary" el="anchor" newTab url={previewRow.previewOpenUrl}>
-              باز کردن پیش‌نمایش
-            </Button>
-            <span style={{ color: 'var(--theme-elevation-600)', fontSize: '0.85rem' }}>
-              کامیت <code dir="ltr">{shortSha(previewRow.commitSha)}</code>
-              {' — '}
-              <code dir="ltr">{previewRow.previewOpenUrl}</code>
-            </span>
-          </div>
-        )}
-
-        {current?.status === 'failed' && current.lastError && (
-          <div className="banner banner--type-error">{current.lastError}</div>
-        )}
-
-        {current && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-            {update?.updateAvailable && production && productionPackageKey ? (
-              <>
-                <ActionButton
-                  body={{ domainMode: 'preview', package: productionPackageKey }}
-                  label="پیش‌نمایش نسخهٔ جدید"
-                  onSuccess={load}
-                  style="primary"
-                  successMessage="پیش‌نمایش نسخهٔ جدید در صف قرار گرفت."
-                  url={base}
-                />
-                <ActionButton
-                  body={
-                    previewRow?.themeArtifact
-                      ? { artifact: previewRow.themeArtifact, lane: 'production' }
-                      : { upgrade: true, lane: 'production' }
-                  }
-                  confirm="پس از بررسی سلامت، همان آرتیفکت آزموده‌شده جایگزین production روی دامنهٔ مشتری می‌شود. ادامه می‌دهید؟"
-                  label="انتشار آرتیفکت آزموده‌شده"
-                  onSuccess={load}
-                  style="secondary"
-                  successMessage="استقرار production در صف قرار گرفت."
-                  url={`${base}/redeploy`}
-                />
-              </>
-            ) : (
-              <ActionButton
-                confirm={
-                  current.domainMode === 'preview'
-                    ? undefined
-                    : 'یک استقرار تازه ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی روی دامنهٔ مشتری خواهد شد. ادامه می‌دهید؟'
-                }
-                label={current.needsRedeploy ? 'استقرار مجدد (دامنهٔ جدید)' : 'استقرار مجدد'}
-                onSuccess={load}
-                style={current.needsRedeploy ? 'primary' : 'secondary'}
-                successMessage="استقرار مجدد در صف قرار گرفت."
-                url={`${base}/redeploy`}
-              />
-            )}
-
-            {live && (
-              <ActionButton
-                body={{ deployment: live.id }}
-                confirm={
-                  live.domainMode === 'preview'
-                    ? undefined
-                    : 'این استقرار متوقف می‌شود و سایت به رندرکنندهٔ داخلی برمی‌گردد. ادامه می‌دهید؟'
-                }
-                label="توقف این استقرار"
-                onSuccess={load}
-                style="danger"
-                url={`${base}/stop`}
-              />
-            )}
-
-            {renderedBy === 'deployment' && (
-              <ActionButton
-                confirm="سایت به رندرکنندهٔ داخلی برمی‌گردد و همهٔ استقرارهای فعال آن متوقف می‌شوند. ادامه می‌دهید؟"
-                label="بازگشت به رندرکنندهٔ داخلی"
-                onSuccess={load}
-                style="danger"
-                successMessage="سایت به رندرکنندهٔ داخلی بازگشت."
-                url={`${base}/revert`}
-              />
-            )}
-          </div>
-        )}
-      </section>
+      {update?.sourceUpdateAvailable && update.artifactReady === false && (
+        <Banner type="info">
+          کامیت تازهٔ <code dir="ltr">{shortSha(update.latestCommit)}</code> شناسایی شد، اما تصویر
+          ساخته‌شدهٔ آن هنوز آماده نیست؛ پس از پایان ساخت در CI می‌توانید از آن پیش‌نمایش بسازید.
+        </Banner>
+      )}
+      {update?.updateAvailable && !(previewLive && previewLive.commitSha === update.latestCommit) && (
+        <Banner type="info">
+          نسخهٔ تازهٔ پوسته (<code dir="ltr">{shortSha(update.latestCommit)}</code> از{' '}
+          <code dir="ltr">{update.packageRef}</code>) آماده است؛ روی دامنه هنوز{' '}
+          <code dir="ltr">{shortSha(update.deployedCommit)}</code> اجرا می‌شود. در قدم ۲ از آن
+          پیش‌نمایش بسازید، سپس در قدم ۳ منتشرش کنید.
+        </Banner>
+      )}
+      {previewAhead && (
+        <Banner type="info">
+          پیش‌نمایش نسخهٔ <code dir="ltr">{shortSha(previewLive?.commitSha)}</code> را اجرا می‌کند و
+          روی دامنه هنوز <code dir="ltr">{shortSha(productionLive?.commitSha)}</code> است. پس از
+          بررسی پیش‌نمایش، در قدم ۳ «انتشار روی دامنه» را بزنید.
+        </Banner>
+      )}
 
       {/* ---------------------------------------------------------------- */}
-      {/* Assign + deploy lanes */}
+      {/* Step 1 — theme */}
       {/* ---------------------------------------------------------------- */}
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <h2 style={{ margin: 0 }}>پوستهٔ اختصاص‌یافته</h2>
-        {assignedPkg ? (
-          <p>
-            {assignedPkg.name} (<code dir="ltr">{assignedPkg.key}</code>)
-          </p>
-        ) : (
-          <p style={{ color: 'var(--theme-elevation-600)' }}>
-            هنوز پوسته‌ای برای این سایت انتخاب نشده است.
-          </p>
-        )}
-
+      <Step
+        description="پوسته‌ای که این سایت با آن ساخته می‌شود. فقط پوسته‌های منتشرشده‌ای فهرست می‌شوند که از نوع این سایت پشتیبانی می‌کنند."
+        done={Boolean(assignedPkg)}
+        number={1}
+        title="انتخاب پوسته"
+      >
         {eligible.length === 0 ? (
-          <div className="banner banner--type-default">
-            هیچ پوستهٔ منتشرشده‌ای برای سایت از نوع «{siteType}» وجود ندارد.
-          </div>
+          <Banner type="info">هیچ پوستهٔ منتشرشده‌ای برای سایت از نوع «{siteType}» وجود ندارد.</Banner>
         ) : (
           <>
             <SelectInput
-              label="انتخاب پوسته"
+              label="پوسته"
               name="package"
-              onChange={(option) => setPackageKey(String((option as Option)?.value ?? ''))}
-              options={eligible.map((pkg) => ({
-                label: `${pkg.name} (${pkg.key})`,
-                value: pkg.key,
-              }))}
+              onChange={(option) => setPackageKey(String((option as Option | null)?.value ?? ''))}
+              options={eligible.map((pkg) => ({ label: `${pkg.name} (${pkg.key})`, value: pkg.key }))}
               path="package"
-              value={packageKey || assignedPkg?.key || ''}
+              value={selectedKey}
             />
-            <ActionButton
-              body={{ package: packageKey || assignedPkg?.key }}
-              disabled={!deployPackageKey}
-              label="ثبت اختصاص پوسته (بدون استقرار)"
-              onSuccess={load}
-              style="secondary"
-              successMessage="پوسته برای این سایت ثبت شد."
-              url={`/api/platform/sites/${siteId}/theme-assignment`}
-            />
+            {selectedKey && selectedKey !== assignedPkg?.key && (
+              <div className="theme-actions">
+                <ActionButton
+                  body={{ package: selectedKey }}
+                  label="ثبت این پوسته برای سایت"
+                  onSuccess={load}
+                  style="secondary"
+                  successMessage="پوسته برای این سایت ثبت شد."
+                  url={`/api/platform/sites/${siteId}/theme-assignment`}
+                />
+              </div>
+            )}
           </>
         )}
-      </section>
+      </Step>
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Step 2 — preview */}
+      {/* ---------------------------------------------------------------- */}
+      <Step
+        description="آخرین نسخهٔ پوسته روی زیردامنهٔ جداگانه‌ای ساخته می‌شود تا با محتوای واقعی این سایت بررسی شود. دامنه و DNS مشتری دست نمی‌خورد."
+        done={Boolean(previewLive && (!update?.updateAvailable || previewLive.commitSha === update.latestCommit))}
+        number={2}
+        title="پیش‌نمایش"
+      >
+        {previewRow && PENDING.has(previewRow.status) && (
+          <Banner type="info">
+            پیش‌نمایش در حال ساخت است ({STATUS_LABELS[previewRow.status]})؛ این صفحه خودکار به‌روز
+            می‌شود.
+          </Banner>
+        )}
+        <div className="theme-actions">
+          <ActionButton
+            body={{ lane: 'preview', package: selectedKey }}
+            disabled={!selectedKey || Boolean(previewRow && PENDING.has(previewRow.status))}
+            label={previewLive ? 'ساخت پیش‌نمایش تازه از آخرین نسخه' : 'ساخت پیش‌نمایش'}
+            onSuccess={load}
+            style="primary"
+            successMessage="ساخت پیش‌نمایش در صف قرار گرفت."
+            url={base}
+          />
+          {previewLive?.previewOpenUrl && (
+            <Button buttonStyle="secondary" el="anchor" newTab url={previewLive.previewOpenUrl}>
+              باز کردن پیش‌نمایش
+            </Button>
+          )}
+        </div>
+      </Step>
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Step 3 — publish */}
+      {/* ---------------------------------------------------------------- */}
+      <Step
+        description={
+          <>
+            همان نسخه‌ای که در پیش‌نمایش بررسی کرده‌اید
+            {publishCommit ? (
+              <>
+                {' '}
+                (<code dir="ltr">{shortSha(publishCommit)}</code>)
+              </>
+            ) : null}{' '}
+            روی <code dir="ltr">{siteDomain}</code> منتشر می‌شود؛ پس از بررسی سلامت جایگزین نسخهٔ
+            فعلی می‌شود و تا آن لحظه سایت با نسخهٔ قبلی سرویس می‌دهد.
+          </>
+        }
+        done={Boolean(productionLive && (alreadyPublished || !previewLive))}
+        number={3}
+        title="انتشار روی دامنه"
+      >
+        {productionBlocked && <Banner type="error">{productionBlocked}</Banner>}
+        {alreadyPublished && (
+          <Banner type="success">روی دامنه همین نسخهٔ پیش‌نمایش در حال اجراست.</Banner>
+        )}
+        {productionRow && PENDING.has(productionRow.status) && (
+          <Banner type="info">
+            انتشار در جریان است ({STATUS_LABELS[productionRow.status]})؛ این صفحه خودکار به‌روز می‌شود.
+          </Banner>
+        )}
+        <div className="theme-actions">
+          <ActionButton
+            body={{
+              artifact: previewLive?.themeArtifact ?? undefined,
+              lane: 'production',
+              package: selectedKey,
+            }}
+            confirm={`نسخهٔ ${publishCommit ? shortSha(publishCommit) : 'آخرین'} روی ${siteDomain} منتشر می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی خواهد شد. ادامه می‌دهید؟`}
+            confirmHeading="انتشار روی دامنه"
+            disabled={
+              !selectedKey ||
+              Boolean(productionBlocked) ||
+              alreadyPublished ||
+              Boolean(productionRow && PENDING.has(productionRow.status))
+            }
+            label={publishCommit ? `انتشار نسخهٔ ${shortSha(publishCommit)} روی دامنه` : 'انتشار روی دامنه'}
+            onSuccess={load}
+            style="primary"
+            successMessage="انتشار روی دامنه در صف قرار گرفت."
+            url={base}
+          />
+          {productionRow && laneOf(productionRow) === 'production' && productionRow.status !== 'removed' && (
+            <ActionButton
+              body={{ lane: 'production' }}
+              confirm={`نسخهٔ فعلی روی دامنه (${shortSha(productionRow.commitSha)}) دوباره ساخته و جایگزین می‌شود — نسخهٔ جدیدی منتشر نمی‌شود. برای اعمال متغیرهای تغییرکردهٔ «تنظیمات پوسته»، دامنهٔ اصلی جدید یا بازیابی یک کانتینر خراب است. ادامه می‌دهید؟`}
+              confirmHeading="اجرای دوبارهٔ نسخهٔ فعلی"
+              label={productionRow.needsRedeploy ? 'استقرار مجدد روی دامنهٔ جدید' : 'اجرای دوبارهٔ نسخهٔ فعلی'}
+              onSuccess={load}
+              style={productionRow.needsRedeploy ? 'primary' : 'secondary'}
+              successMessage="اجرای دوباره در صف قرار گرفت."
+              url={`${base}/redeploy`}
+            />
+          )}
+        </div>
+      </Step>
 
       <DemoPackPanel siteId={siteId} siteType={siteType} />
 
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <h2 style={{ margin: 0 }}>پیش‌نمایش</h2>
-        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
-          روی زیردامنهٔ سرور استقرار — DNS مشتری دست‌نخورده می‌ماند.
-        </p>
-        {previewRow && (
-          <p>
-            وضعیت: {STATUS_LABELS[previewRow.status] ?? previewRow.status}
-            {previewRow.previewOpenUrl ? (
-              <>
-                {' — '}
-                <code dir="ltr">{previewRow.previewOpenUrl}</code>
-              </>
-            ) : null}
-          </p>
-        )}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <ActionButton
-            body={{ lane: 'preview', package: deployPackageKey }}
-            disabled={!deployPackageKey}
-            label={deployPackageKey ? `استقرار پیش‌نمایش (${deployPackageKey})` : 'استقرار پیش‌نمایش'}
-            onSuccess={load}
-            style="primary"
-            url={base}
-          />
-          {previewRow && (
-            <>
-              <ActionButton
-                label="استقرار مجدد پیش‌نمایش"
-                onSuccess={load}
-                url={`${base}/redeploy`}
-              />
-              {previewRow.previewOpenUrl && (
-                <Button buttonStyle="secondary" el="anchor" newTab url={previewRow.previewOpenUrl}>
-                  باز کردن پیش‌نمایش
-                </Button>
+      {/* ---------------------------------------------------------------- */}
+      {/* Rarely needed */}
+      {/* ---------------------------------------------------------------- */}
+      {(productionLive || previewLive || renderedBy === 'deployment') && (
+        <Collapsible header="توقف و بازگشت" initCollapsed>
+          <div className="theme-form__fields">
+            <p className="theme-console__muted">
+              توقف، کانتینر را حذف نمی‌کند و تاریخچه می‌ماند. «بازگشت به رندرکنندهٔ داخلی» همهٔ
+              استقرارهای این سایت را متوقف می‌کند و دامنه را به سایت‌ساز داخلی برمی‌گرداند.
+            </p>
+            <div className="theme-actions">
+              {previewLive && (
+                <ActionButton
+                  body={{ deployment: previewLive.id }}
+                  label="توقف پیش‌نمایش"
+                  onSuccess={load}
+                  style="secondary"
+                  url={`${base}/stop`}
+                />
               )}
-            </>
-          )}
-        </div>
-      </section>
-
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <h2 style={{ margin: 0 }}>انتشار روی دامنه</h2>
-        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
-          دامنهٔ اصلی: <code dir="ltr">{siteDomain}</code>
-          {domainVerified ? ' (تأیید شده)' : ' (تأیید نشده)'}
-        </p>
-        {domainVerified && !production && (
-          <div className="banner banner--type-default">
-            DNS تأیید شده است، اما پوسته هنوز روی دامنه منتشر نشده است.
-          </div>
-        )}
-        {productionBlocked && <div className="banner banner--type-error">{productionBlocked}</div>}
-        <ActionButton
-          body={{
-            artifact: previewRow?.themeArtifact ?? undefined,
-            lane: 'production',
-            package: deployPackageKey,
-          }}
-          confirm="پس از بررسی سلامت، پوسته روی دامنهٔ اصلی فعال می‌شود. ادامه می‌دهید؟"
-          disabled={!deployPackageKey || Boolean(productionBlocked)}
-          label="انتشار روی دامنه"
-          onSuccess={load}
-          style="primary"
-          url={base}
-        />
-        {production && (
-          <ActionButton
-            label="استقرار مجدد production"
-            onSuccess={load}
-            style="secondary"
-            url={`${base}/redeploy`}
-          />
-        )}
-      </section>
-
-      <details>
-        <summary>تشخیص زیرساخت (مدیر)</summary>
-        <div style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
-          {current?.id && (
-            <p>
-              استقرار جاری: <code dir="ltr">{current.id}</code>
-            </p>
-          )}
-          {production?.id && (
-            <p>
-              استقرار production: <code dir="ltr">{production.id}</code>
-            </p>
-          )}
-        </div>
-      </details>
-
-      <details>
-        <summary>تاریخچهٔ استقرارها</summary>
-        <section
-          style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}
-        >
-          {pending.length > 0 && (
-            <div className="banner banner--type-default">
-              {pending.length} استقرار در جریان است. این صفحه هر {POLL_MS / 1000} ثانیه به‌روز
-              می‌شود.
+              {productionLive && (
+                <ActionButton
+                  body={{ deployment: productionLive.id }}
+                  confirm="پوسته روی دامنه متوقف می‌شود و سایت به رندرکنندهٔ داخلی برمی‌گردد. ادامه می‌دهید؟"
+                  label="توقف روی دامنه"
+                  onSuccess={load}
+                  style="danger"
+                  url={`${base}/stop`}
+                />
+              )}
+              {renderedBy === 'deployment' && (
+                <ActionButton
+                  confirm="همهٔ استقرارهای این سایت متوقف می‌شوند و دامنه با رندرکنندهٔ داخلی سرویس داده می‌شود. ادامه می‌دهید؟"
+                  label="بازگشت به رندرکنندهٔ داخلی"
+                  onSuccess={load}
+                  style="danger"
+                  successMessage="سایت به رندرکنندهٔ داخلی بازگشت."
+                  url={`${base}/revert`}
+                />
+              )}
             </div>
+          </div>
+        </Collapsible>
+      )}
+
+      <Collapsible header={`تاریخچهٔ استقرارها (${formatNumber(deployments.length, 'fa')})`} initCollapsed>
+        <div className="theme-history">
+          {pending.length > 0 && (
+            <Banner type="info">
+              {formatNumber(pending.length, 'fa')} استقرار در جریان است؛ این صفحه هر{' '}
+              {formatNumber(POLL_MS / 1000, 'fa')} ثانیه به‌روز می‌شود.
+            </Banner>
           )}
 
           {deployments.length === 0 ? (
-            <p>هنوز هیچ استقراری برای این سایت انجام نشده است.</p>
+            <p className="theme-console__muted">هنوز هیچ استقراری برای این سایت انجام نشده است.</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {deployments.map((row) => (
-                <div
-                  key={row.id}
-                  style={{
-                    backgroundColor: 'var(--theme-elevation-50)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.5rem',
-                    padding: '1rem',
-                  }}
-                >
-                  <div
-                    className={`banner banner--type-${bannerFor(row.status)}`}
-                    style={{ margin: 0 }}
-                  >
-                    {STATUS_LABELS[row.status] ?? row.status} — {row.packageName ?? '—'} روی{' '}
-                    <code dir="ltr">{row.domain ?? '—'}</code> (
-                    {MODE_LABELS[row.domainMode] ?? row.domainMode})
-                  </div>
-
-                  {row.attention && (
-                    <div className="banner banner--type-error" style={{ margin: 0 }}>
-                      {row.attention}
-                    </div>
-                  )}
-
-                  <div style={{ color: 'var(--theme-elevation-600)', fontSize: '0.85rem' }}>
-                    کامیت <code dir="ltr">{shortSha(row.commitSha)}</code>
-                    {row.ref ? (
-                      <>
-                        {' '}
-                        از <code dir="ltr">{row.ref}</code>
-                      </>
-                    ) : null}
-                    {row.imageDigest ? (
-                      <>
-                        {' '}
-                        — digest: <code dir="ltr">{row.imageDigest.slice(0, 22)}…</code>
-                      </>
-                    ) : null}
-                    {' — ساخته‌شده: '}
-                    {formatWhen(row.createdAt)}
-                    {row.deployedAt ? ` — فعال‌شده: ${formatWhen(row.deployedAt)}` : ''}
-                  </div>
-
-                  {row.lastError && (
-                    <div className="banner banner--type-error" style={{ margin: 0 }}>
-                      {row.lastError}
-                    </div>
-                  )}
-
-                  {!rowIsRerunnable(row) && (
-                    <div className="banner banner--type-default" style={{ margin: 0 }}>
-                      این ردیف بدون آرتیفکت immutable ساخته شده و قابل اجرای مجدد نیست؛ از
-                      «استقرار پیش‌نمایش» یک استقرار تازه بسازید.
-                    </div>
-                  )}
-
-                  {row.logTail && (
-                    <details>
-                      <summary>گزارش ساخت</summary>
-                      <pre
-                        dir="ltr"
-                        style={{
-                          backgroundColor: 'var(--theme-elevation-100)',
-                          fontSize: '0.8rem',
-                          maxHeight: '18rem',
-                          overflow: 'auto',
-                          padding: '0.75rem',
-                          whiteSpace: 'pre-wrap',
-                        }}
-                      >
-                        {row.logTail}
-                      </pre>
-                    </details>
-                  )}
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                    {row.previewOpenUrl &&
-                      row.domainMode === 'preview' &&
-                      row.status === 'live' && (
-                        <Button buttonStyle="secondary" el="anchor" newTab url={row.previewOpenUrl}>
-                          باز کردن پیش‌نمایش
-                        </Button>
-                      )}
-
-                    {PENDING.has(row.status) && (
-                      <ActionButton
-                        body={{ deployment: row.id }}
-                        label="بررسی وضعیت"
-                        onSuccess={load}
-                        url={`${base}/poll`}
-                      />
-                    )}
-
-                    {row.status === 'verifying' && (
-                      <ActionButton
-                        body={{ deployment: row.id }}
-                        label="بررسی سلامت و فعال‌سازی"
-                        onSuccess={load}
-                        url={`${base}/verify`}
-                      />
-                    )}
-
-                    {/*
-                     * A rollback is offered from any row that recorded a commit and is
-                     * not the one already serving. It does not mutate the running
-                     * application — it creates a new deployment pinned to that commit,
-                     * so the history stays a history. A registry row that never
-                     * reached an artifact is not offered one: there is nothing
-                     * immutable to roll back to, and the button would only queue the
-                     * same refusal again.
-                     */}
-                    {row.commitSha && row.status !== 'live' && rowIsRerunnable(row) && (
-                      <ActionButton
-                        body={{ deployment: row.id }}
-                        confirm={`یک استقرار تازه با کامیت ${shortSha(row.commitSha)} ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی خواهد شد. ادامه می‌دهید؟`}
-                        label="بازگشت به این نسخه"
-                        onSuccess={load}
-                        url={`${base}/rollback`}
-                      />
-                    )}
-
-                    {row.status === 'live' && row.id !== live?.id && (
-                      <ActionButton
-                        body={{ deployment: row.id }}
-                        label="توقف"
-                        onSuccess={load}
-                        style="danger"
-                        url={`${base}/stop`}
-                      />
-                    )}
-                  </div>
+            deployments.map((row) => (
+              <div className="theme-history__row" key={row.id}>
+                <div className="theme-console__meta">
+                  <StatusPill status={row.status} />
+                  <strong>{MODE_LABELS[row.domainMode] ?? row.domainMode}</strong>
+                  <span>{row.packageName ?? '—'}</span>
+                  <code dir="ltr">{shortSha(row.commitSha)}</code>
                 </div>
-              ))}
-            </div>
+                <div className="theme-console__muted" style={{ fontSize: '0.85rem' }}>
+                  <code dir="ltr">{row.domain ?? '—'}</code>
+                  {' — ساخته‌شده: '}
+                  {formatWhen(row.createdAt)}
+                  {row.deployedAt ? ` — فعال‌شده: ${formatWhen(row.deployedAt)}` : ''}
+                </div>
+
+                {row.attention && <Banner type="error">{row.attention}</Banner>}
+                {row.lastError && <Banner type="error">{row.lastError}</Banner>}
+
+                {row.logTail && (
+                  <Collapsible header="گزارش ساخت" initCollapsed>
+                    <pre className="theme-log" dir="ltr">
+                      {row.logTail}
+                    </pre>
+                  </Collapsible>
+                )}
+
+                <div className="theme-actions">
+                  {PENDING.has(row.status) && (
+                    <ActionButton
+                      body={{ deployment: row.id }}
+                      label="بررسی وضعیت"
+                      onSuccess={load}
+                      url={`${base}/poll`}
+                    />
+                  )}
+
+                  {row.status === 'verifying' && (
+                    <ActionButton
+                      body={{ deployment: row.id }}
+                      label="بررسی سلامت و فعال‌سازی"
+                      onSuccess={load}
+                      url={`${base}/verify`}
+                    />
+                  )}
+
+                  {/*
+                   * A rollback creates a new deployment pinned to that row's commit, so the
+                   * history stays a history. A registry row that never reached an artifact
+                   * has nothing immutable to roll back to.
+                   */}
+                  {row.commitSha && row.status !== 'live' && rowIsRerunnable(row) && (
+                    <ActionButton
+                      body={{ deployment: row.id }}
+                      confirm={`یک استقرار تازه با نسخهٔ ${shortSha(row.commitSha)} ساخته می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی ${laneOf(row) === 'preview' ? 'پیش‌نمایش' : 'روی دامنه'} خواهد شد. ادامه می‌دهید؟`}
+                      confirmHeading="بازگشت به این نسخه"
+                      label="بازگشت به این نسخه"
+                      onSuccess={load}
+                      url={`${base}/rollback`}
+                    />
+                  )}
+                </div>
+              </div>
+            ))
           )}
 
-          <div>
-            <Button buttonStyle="secondary" onClick={() => void load()} type="button">
+          <div className="theme-actions">
+            <Button buttonStyle="secondary" onClick={() => void load()} size="small" type="button">
               به‌روزرسانی فهرست
             </Button>
           </div>
-        </section>
-      </details>
+        </div>
+      </Collapsible>
+
+      {(productionRow?.runtime || previewRow?.runtime) && (
+        <Collapsible header="جزئیات زیرساخت (Coolify)" initCollapsed>
+          <div className="theme-lanes">
+            {[productionRow, previewRow].map((row) =>
+              row?.runtime ? (
+                <dl className="theme-facts" dir="ltr" key={row.id}>
+                  <dt>Lane</dt>
+                  <dd>{laneOf(row)}</dd>
+                  <dt>Deployment</dt>
+                  <dd>
+                    <code>{row.id}</code>
+                  </dd>
+                  <dt>Server</dt>
+                  <dd>{row.targetName ?? '—'}</dd>
+                  <dt>Application</dt>
+                  <dd>
+                    <code>{row.runtime.appName ?? '—'}</code>
+                  </dd>
+                  <dt>App UUID</dt>
+                  <dd>
+                    <code>{row.runtime.appUuid ?? '—'}</code>
+                  </dd>
+                  <dt>Hostname</dt>
+                  <dd>
+                    <code>{row.runtime.applicationHostname ?? '—'}</code>
+                  </dd>
+                  <dt>Project</dt>
+                  <dd>
+                    <code>{row.runtime.coolifyProjectUuid ?? '—'}</code>
+                  </dd>
+                  <dt>Environment</dt>
+                  <dd>
+                    <code>{row.runtime.environmentName ?? '—'}</code>
+                  </dd>
+                  <dt>Binding</dt>
+                  <dd>
+                    <code>{row.themeBinding ?? '—'}</code> ({row.runtime.bindingState ?? '—'})
+                  </dd>
+                </dl>
+              ) : null,
+            )}
+          </div>
+        </Collapsible>
+      )}
     </div>
   )
 }

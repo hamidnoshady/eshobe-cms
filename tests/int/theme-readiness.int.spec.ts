@@ -79,9 +79,26 @@ describe('theme readiness', () => {
     const result = computeThemeReadiness(ready({ slotStates: { aboutPage: present(['fa']), homePage: present(['fa', 'en']) } }))
     const warning = result.checks.find((check) => check.id === 'slot-locale:aboutPage')
     expect(warning).toMatchObject({ blocks: null, status: 'warn' })
-    expect(warning?.message).toContain('en')
+    // Named in Persian, and says where the fix is — the page, not the theme settings.
+    expect(warning?.message).toContain('انگلیسی')
+    expect(warning?.message).toContain('زبان ویرایشگر')
+    expect(warning?.message).toContain('«زبان‌ها»')
     expect(result.readyForProduction).toBe(true)
     expect(result.nextStep?.id).toBe('slot-locale:aboutPage')
+  })
+
+  it('links a translation warning to the page editor, opened on the missing language', () => {
+    const result = computeThemeReadiness(
+      ready({
+        slotStates: {
+          aboutPage: present(['fa'], { editHref: '/admin/collections/pages/abc' }),
+          homePage: present(['fa', 'en']),
+        },
+      }),
+    )
+    expect(result.checks.find((check) => check.id === 'slot-locale:aboutPage')?.href).toBe(
+      '/admin/collections/pages/abc?locale=en',
+    )
   })
 
   it('gates production on a required page that is still a draft, and only warns for an optional one', () => {

@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react'
 
+import { Banner, Collapsible } from '@payloadcms/ui'
+
 import type { ReadinessCheck, ThemeReadiness } from '@/deploy/readiness'
 
 /**
@@ -12,19 +14,47 @@ import type { ReadinessCheck, ThemeReadiness } from '@/deploy/readiness'
  * `src/deploy/readiness.ts`. Advisory — nothing here disables a button, because the deploy
  * routes keep their own refusals.
  *
+ * Open items come first, each with a link to the screen where it is fixed (a page's own
+ * editor, opened on the missing language; the site's «تنظیمات پوسته»). What is already
+ * done folds away — a list of green ticks is reassurance, not something to read.
+ *
  * `refreshKey` changes when the console's deployments do (a deploy started, a build
  * finished), which is exactly when a check such as "no image yet" may have flipped.
  */
 
 const ICON: Record<ReadinessCheck['status'], string> = { blocked: '✕', ok: '✓', warn: '!' }
-const COLOR: Record<ReadinessCheck['status'], string> = {
-  blocked: 'var(--theme-error-500)',
-  ok: 'var(--theme-success-500)',
-  warn: 'var(--theme-warning-500)',
-}
 const OWNER: Record<ReadinessCheck['owner'], string> = {
   customer: 'مشتری',
   operator: 'اپراتور',
+}
+
+const CheckItem: React.FC<{ check: ReadinessCheck; settingsHref: string; siteHref: string }> = ({
+  check,
+  settingsHref,
+  siteHref,
+}) => {
+  const localeCheck = check.id.startsWith('slot-locale:')
+  const fallbackHref = check.owner === 'customer' && !check.href ? settingsHref : null
+  return (
+    <li>
+      <span aria-hidden className={`theme-checklist__icon theme-checklist__icon--${check.status}`}>
+        {ICON[check.status]}
+      </span>
+      <span>
+        {check.message}{' '}
+        <small className="theme-console__muted" style={{ display: 'inline' }}>
+          ({OWNER[check.owner]})
+        </small>
+        {check.status !== 'ok' && (check.href || fallbackHref || localeCheck) && (
+          <span className="theme-actions" style={{ display: 'inline-flex', marginInlineStart: '0.5rem' }}>
+            {check.href && <a href={check.href}>{localeCheck ? 'باز کردن برای ترجمه' : 'باز کردن'}</a>}
+            {fallbackHref && <a href={fallbackHref}>«تنظیمات پوسته»</a>}
+            {localeCheck && <a href={siteHref}>«زبان‌ها»ی سایت</a>}
+          </span>
+        )}
+      </span>
+    </li>
+  )
 }
 
 export const ReadinessChecklist: React.FC<{
@@ -63,44 +93,41 @@ export const ReadinessChecklist: React.FC<{
   // A dead readiness call must not hide the console; the panel has its own error banner.
   if (failed || !data) return null
 
-  const next = data.nextStep
+  const siteHref = `/admin/collections/sites/${siteId}`
+  const open = data.checks.filter((check) => check.status !== 'ok')
+  const done = data.checks.filter((check) => check.status === 'ok')
   const summary = data.readyForProduction
-    ? 'همه‌چیز برای انتشار روی دامنه آماده است.'
+    ? open.length
+      ? 'آمادهٔ انتشار روی دامنه است؛ چند نکته برای بازدیدکننده باقی مانده.'
+      : 'همه‌چیز برای انتشار روی دامنه آماده است.'
     : data.readyForPreview
       ? 'پیش‌نمایش آماده است؛ برای انتشار روی دامنه هنوز مواردی باز است.'
       : 'پیش از استقرار مواردی باید کامل شود.'
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <h2 style={{ margin: 0 }}>آمادگی پوسته</h2>
-      <div className={`banner banner--type-${data.readyForProduction ? 'success' : 'default'}`}>
-        {summary}
-        {next && next.status !== 'ok' && (
-          <>
-            {' '}
-            <strong>قدم بعدی ({OWNER[next.owner]}):</strong> {next.message}
-            {next.owner === 'customer' && (
-              <>
-                {' '}
-                <a href={settingsHref}>«تنظیمات پوسته»</a>
-              </>
-            )}
-          </>
-        )}
+    <section className="theme-card">
+      <div className="theme-card__head">
+        <h2 className="theme-card__title">آمادگی پوسته</h2>
       </div>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {data.checks.map((check) => (
-          <li key={check.id} style={{ display: 'flex', gap: '0.6rem', padding: '0.15rem 0' }}>
-            <span aria-hidden style={{ color: COLOR[check.status], fontWeight: 700, width: '1rem' }}>
-              {ICON[check.status]}
-            </span>
-            <span>
-              {check.message}{' '}
-              <small style={{ color: 'var(--theme-elevation-500)' }}>({OWNER[check.owner]})</small>
-            </span>
-          </li>
-        ))}
-      </ul>
+      <Banner type={data.readyForProduction ? 'success' : open.some((c) => c.status === 'blocked') ? 'error' : 'info'}>
+        {summary}
+      </Banner>
+      {open.length > 0 && (
+        <ul className="theme-checklist">
+          {open.map((check) => (
+            <CheckItem check={check} key={check.id} settingsHref={settingsHref} siteHref={siteHref} />
+          ))}
+        </ul>
+      )}
+      {done.length > 0 && (
+        <Collapsible header={`انجام‌شده (${done.length})`} initCollapsed>
+          <ul className="theme-checklist">
+            {done.map((check) => (
+              <CheckItem check={check} key={check.id} settingsHref={settingsHref} siteHref={siteHref} />
+            ))}
+          </ul>
+        </Collapsible>
+      )}
     </section>
   )
 }
