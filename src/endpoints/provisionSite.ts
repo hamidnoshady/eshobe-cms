@@ -60,7 +60,7 @@ export const provisionSiteEndpoint: Endpoint = {
             type: result.site.type,
             // Absolute, on the customer's own domain — the URL the operator will
             // check next, with the deployment's own protocol and port.
-            url: siteOrigin(result.site, req.origin),
+            url: siteOrigin(result.site),
           },
           summary: {
             forms: 1,

@@ -154,7 +154,7 @@ export const httpProvider: PaymentProvider = {
     // `siteOrigin` is the platform's one answer for "which origin is this site on":
     // dev puts every domain on one port, production on none, and hardcoding either
     // breaks the other.
-    const origin = siteOrigin(order.site, req.origin)
+    const origin = siteOrigin(order.site)
     const callbackUrl = `${origin}/api/checkout/callback?order=${encodeURIComponent(order.id)}`
 
     const result = await post(createUrl, token, {

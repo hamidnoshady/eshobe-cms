@@ -323,7 +323,7 @@ export const siteDescriptor: Endpoint = {
       // builds `new URL(media.url, media.origin)`. Media is served through the CMS
       // proxy (`/api/media/file/*`), not from the bucket URL, so the bucket stays
       // private.
-      media: { basePath: '/api/media/file', origin: siteOrigin(site, req.origin) },
+      media: { basePath: '/api/media/file', origin: siteOrigin(site) },
       branding: (() => {
         const primaryLogo = publicMedia(branding?.primaryLogo)
         const compactLogo = publicMedia(branding?.compactLogo)
