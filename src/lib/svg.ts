@@ -88,6 +88,8 @@ const ATTRIBUTES = new Set([
   'dy',
   'd',
   'points',
+  // Normalises dash lengths on a path (line-draw icons). Geometry only, no reference.
+  'pathlength',
   'transform',
   'offset',
   'fill',
