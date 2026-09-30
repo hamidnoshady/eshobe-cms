@@ -126,6 +126,11 @@ test.describe('Admin Panel', () => {
     await openAboutPage('acme.localhost')
 
     const field = page.locator('.jalali-date-field')
+    await expect(field.getByLabel('سال')).toBeVisible()
+    // A dev-server doc view refreshes its RSC payload once after the shell streams in
+    // (tenant/locale preferences), which resets the form to the saved document. An edit
+    // made before that refresh is discarded, so let the page settle first.
+    await page.waitForLoadState('networkidle')
     await field.getByLabel('سال').selectOption('1405')
     await field.getByLabel('ماه').selectOption('1')
     await field.getByLabel('روز').selectOption('1')
