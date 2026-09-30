@@ -19,6 +19,7 @@ import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '@/access/anyone'
 import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
+import { jalaliDates } from './jalaliDates'
 import { storage } from './storage'
 import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
@@ -350,4 +351,6 @@ export const plugins: Plugin[] = [
     tenantsSlug: 'sites',
     userHasAccessToAllTenants: isPlatformAdmin,
   }),
+  // Last: must see the fields every plugin above adds.
+  jalaliDates,
 ]
