@@ -40,6 +40,12 @@ describe('validateSvgUpload — what a logo is', () => {
     }
   })
 
+  it('accepts pathLength, which icon sets use for dash animation', () => {
+    expect(
+      validateSvgUpload(wrap('<path d="M0 0L10 10" pathLength="1" stroke-dasharray="1"/><circle r="4" pathLength="100"/>')).ok,
+    ).toBe(true)
+  })
+
   it('accepts a self-closing root and single-quoted attributes', () => {
     expect(validateSvgUpload("<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>").ok).toBe(true)
   })
