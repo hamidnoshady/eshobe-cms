@@ -160,7 +160,15 @@ export const Posts: CollectionConfig<'posts'> = {
           admin: { condition: (_data, _siblingData, { user }) => Boolean(user) },
           fields: [
             { name: 'location', type: 'text', label: 'مکان' },
-            { name: 'date', type: 'date', label: 'تاریخ/سال' },
+            {
+              name: 'date',
+              type: 'date',
+              label: 'تاریخ/سال',
+              admin: {
+                components: { Field: '@/fields/JalaliDateField#JalaliDateField' },
+                date: { pickerAppearance: 'dayOnly' },
+              },
+            },
             { name: 'area', type: 'text', label: 'مساحت' },
             { name: 'status', type: 'text', label: 'وضعیت' },
             { name: 'client', type: 'text', label: 'کارفرما' },
@@ -211,8 +219,8 @@ export const Posts: CollectionConfig<'posts'> = {
       label: 'تاریخ انتشار',
       admin: {
         components: {
-          // Payload's picker is Gregorian; this echoes the Shamsi equivalent under it.
-          Description: '@/fields/ShamsiDateHint#ShamsiDateHint',
+          // Shamsi picker when the admin runs in Persian, Payload's own in English.
+          Field: '@/fields/JalaliDateField#JalaliDateField',
         },
         date: {
           pickerAppearance: 'dayAndTime',
