@@ -19,6 +19,7 @@ WORKDIR /app
 # (see the builder stage).
 ENV COREPACK_HOME=/corepack
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
+COPY patches ./patches
 # Required for the root's workspace:* dependency, including in the migrator.
 COPY packages/site-runtime/package.json ./packages/site-runtime/package.json
 RUN \
@@ -44,6 +45,7 @@ ENV COREPACK_HOME=/corepack
 WORKDIR /app
 
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* pnpm-workspace.yaml* ./
+COPY patches ./patches
 # Required for the root's workspace:* dependency, including in the migrator.
 COPY packages/site-runtime/package.json ./packages/site-runtime/package.json
 # Reuse the pnpm binary the deps stage already downloaded: without this, every

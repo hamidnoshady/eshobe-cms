@@ -122,21 +122,24 @@ test.describe('Admin Panel', () => {
   })
 
   test('edits publish date in Shamsi in the Persian admin', async () => {
-    // The field is `JalaliDateField`: day / month / year selects, stored as a Gregorian ISO string.
+    // The field is `JalaliDateField`: a Jalali calendar popover, stored as a Gregorian ISO string.
     await openAboutPage('acme.localhost')
 
-    const field = page.locator('.jalali-date-field')
-    await expect(field.getByLabel('سال')).toBeVisible()
+    const field = page.locator('.jdp')
+    await expect(field.locator('.jdp__input')).toBeVisible()
     // A dev-server doc view refreshes its RSC payload once after the shell streams in
     // (tenant/locale preferences), which resets the form to the saved document. An edit
     // made before that refresh is discarded, so let the page settle first.
     await page.waitForLoadState('networkidle')
-    await field.getByLabel('سال').selectOption('1405')
-    await field.getByLabel('ماه').selectOption('1')
-    await field.getByLabel('روز').selectOption('1')
+    await field.locator('.jdp__input').click()
+    // days → months → years, then back down: year, month, day.
+    await field.locator('.jdp__title').click()
+    await field.locator('.jdp__title').click()
+    await field.locator('.jdp__cell', { hasText: '۱۴۰۵' }).click()
+    await field.locator('.jdp__cell', { hasText: 'فروردین' }).click()
+    await field.locator('.jdp__grid--days .jdp__cell', { hasText: /^۱$/ }).click()
 
-    await expect(field.getByLabel('ماه')).toHaveValue('1')
-    await expect(field.getByLabel('سال')).toHaveValue('1405')
+    await expect(field.locator('.jdp__input')).toContainText('۱ فروردین ۱۴۰۵')
   })
 
   test('shows an unsaved edit in the preview iframe, on the site’s own domain', async () => {
