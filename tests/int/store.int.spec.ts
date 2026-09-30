@@ -755,7 +755,8 @@ describe('store', () => {
       // is on the *customer's* host, since that is how the tenant is resolved back.
       expect(call.body.amount).toBe(960_000)
       expect(call.body.currency).toBe('IRT')
-      expect(call.body.callbackUrl).toContain('shop.localhost/api/checkout/callback?order=')
+      // The port is `NEXT_PUBLIC_SERVER_URL`'s (`:3000` in dev/CI, none in production).
+      expect(call.body.callbackUrl).toMatch(/\/\/shop\.localhost(:\d+)?\/api\/checkout\/callback\?order=/)
     })
 
     it('marks the order paid, settles stock once, and is idempotent', async () => {
