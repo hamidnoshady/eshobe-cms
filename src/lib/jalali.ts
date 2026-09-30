@@ -1,68 +1,55 @@
 /**
- * Jalali <-> Gregorian arithmetic for the admin date picker, on top of `Intl`'s
- * `persian` calendar — no date library (CLAUDE.md), and no hand-rolled leap rule
- * that could drift from what `formatDate()` prints.
+ * Jalali ⇄ Gregorian calendar-date arithmetic for the admin's date field. Display of a
+ * date stays on `formatDate()`; this exists only because a picker has to *write* a date,
+ * and `Intl` cannot parse one back.
  */
 
-const DAY = 864e5
-
-// ponytail: fixed +03:30 — Iran dropped DST in 2022, and `formatDate()` pins Asia/Tehran
-// too. Becomes a per-site zone if we ever host a customer elsewhere.
-const TEHRAN_OFFSET = 210 * 60e3
-
-// Not rendered: Latin digits are the point, these parts feed arithmetic, not the UI.
-// eslint-disable-next-line no-restricted-syntax
-const parts = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', {
-  day: 'numeric',
-  month: 'numeric',
-  timeZone: 'UTC',
-  year: 'numeric',
-})
-
-export type JDate = { d: number; m: number; y: number }
-
-/** Jalali y/m/d of a Gregorian instant, read in UTC. */
-export const jParts = (date: Date): JDate => {
-  const p = Object.fromEntries(parts.formatToParts(date).map((x) => [x.type, x.value]))
-  return { d: Number(p.day), m: Number(p.month), y: Number(p.year) }
+/** Gregorian → Jalali, via `Intl` (`calendar: 'persian'`) so it agrees with `formatDate`. */
+export function toJalali(date: Date, timeZone: string): [number, number, number] {
+  // Parsing, not display: Latin digits and a fixed calendar are the point, so `formatDate` cannot do this.
+  // eslint-disable-next-line no-restricted-syntax
+  const parts = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', {
+    day: 'numeric',
+    month: 'numeric',
+    timeZone,
+    year: 'numeric',
+  }).formatToParts(date)
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  return [get('year'), get('month'), get('day')]
 }
 
-const key = ({ d, m, y }: JDate) => y * 10000 + m * 100 + d
-
-/** The UTC-noon Date whose Jalali date is y/m/d. Intl is the source of truth; we only search. */
-export const jToDate = (y: number, m: number, d: number): Date => {
-  let t = Date.UTC(y + 621, 2, 21, 12) + ((m - 1) * 30.5 + d - 1) * DAY
-  const want = key({ d, m, y })
-  // Coarse jumps, then single days — converges in a handful of steps.
-  for (let i = 0; i < 60; i++) {
-    const p = jParts(new Date(t))
-    const got = key(p)
-    if (got === want) break
-    const days = (y - p.y) * 365 + (m - p.m) * 30 + (d - p.d)
-    t += (Math.abs(days) > 3 ? days : got < want ? 1 : -1) * DAY
+/** Jalali → Gregorian (`[year, month 1–12, day]`). Standard 33-year-cycle algorithm. */
+export function toGregorian(jy: number, jm: number, jd: number): [number, number, number] {
+  const y = jy + 1595
+  let days = -355668 + 365 * y + Math.floor(y / 33) * 8 + Math.floor(((y % 33) + 3) / 4) + jd
+  days += jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186
+  let gy = 400 * Math.floor(days / 146097)
+  days %= 146097
+  if (days > 36524) {
+    gy += 100 * Math.floor(--days / 36524)
+    days %= 36524
+    if (days >= 365) days++
   }
-  return new Date(t)
+  gy += 4 * Math.floor(days / 1461)
+  days %= 1461
+  if (days > 365) {
+    gy += Math.floor((days - 1) / 365)
+    days = (days - 1) % 365
+  }
+  let gd = days + 1
+  const leap = (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0
+  const months = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  let gm = 0
+  while (gm < 12 && gd > months[gm]!) gd -= months[gm++]!
+  return [gy, gm + 1, gd]
 }
 
-export const jMonthLength = (y: number, m: number): number => {
-  const next = m === 12 ? jToDate(y + 1, 1, 1) : jToDate(y, m + 1, 1)
-  return Math.round((+next - +jToDate(y, m, 1)) / DAY)
-}
-
-/** 0 = Saturday … 6 = Friday, the Persian week. */
-export const jWeekday = (y: number, m: number, d: number): number =>
-  (jToDate(y, m, d).getUTCDay() + 1) % 7
-
-/** A stored instant as Tehran wall-clock fields (h/min via UTC getters of the shifted date). */
-export const toWall = (iso: Date | string) => {
-  const w = new Date(new Date(iso).getTime() + TEHRAN_OFFSET)
-  return { ...jParts(w), h: w.getUTCHours(), min: w.getUTCMinutes() }
-}
-
-/** Tehran wall-clock Jalali fields back to the ISO string Payload stores. */
-export const fromWall = (y: number, m: number, d: number, h = 12, min = 0): string => {
-  const g = jToDate(y, m, d)
-  return new Date(
-    Date.UTC(g.getUTCFullYear(), g.getUTCMonth(), g.getUTCDate(), h, min) - TEHRAN_OFFSET,
-  ).toISOString()
+/** Days in a Jalali month: 31 for the first six, 30 for the next five, Esfand 29 or 30. */
+export function jalaliMonthLength(jy: number, jm: number): number {
+  if (jm < 7) return 31
+  if (jm < 12) return 30
+  // Esfand has 30 days exactly when the next Farvardin 1 falls 366 days after this one's.
+  const [a, b, c] = toGregorian(jy, 1, 1)
+  const [d, e, f] = toGregorian(jy + 1, 1, 1)
+  return Math.round((Date.UTC(d, e - 1, f) - Date.UTC(a, b - 1, c)) / 86_400_000) === 366 ? 30 : 29
 }

@@ -4,7 +4,10 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { getPayload } from 'payload'
 
 import config from '@/payload.config'
-import { sitePath, siteUrl } from '@/lib/site-url'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { siteOrigin, sitePath, siteUrl } from '@/lib/site-url'
 
 /**
  * The Wave 3 gate: preview and SEO URLs point at the customer's own domain, and a
@@ -56,6 +59,24 @@ describe('document URLs', () => {
     expect(siteUrl(acme, { locale: 'fa', origin: 'https://eshobe.com', slug: 'about' })).toBe(
       'https://acme.localhost/about',
     )
+  })
+
+  it('takes the port from the public URL, never the request’s internal listener', () => {
+    // `req.origin` behind the proxy is `:3000`, which put every theme media URL at
+    // `https://acme.com:3000/api/media/file/…`.
+    const prev = process.env.NEXT_PUBLIC_SERVER_URL
+    process.env.NEXT_PUBLIC_SERVER_URL = 'https://cms.eshobe.com'
+    try {
+      expect(siteOrigin(acme)).toBe('https://acme.localhost')
+    } finally {
+      process.env.NEXT_PUBLIC_SERVER_URL = prev
+    }
+    const src = ['endpoints', 'lib', 'payments'].flatMap((dir) =>
+      readdirSync(join('src', dir), { recursive: true, encoding: 'utf8' })
+        .filter((f) => /\.tsx?$/.test(f))
+        .map((f) => readFileSync(join('src', dir, f), 'utf8')),
+    )
+    expect(src.filter((s) => /siteOrigin\([^)]*req\.origin/.test(s))).toEqual([])
   })
 
   it('percent-encodes nothing it does not have to, and still round-trips Persian', () => {

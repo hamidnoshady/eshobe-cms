@@ -43,6 +43,10 @@ export const sitePath = (
  * `http://acme.localhost:3000` in dev, `https://acme.com` in production. Protocol
  * and port come from the deployment we are already serving — dev puts every domain
  * on one port, production on none, and hardcoding either breaks the other.
+ *
+ * Never pass `req.origin` here: behind the proxy it is the container's listener
+ * (`:3000`), so every media, payment-callback and preview URL came out as
+ * `https://acme.com:3000/…`. `NEXT_PUBLIC_SERVER_URL` is the public address.
  */
 export const siteOrigin = (site: UrlSite, origin?: string | null): string => {
   const { port, protocol } = new URL(origin || getServerSideURL())
@@ -107,7 +111,7 @@ export const siteUrlForDoc = async ({
   if (!site?.domain) return null
 
   return {
-    origin: siteOrigin(site, req.origin),
+    origin: siteOrigin(site),
     path: sitePath(site, locale ?? req.locale, doc.slug, base),
     site,
   }

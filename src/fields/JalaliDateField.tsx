@@ -6,14 +6,39 @@ import { DateTimeField, FieldDescription, FieldError, FieldLabel, useField, useT
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { formatDate, formatNumber } from '@/lib/format'
-import { fromWall, jMonthLength, jToDate, jWeekday, toWall } from '@/lib/jalali'
+import { jalaliMonthLength as jMonthLength, toGregorian, toJalali } from '@/lib/jalali'
 
 const WEEKDAYS = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج']
 const YEAR_PAGE = 12
 
 const num = (n: number) => formatNumber(n, 'fa', { useGrouping: false })
-const monthName = (m: number) =>
-  formatDate(jToDate(1405, m, 1), 'fa', { month: 'long', timeZone: 'UTC' })
+const MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
+const monthName = (m: number) => MONTHS[m - 1]
+
+// Same zone `formatDate()` renders in, so the picker and the published page agree on the day.
+// ponytail: fixed +03:30 (Iran has had no DST since 2022).
+const ZONE = 'Asia/Tehran'
+const OFFSET = 210 * 60e3
+
+/** A stored instant as Tehran wall-clock Jalali fields. */
+const toWall = (iso: Date | string) => {
+  const t = new Date(iso)
+  const [y, m, d] = toJalali(t, ZONE)
+  const w = new Date(+t + OFFSET)
+  return { d, h: w.getUTCHours(), m, min: w.getUTCMinutes(), y }
+}
+
+/** Tehran wall-clock Jalali fields back to the ISO string Payload stores. */
+const fromWall = (y: number, m: number, d: number, h = 12, min = 0): string => {
+  const [gy, gm, gd] = toGregorian(y, m, d)
+  return new Date(Date.UTC(gy, gm - 1, gd, h, min) - OFFSET).toISOString()
+}
+
+/** 0 = Saturday … 6 = Friday, the Persian week. */
+const jWeekday = (y: number, m: number, d: number): number => {
+  const [gy, gm, gd] = toGregorian(y, m, d)
+  return (new Date(Date.UTC(gy, gm - 1, gd)).getUTCDay() + 1) % 7
+}
 
 const Chevron: React.FC = () => (
   <svg aria-hidden height="14" viewBox="0 0 24 24" width="14">

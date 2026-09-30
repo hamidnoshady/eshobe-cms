@@ -121,32 +121,25 @@ test.describe('Admin Panel', () => {
     )
   })
 
-  test('shows a Gregorian date back to the editor in Shamsi', async () => {
-    /**
-     * The Wave 3 decision on the Jalali picker (PLAN §3.6): keep Payload's Gregorian
-     * picker, echo the value in the calendar the editor actually thinks in. A wrong
-     * year is the mistake this catches, and it costs no calendar code.
-     */
+  test('edits publish date in Shamsi in the Persian admin', async () => {
+    // The field is `JalaliDateField`: a Jalali calendar popover, stored as a Gregorian ISO string.
     await openAboutPage('acme.localhost')
 
-    /**
-     * `MM/dd/yyyy`, which is what Payload's `pickerAppearance: 'default'` hands
-     * react-datepicker as its `dateFormat`. An ISO string looks more obviously correct
-     * and is the bug: the picker parses typed text against that format only, so
-     * `2026-03-21` moved the calendar to March and committed nothing, leaving the field
-     * empty and the hint unrendered.
-     */
-    await page.locator('#field-publishedAt input').fill('03/21/2026')
+    const field = page.locator('.jdp')
+    await expect(field.locator('.jdp__input')).toBeVisible()
+    // A dev-server doc view refreshes its RSC payload once after the shell streams in
+    // (tenant/locale preferences), which resets the form to the saved document. An edit
+    // made before that refresh is discarded, so let the page settle first.
+    await page.waitForLoadState('networkidle')
+    await field.locator('.jdp__input').click()
+    // days → months → years, then back down: year, month, day.
+    await field.locator('.jdp__title').click()
+    await field.locator('.jdp__title').click()
+    await field.locator('.jdp__cell', { hasText: '۱۴۰۵' }).click()
+    await field.locator('.jdp__cell', { hasText: 'فروردین' }).click()
+    await field.locator('.jdp__grid--days .jdp__cell', { hasText: /^۱$/ }).click()
 
-    // The hint's own class, not a descendant of `#field-publishedAt`: Payload renders a
-    // field's Description as a *sibling* of that wrapper, and the wrapper holds the
-    // picker popup whose year list runs 1900–2100 — a bare year match there is vacuous.
-    const hint = page.locator('.shamsi-date-hint')
-
-    // 1 Farvardin 1405 — Nowruz. Digits are Persian-Indic because the hint goes
-    // through `formatDate`, like every other date on the platform.
-    await expect(hint).toContainText('۱۴۰۵')
-    await expect(hint).toContainText('فروردین')
+    await expect(field.locator('.jdp__input')).toContainText('۱ فروردین ۱۴۰۵')
   })
 
   test('shows an unsaved edit in the preview iframe, on the site’s own domain', async () => {

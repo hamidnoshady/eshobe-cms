@@ -490,7 +490,7 @@ export const checkoutCallbackUrl = ({
   order: CheckoutOrder
   req: PayloadRequest
 }): string => {
-  const origin = siteOrigin(order.site, req.origin)
+  const origin = siteOrigin(order.site)
   const state = signGatewayState({
     amount: order.total,
     gateway,

@@ -127,9 +127,10 @@ export const Pages: CollectionConfig<'pages'> = {
       label: 'تاریخ انتشار',
       admin: {
         components: {
-          // Payload's picker is Gregorian; this echoes the Shamsi equivalent under it.
-          Description: '@/fields/ShamsiDateHint#ShamsiDateHint',
+          // Shamsi picker when the admin runs in Persian, Payload's own in English.
+          Field: '@/fields/JalaliDateField#JalaliDateField',
         },
+        date: { pickerAppearance: 'dayAndTime' },
         position: 'sidebar',
       },
     },
