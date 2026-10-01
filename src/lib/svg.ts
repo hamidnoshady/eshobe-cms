@@ -275,8 +275,27 @@ export const validateSvgUpload = (input: Buffer | string): SvgResult => {
  * content**. The last matters most — the first two are the uploader's word, and an SVG
  * wearing a `.png` name must not skip the allowlist because it was labelled honestly
  * nowhere.
+ *
+ * The content scan is skipped for a file that opens with a raster signature. A browser
+ * never renders those bytes as SVG, and they routinely carry `<svg` in metadata: C2PA
+ * Content Credentials (every AI-generated render) embed the generator's icon as SVG in
+ * a `caBX` chunk a few hundred bytes in, which sent real 2 MB PNGs to the SVG size cap.
  */
 export const looksLikeSvg = (file: { data?: Buffer; mimetype?: string; name?: string }): boolean =>
   file.mimetype === 'image/svg+xml' ||
   /\.svg$/i.test(file.name ?? '') ||
-  (file.data ? /<svg[\s>]/i.test(file.data.subarray(0, 4096).toString('latin1')) : false)
+  (file.data && !hasRasterSignature(file.data)
+    ? /<svg[\s>]/i.test(file.data.subarray(0, 4096).toString('latin1'))
+    : false)
+
+/** PNG, JPEG, GIF, WebP, AVIF — the raster types `Media.mimeTypes` admits. */
+const hasRasterSignature = (data: Buffer): boolean => {
+  const head = data.subarray(0, 12).toString('latin1')
+  return (
+    head.startsWith('\x89PNG\r\n\x1a\n') ||
+    head.startsWith('\xff\xd8\xff') ||
+    head.startsWith('GIF8') ||
+    (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') ||
+    /^ftypavi[fs]$/.test(head.slice(4, 12))
+  )
+}
