@@ -450,4 +450,65 @@ describe('multi-tenancy', () => {
       })
     })
   })
+
+  /**
+   * Media folders. Unregistered with the plugin, a folder had no `site`, so every
+   * customer shared one tree — and a subfolder saved fine and then never showed: the
+   * admin lists a folder's contents through the polymorphic `documentsAndFolders` join,
+   * which carries Media's `site` read constraint into the folder rows.
+   */
+  describe('media folders', () => {
+    const created: string[] = []
+
+    afterEach(async () => {
+      // Children first: the parent's beforeDelete would otherwise cascade into them.
+      for (const id of created.splice(0).reverse()) {
+        await payload.delete({ id, collection: 'payload-folders' })
+      }
+    })
+
+    const folder = async (name: string, parent?: string) => {
+      const doc = await payload.create({
+        collection: 'payload-folders',
+        data: { name, folder: parent, folderType: ['media'], site: acme.id },
+        overrideAccess: false,
+        user: acmeOwner,
+      })
+      created.push(String(doc.id))
+      return doc
+    }
+
+    it('lists a subfolder inside its parent for the site that owns it', async () => {
+      const parent = await folder('والد')
+      const child = await folder('فرزند', String(parent.id))
+
+      const read = await payload.findByID({
+        id: parent.id,
+        collection: 'payload-folders',
+        depth: 0,
+        overrideAccess: false,
+        user: acmeOwner,
+      })
+
+      expect(idOf(child.site)).toBe(String(acme.id))
+      expect(read.documentsAndFolders?.docs?.map((doc) => idOf(doc.value))).toEqual([
+        String(child.id),
+      ])
+    })
+
+    it('hides one site’s folders from another site', async () => {
+      const parent = await folder('خصوصی')
+      const studioOwner = await owner('studio-naghsh@eshobe.test')
+      expect(studioOwner.role).toBe('user')
+
+      const { docs } = await payload.find({
+        collection: 'payload-folders',
+        overrideAccess: false,
+        pagination: false,
+        user: studioOwner,
+      })
+
+      expect(docs.map((doc) => String(doc.id))).not.toContain(String(parent.id))
+    })
+  })
 })

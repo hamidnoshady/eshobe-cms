@@ -440,7 +440,8 @@ describe('store', () => {
       const unscoped = (payload.config.collections as unknown as (Shape & { config?: Shape })[])
         .map((entry) => entry.config ?? entry)
         .filter((collection) => !platformWide.has(collection.slug))
-        .filter((collection) => !collection.slug.startsWith('payload-'))
+        // No blanket `payload-` skip: Payload's own tables are named above, and a prefix
+        // filter is what let `payload-folders` — customer content — go unscoped.
         .filter(
           (collection) =>
             !(collection.fields ?? []).some((field: { name?: string }) => field?.name === 'site'),

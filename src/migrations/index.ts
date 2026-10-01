@@ -22,6 +22,7 @@ import * as migration_20260927_170000_theme_bindings_schema_repair from './20260
 import * as migration_20260927_210000_theme_artifact_architecture from './20260927_210000_theme_artifact_architecture'
 import * as migration_20260928_000000_theme_design_defaults from './20260928_000000_theme_design_defaults'
 import * as migration_20260928_120000_branding_home_logo from './20260928_120000_branding_home_logo'
+import * as migration_20261001_120000_folders_site from './20261001_120000_folders_site'
 
 export const migrations = [
   {
@@ -143,5 +144,10 @@ export const migrations = [
     up: migration_20260928_120000_branding_home_logo.up,
     down: migration_20260928_120000_branding_home_logo.down,
     name: '20260928_120000_branding_home_logo',
+  },
+  {
+    up: migration_20261001_120000_folders_site.up,
+    down: migration_20261001_120000_folders_site.down,
+    name: '20261001_120000_folders_site',
   },
 ]

@@ -112,4 +112,20 @@ describe('looksLikeSvg', () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
     expect(looksLikeSvg({ data: png, mimetype: 'image/png', name: 'a.png' })).toBe(false)
   })
+
+  it('leaves a raster alone when its metadata embeds an SVG (C2PA content credentials)', () => {
+    const icon = Buffer.from('caBX…image/svg+xml<svg width="716" height="716">', 'latin1')
+    const signatures = [
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.from('GIF89a', 'latin1'),
+      Buffer.from('RIFF\0\0\0\0WEBP', 'latin1'),
+      Buffer.from('\0\0\0\x1cftypavif', 'latin1'),
+    ]
+    for (const sig of signatures) {
+      expect(looksLikeSvg({ data: Buffer.concat([sig, icon]), mimetype: 'image/png' })).toBe(false)
+    }
+    // Only a genuine signature counts: an SVG that merely mentions PNG is still an SVG.
+    expect(looksLikeSvg({ data: Buffer.concat([Buffer.from('PNG '), svg]) })).toBe(true)
+  })
 })

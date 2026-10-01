@@ -220,6 +220,12 @@ export const plugins: Plugin[] = [
       forms: {},
       'form-submissions': {},
       media: {},
+      // Media folders (`folders: true` on Media). Unregistered, every customer saw every
+      // other customer's folder tree — and a folder's contents never rendered for a
+      // tenant user: the admin lists them through a polymorphic join (`documentsAndFolders`)
+      // that inherits Media's `site` read constraint, which a folder row with no `site`
+      // can never satisfy, so every subfolder was saved and then invisible.
+      'payload-folders': {},
       // Wave 7. A product and an order are as much a site's rows as a page is; an
       // unregistered collection is *shared* between every customer, silently.
       orders: {},
