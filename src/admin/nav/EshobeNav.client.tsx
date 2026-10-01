@@ -96,6 +96,7 @@ const NavHamburgerButton: React.FC = () => {
   const { navOpen, setNavOpen } = useNav()
   return (
     <button
+      aria-label="بستن منو"
       className={`${baseClass}__mobile-close`}
       onClick={() => setNavOpen(false)}
       tabIndex={!navOpen ? -1 : undefined}
