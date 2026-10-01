@@ -699,6 +699,7 @@ export interface Media {
  */
 export interface FolderInterface {
   id: string;
+  site?: (string | null) | Site;
   name: string;
   folder?: (string | null) | FolderInterface;
   documentsAndFolders?: {
@@ -5297,6 +5298,7 @@ export interface PayloadJobsSelect<T extends boolean = true> {
  * via the `definition` "payload-folders_select".
  */
 export interface PayloadFoldersSelect<T extends boolean = true> {
+  site?: T;
   name?: T;
   folder?: T;
   documentsAndFolders?: T;
