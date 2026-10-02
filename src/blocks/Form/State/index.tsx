@@ -16,6 +16,17 @@ import { Error } from '../Error'
 import { Width } from '../Width'
 import { stateOptions } from './options'
 
+// ⚡ Bolt Optimization:
+// Pre-compute the ~50 static `<SelectItem>` elements outside the component to eliminate
+// unnecessary reallocation and reconciliation work on every render cycle of this field.
+const stateSelectItems = stateOptions.map(({ label, value }) => {
+  return (
+    <SelectItem key={value} value={value}>
+      {label}
+    </SelectItem>
+  )
+})
+
 export const State: React.FC<
   StateField & {
     control: Control
@@ -45,13 +56,7 @@ export const State: React.FC<
                 <SelectValue placeholder={label} />
               </SelectTrigger>
               <SelectContent>
-                {stateOptions.map(({ label, value }) => {
-                  return (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  )
-                })}
+                {stateSelectItems}
               </SelectContent>
             </Select>
           )

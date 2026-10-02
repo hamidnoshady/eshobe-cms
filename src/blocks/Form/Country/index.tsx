@@ -16,6 +16,17 @@ import { Error } from '../Error'
 import { Width } from '../Width'
 import { countryOptions } from './options'
 
+// ⚡ Bolt Optimization:
+// Move static `countryOptions.map` to module scope. This prevents allocating ~250 React elements
+// (and the array holding them) on every single render of the Country form field.
+const countrySelectItems = countryOptions.map(({ label, value }) => {
+  return (
+    <SelectItem key={value} value={value}>
+      {label}
+    </SelectItem>
+  )
+})
+
 export const Country: React.FC<
   CountryField & {
     control: Control
@@ -46,13 +57,7 @@ export const Country: React.FC<
                 <SelectValue placeholder={label} />
               </SelectTrigger>
               <SelectContent>
-                {countryOptions.map(({ label, value }) => {
-                  return (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  )
-                })}
+                {countrySelectItems}
               </SelectContent>
             </Select>
           )
