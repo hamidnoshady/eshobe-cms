@@ -3,13 +3,15 @@
 // Same reason as `platform-control.int.spec.ts`: `createLocalReq({ user })` builds a
 // real session, and `provisioning.int.spec.ts` documents the jsdom/jose
 // incompatibility this whole family of specs shares.
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { createServer, type Server } from 'node:http'
 import { createLocalReq, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import {
   webhookReplayEndpoint,
   webhookRotateSecretEndpoint,
@@ -55,7 +57,7 @@ let received: Received[] = []
 /** What the fixture receiver answers next. Set per test. */
 let respondWith = { status: 200 }
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({
     collection: 'users',
     depth: 0,
@@ -70,7 +72,7 @@ const reqAsAdmin = async (extra?: Partial<PayloadRequest>): Promise<PayloadReque
   const admin = await userByEmail('admin@eshobe.test')
   expect(admin.role).toBe('platformAdmin')
   return createLocalReq(
-    { ...(extra ? { req: extra } : {}), user: { ...admin, collection: 'users' } },
+    { ...(extra ? { req: extra } : {}), user: cmsTypedUser(admin) },
     payload,
   )
 }

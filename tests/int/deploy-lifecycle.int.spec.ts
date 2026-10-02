@@ -6,12 +6,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { themeArtifactRegistrationEndpoint } from '@/endpoints/themeArtifacts'
 import {
@@ -155,7 +157,7 @@ const rawManifest = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({
     collection: 'users',
     depth: 0,
@@ -170,7 +172,7 @@ const reqAsAdmin = async (extra?: Partial<PayloadRequest>): Promise<PayloadReque
   const admin = await userByEmail('admin@eshobe.test')
   expect(admin.role).toBe('platformAdmin')
   return createLocalReq(
-    { ...(extra ? { req: extra } : {}), user: { ...admin, collection: 'users' } },
+    { ...(extra ? { req: extra } : {}), user: cmsTypedUser(admin) },
     payload,
   )
 }

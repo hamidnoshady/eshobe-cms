@@ -3,12 +3,14 @@
 // jose's JWT bits aren't in play here, but `createLocalReq({ user })` builds a
 // real session the same way `provisioning.int.spec.ts` does, and that spec
 // documents the jsdom/jose incompatibility for the whole suite to share.
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import { issueApiKeyEndpoint, listApiKeysEndpoint, revokeApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { updateSiteDomain } from '@/endpoints/updateSiteDomain'
 import { idOf } from '@/lib/ids'
@@ -22,7 +24,7 @@ let payload: Payload
 
 const siteId = { acme: '', studio: '' }
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({ collection: 'users', depth: 0, limit: 1, where: { email: { equals: email } } })
   if (!docs[0]) throw new Error(`User ${email} missing — run \`pnpm seed\``)
   return docs[0]
@@ -31,7 +33,7 @@ const userByEmail = async (email: string): Promise<TypedUser> => {
 const reqAsAdmin = async (): Promise<PayloadRequest> => {
   const admin = await userByEmail('admin@eshobe.test')
   expect(admin.role).toBe('platformAdmin')
-  return createLocalReq({ user: { ...admin, collection: 'users' } }, payload)
+  return createLocalReq({ user: cmsTypedUser(admin) }, payload)
 }
 
 /**
@@ -107,7 +109,7 @@ describe('issuing a key', () => {
     const req = await createLocalReq(
       {
         req: { json: async () => ({ name: 'x', role: 'site', siteId: siteId.acme }) } as Partial<PayloadRequest>,
-        user: { ...acmeOwner, collection: 'users' },
+        user: cmsTypedUser(acmeOwner),
       },
       payload,
     )

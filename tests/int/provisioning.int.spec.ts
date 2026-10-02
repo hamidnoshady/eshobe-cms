@@ -4,13 +4,15 @@
 // jsdom: vitest's jsdom sandbox splits realms, and jose's JWT signing (used by
 // local `login`/`resetPassword`) rejects the `Uint8Array` the other realm's
 // `TextEncoder` returns. Under `node` the invite runs end to end.
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getPayload, createLocalReq } from 'payload'
 import { ValidationError } from 'payload'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import { provisionSite, type ProvisionSiteInput } from '@/provisioning/provisionSite'
 import { starterNav, starterPages } from '@/provisioning/starter-content'
 import { findForSite, findGlobalForSite, getSiteByHost } from '@/lib/site-query'
@@ -36,7 +38,7 @@ let payload: Payload
 const idOf = (value: unknown): string =>
   typeof value === 'object' && value !== null ? String((value as { id: string }).id) : String(value)
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({
     collection: 'users',
     depth: 0,
@@ -53,8 +55,8 @@ const userByEmail = async (email: string): Promise<TypedUser> => {
 }
 
 /** A local req carrying the given user — the Local API's version of a session. */
-const reqAs = async (user: TypedUser): Promise<PayloadRequest> =>
-  createLocalReq({ user: { ...user, collection: 'users' } }, payload)
+const reqAs = async (user: User): Promise<PayloadRequest> =>
+  createLocalReq({ user: cmsTypedUser(user) }, payload)
 
 /** Deletes whatever the specs created: the site, its content, and its users. */
 const teardown = async () => {

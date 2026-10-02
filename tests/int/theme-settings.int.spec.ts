@@ -2,12 +2,14 @@
 //
 // Real sessions via `createLocalReq({ user })` — see `deployments.int.spec.ts` for why
 // this family of specs runs in the node environment.
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { themeSettingsGetEndpoint, themeSettingsSaveEndpoint } from '@/endpoints/themeSettings'
 import { buildEnvironment, storedTenantValues } from '@/deploy/environment'
@@ -52,7 +54,7 @@ const manifest = (): ThemeManifest => {
   return parsed.manifest
 }
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({ collection: 'users', depth: 0, limit: 1, where: { email: { equals: email } } })
   if (!docs[0]) throw new Error(`User ${email} missing — run \`pnpm seed\``)
   return docs[0]
@@ -62,7 +64,7 @@ const userByEmail = async (email: string): Promise<TypedUser> => {
 const reqAs = async (email: string, extra: Partial<PayloadRequest> = {}): Promise<PayloadRequest> => {
   const user = await userByEmail(email)
   if (email !== 'admin@eshobe.test') expect(user.role).not.toBe('platformAdmin')
-  return createLocalReq({ req: extra, user: { ...user, collection: 'users' } }, payload)
+  return createLocalReq({ req: extra, user: cmsTypedUser(user) }, payload)
 }
 
 const get = (site: string): Partial<PayloadRequest> =>

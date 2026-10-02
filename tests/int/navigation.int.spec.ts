@@ -72,7 +72,10 @@ const PLATFORM_TARGET = [
     ],
     label: 'زیرساخت',
   },
-  { entities: ['api-keys', 'webhooks', 'billing-service-credentials'], label: 'یکپارچه‌سازی' },
+  {
+    entities: ['api-keys', 'payload-mcp-api-keys', 'webhooks', 'billing-service-credentials'],
+    label: 'یکپارچه‌سازی',
+  },
   {
     entities: [
       'site-deployments',
