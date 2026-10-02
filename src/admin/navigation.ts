@@ -200,6 +200,7 @@ export const PLATFORM_NAV: NavGroupDef[] = [
     label: 'یکپارچه‌سازی',
     entities: [
       collection('api-keys'),
+      collection('payload-mcp-api-keys', 'کلیدهای MCP'),
       collection('webhooks'),
       collection('billing-service-credentials', 'اعتبارنامهٔ صورت‌حساب'),
     ],

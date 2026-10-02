@@ -20,6 +20,7 @@ import { anyone } from '@/access/anyone'
 import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
 import { jalaliDates } from './jalaliDates'
+import { mcp } from './mcp'
 import { storage } from './storage'
 import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
@@ -357,6 +358,9 @@ export const plugins: Plugin[] = [
     tenantsSlug: 'sites',
     userHasAccessToAllTenants: isPlatformAdmin,
   }),
+  // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
+  // tenant-scoped collection already exists in config.
+  mcp,
   // Last: must see the fields every plugin above adds.
   jalaliDates,
 ]

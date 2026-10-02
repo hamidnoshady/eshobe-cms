@@ -3,12 +3,14 @@
 // Same reason as `platform-saas.int.spec.ts`: `createLocalReq({ user })` builds a real
 // session, and `provisioning.int.spec.ts` documents the jsdom/jose incompatibility
 // this whole family of specs shares.
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { deployTargetSelfTest } from '@/endpoints/deployTargets'
 import {
@@ -70,7 +72,7 @@ const manifest = (overrides: Record<string, unknown> = {}): ThemeManifest => {
   return parsed.manifest
 }
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({
     collection: 'users',
     depth: 0,
@@ -87,7 +89,7 @@ const reqAsAdmin = async (extra?: Partial<PayloadRequest>): Promise<PayloadReque
   // every refusal assertion below pass vacuously.
   expect(admin.role).toBe('platformAdmin')
   return createLocalReq(
-    { ...(extra ? { req: extra } : {}), user: { ...admin, collection: 'users' } },
+    { ...(extra ? { req: extra } : {}), user: cmsTypedUser(admin) },
     payload,
   )
 }

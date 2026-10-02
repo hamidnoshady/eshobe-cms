@@ -3,12 +3,14 @@
 // Same reason as `api-keys.int.spec.ts`: `createLocalReq({ user })` builds a real
 // session, and `provisioning.int.spec.ts` documents the jsdom/jose incompatibility
 // this whole family of specs shares.
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import { cmsTypedUser } from './cmsUser'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
 import {
   platformEventsEndpoint,
@@ -55,7 +57,7 @@ const siteId = { acme: '', shop: '' }
 let platformKey = ''
 let siteKey = ''
 
-const userByEmail = async (email: string): Promise<TypedUser> => {
+const userByEmail = async (email: string): Promise<User> => {
   const { docs } = await payload.find({ collection: 'users', depth: 0, limit: 1, where: { email: { equals: email } } })
   if (!docs[0]) throw new Error(`User ${email} missing — run \`pnpm seed\``)
   return docs[0]
@@ -66,7 +68,7 @@ const reqAsAdmin = async (extra?: Partial<PayloadRequest>): Promise<PayloadReque
   // The fixture being an accidental platform admin is the one thing that would make
   // every assertion below pass vacuously.
   expect(admin.role).toBe('platformAdmin')
-  return createLocalReq({ ...(extra ? { req: extra } : {}), user: { ...admin, collection: 'users' } }, payload)
+  return createLocalReq({ ...(extra ? { req: extra } : {}), user: cmsTypedUser(admin) }, payload)
 }
 
 const reqWithKey = (key: string, extra?: Partial<PayloadRequest>): Promise<PayloadRequest> =>
@@ -88,7 +90,7 @@ const bodyOf = async (res: Response): Promise<Record<string, unknown>> =>
 const issueKey = async (body: Record<string, unknown>): Promise<string> => {
   const admin = await userByEmail('admin@eshobe.test')
   const req = await createLocalReq(
-    { req: { json: async () => body } as Partial<PayloadRequest>, user: { ...admin, collection: 'users' } },
+    { req: { json: async () => body } as Partial<PayloadRequest>, user: cmsTypedUser(admin) },
     payload,
   )
   const res = await issueApiKeyEndpoint.handler!(req)

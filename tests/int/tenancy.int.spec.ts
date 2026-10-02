@@ -1,10 +1,13 @@
-import type { Payload, PayloadRequest, TypedUser } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { getPayload } from 'payload'
 import { ValidationError } from 'payload'
 
+import type { User } from '@/payload-types'
 import config from '@/payload.config'
+import type { CmsTypedUser } from './cmsUser'
+import { cmsTypedUser } from './cmsUser'
 import { findForSite, findGlobalForSite, getSiteByHost } from '@/lib/site-query'
 
 /**
@@ -36,7 +39,7 @@ const site = async (domain: string) => {
  * `createLocalReq` backfills that from `admin.user`, so a bare document works — but
  * spelling it out keeps the fixture shaped like a real authenticated request.
  */
-const owner = async (email: string): Promise<TypedUser> => {
+const owner = async (email: string): Promise<CmsTypedUser> => {
   const { docs } = await payload.find({
     collection: 'users',
     limit: 1,
@@ -45,14 +48,14 @@ const owner = async (email: string): Promise<TypedUser> => {
 
   if (!docs[0]) throw new Error(`User ${email} missing — run \`pnpm seed\``)
 
-  return { ...docs[0], collection: 'users' }
+  return cmsTypedUser(docs[0] as User)
 }
 
 describe('multi-tenancy', () => {
   let acme: Awaited<ReturnType<typeof site>>
   let studio: Awaited<ReturnType<typeof site>>
-  let acmeOwner: TypedUser
-  let acmeEditor: TypedUser
+  let acmeOwner: CmsTypedUser
+  let acmeEditor: CmsTypedUser
   let studioPageId: string
 
   beforeAll(async () => {
@@ -309,7 +312,7 @@ describe('multi-tenancy', () => {
       })
     })
 
-    const publishAs = (user: TypedUser) =>
+    const publishAs = (user: CmsTypedUser) =>
       payload.update({
         id: draftId,
         collection: 'pages',

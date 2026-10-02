@@ -33,6 +33,7 @@
     "@payloadcms/next": "3.88.0",
     "@payloadcms/plugin-cloud-storage": "3.88.0",
     "@payloadcms/plugin-form-builder": "3.88.0",
+    "@payloadcms/plugin-mcp": "3.88.0",
     "@payloadcms/plugin-multi-tenant": "3.88.0",
     "@payloadcms/plugin-nested-docs": "3.88.0",
     "@payloadcms/plugin-redirects": "3.88.0",
