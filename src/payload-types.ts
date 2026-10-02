@@ -64,6 +64,7 @@ export type SupportedTimezones =
 export interface Config {
   auth: {
     users: UserAuthOperations;
+    'payload-mcp-api-keys': PayloadMcpApiKeyAuthOperations;
   };
   blocks: {};
   collections: {
@@ -115,6 +116,7 @@ export interface Config {
     forms: Form;
     'form-submissions': FormSubmission;
     search: Search;
+    'payload-mcp-api-keys': PayloadMcpApiKey;
     'payload-kv': PayloadKv;
     'payload-jobs': PayloadJob;
     'payload-folders': FolderInterface;
@@ -176,6 +178,7 @@ export interface Config {
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
     search: SearchSelect<false> | SearchSelect<true>;
+    'payload-mcp-api-keys': PayloadMcpApiKeysSelect<false> | PayloadMcpApiKeysSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-jobs': PayloadJobsSelect<false> | PayloadJobsSelect<true>;
     'payload-folders': PayloadFoldersSelect<false> | PayloadFoldersSelect<true>;
@@ -203,7 +206,7 @@ export interface Config {
   widgets: {
     collections: CollectionsWidget;
   };
-  user: User;
+  user: User | PayloadMcpApiKey;
   jobs: {
     tasks: {
       advanceDeployments: TaskAdvanceDeployments;
@@ -219,6 +222,24 @@ export interface Config {
   };
 }
 export interface UserAuthOperations {
+  forgotPassword: {
+    email: string;
+    password: string;
+  };
+  login: {
+    email: string;
+    password: string;
+  };
+  registerFirstUser: {
+    email: string;
+    password: string;
+  };
+  unlock: {
+    email: string;
+    password: string;
+  };
+}
+export interface PayloadMcpApiKeyAuthOperations {
   forgotPassword: {
     email: string;
     password: string;
@@ -3213,6 +3234,945 @@ export interface Search {
   createdAt: string;
 }
 /**
+ * API keys control which collections, resources, tools, and prompts MCP clients can access
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-mcp-api-keys".
+ */
+export interface PayloadMcpApiKey {
+  id: string;
+  /**
+   * The user that the API key is associated with.
+   */
+  user: string | User;
+  /**
+   * A useful label for the API key.
+   */
+  label?: string | null;
+  /**
+   * The purpose of the API key.
+   */
+  description?: string | null;
+  pages?: {
+    /**
+     * Allow clients to find pages.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create pages.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update pages.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete pages.
+     */
+    delete?: boolean | null;
+  };
+  posts?: {
+    /**
+     * Allow clients to find posts.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create posts.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update posts.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete posts.
+     */
+    delete?: boolean | null;
+  };
+  media?: {
+    /**
+     * Allow clients to find media.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create media.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update media.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete media.
+     */
+    delete?: boolean | null;
+  };
+  categories?: {
+    /**
+     * Allow clients to find categories.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create categories.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update categories.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete categories.
+     */
+    delete?: boolean | null;
+  };
+  users?: {
+    /**
+     * Allow clients to find users.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create users.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update users.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete users.
+     */
+    delete?: boolean | null;
+  };
+  sites?: {
+    /**
+     * Allow clients to find sites.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create sites.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update sites.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete sites.
+     */
+    delete?: boolean | null;
+  };
+  apiKeys?: {
+    /**
+     * Allow clients to find api-keys.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create api-keys.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update api-keys.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete api-keys.
+     */
+    delete?: boolean | null;
+  };
+  storageConnections?: {
+    /**
+     * Allow clients to find storage-connections.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create storage-connections.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update storage-connections.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete storage-connections.
+     */
+    delete?: boolean | null;
+  };
+  theme?: {
+    /**
+     * Allow clients to find theme.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create theme.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update theme.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete theme.
+     */
+    delete?: boolean | null;
+  };
+  siteBranding?: {
+    /**
+     * Allow clients to find site-branding.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create site-branding.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update site-branding.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete site-branding.
+     */
+    delete?: boolean | null;
+  };
+  header?: {
+    /**
+     * Allow clients to find header.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create header.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update header.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete header.
+     */
+    delete?: boolean | null;
+  };
+  footer?: {
+    /**
+     * Allow clients to find footer.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create footer.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update footer.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete footer.
+     */
+    delete?: boolean | null;
+  };
+  products?: {
+    /**
+     * Allow clients to find products.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create products.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update products.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete products.
+     */
+    delete?: boolean | null;
+  };
+  orders?: {
+    /**
+     * Allow clients to find orders.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create orders.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update orders.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete orders.
+     */
+    delete?: boolean | null;
+  };
+  store?: {
+    /**
+     * Allow clients to find store.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create store.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update store.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete store.
+     */
+    delete?: boolean | null;
+  };
+  paymentGateways?: {
+    /**
+     * Allow clients to find payment-gateways.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create payment-gateways.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update payment-gateways.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete payment-gateways.
+     */
+    delete?: boolean | null;
+  };
+  cdnZones?: {
+    /**
+     * Allow clients to find cdn-zones.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create cdn-zones.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update cdn-zones.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete cdn-zones.
+     */
+    delete?: boolean | null;
+  };
+  cdnEvents?: {
+    /**
+     * Allow clients to find cdn-events.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create cdn-events.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update cdn-events.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete cdn-events.
+     */
+    delete?: boolean | null;
+  };
+  domainResellerProducts?: {
+    /**
+     * Allow clients to find domain-reseller-products.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create domain-reseller-products.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update domain-reseller-products.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete domain-reseller-products.
+     */
+    delete?: boolean | null;
+  };
+  resellerDomains?: {
+    /**
+     * Allow clients to find reseller-domains.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create reseller-domains.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update reseller-domains.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete reseller-domains.
+     */
+    delete?: boolean | null;
+  };
+  resellerDomainOperations?: {
+    /**
+     * Allow clients to find reseller-domain-operations.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create reseller-domain-operations.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update reseller-domain-operations.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete reseller-domain-operations.
+     */
+    delete?: boolean | null;
+  };
+  resellerDomainEvents?: {
+    /**
+     * Allow clients to find reseller-domain-events.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create reseller-domain-events.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update reseller-domain-events.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete reseller-domain-events.
+     */
+    delete?: boolean | null;
+  };
+  plans?: {
+    /**
+     * Allow clients to find plans.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create plans.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update plans.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete plans.
+     */
+    delete?: boolean | null;
+  };
+  subscriptions?: {
+    /**
+     * Allow clients to find subscriptions.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create subscriptions.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update subscriptions.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete subscriptions.
+     */
+    delete?: boolean | null;
+  };
+  invoices?: {
+    /**
+     * Allow clients to find invoices.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create invoices.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update invoices.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete invoices.
+     */
+    delete?: boolean | null;
+  };
+  siteEntitlements?: {
+    /**
+     * Allow clients to find site-entitlements.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create site-entitlements.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update site-entitlements.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete site-entitlements.
+     */
+    delete?: boolean | null;
+  };
+  usageRecords?: {
+    /**
+     * Allow clients to find usage-records.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create usage-records.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update usage-records.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete usage-records.
+     */
+    delete?: boolean | null;
+  };
+  centralEntitlementProjections?: {
+    /**
+     * Allow clients to find central-entitlement-projections.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create central-entitlement-projections.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update central-entitlement-projections.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete central-entitlement-projections.
+     */
+    delete?: boolean | null;
+  };
+  billingUsageOutbox?: {
+    /**
+     * Allow clients to find billing-usage-outbox.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create billing-usage-outbox.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update billing-usage-outbox.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete billing-usage-outbox.
+     */
+    delete?: boolean | null;
+  };
+  billingUsageSamples?: {
+    /**
+     * Allow clients to find billing-usage-samples.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create billing-usage-samples.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update billing-usage-samples.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete billing-usage-samples.
+     */
+    delete?: boolean | null;
+  };
+  billingStorageAccounts?: {
+    /**
+     * Allow clients to find billing-storage-accounts.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create billing-storage-accounts.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update billing-storage-accounts.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete billing-storage-accounts.
+     */
+    delete?: boolean | null;
+  };
+  billingServiceCredentials?: {
+    /**
+     * Allow clients to find billing-service-credentials.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create billing-service-credentials.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update billing-service-credentials.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete billing-service-credentials.
+     */
+    delete?: boolean | null;
+  };
+  billingReplayNonces?: {
+    /**
+     * Allow clients to find billing-replay-nonces.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create billing-replay-nonces.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update billing-replay-nonces.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete billing-replay-nonces.
+     */
+    delete?: boolean | null;
+  };
+  featureFlags?: {
+    /**
+     * Allow clients to find feature-flags.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create feature-flags.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update feature-flags.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete feature-flags.
+     */
+    delete?: boolean | null;
+  };
+  plugins?: {
+    /**
+     * Allow clients to find plugins.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create plugins.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update plugins.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete plugins.
+     */
+    delete?: boolean | null;
+  };
+  themePackages?: {
+    /**
+     * Allow clients to find theme-packages.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create theme-packages.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update theme-packages.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete theme-packages.
+     */
+    delete?: boolean | null;
+  };
+  themeArtifacts?: {
+    /**
+     * Allow clients to find theme-artifacts.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create theme-artifacts.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update theme-artifacts.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete theme-artifacts.
+     */
+    delete?: boolean | null;
+  };
+  deployTargets?: {
+    /**
+     * Allow clients to find deploy-targets.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create deploy-targets.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update deploy-targets.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete deploy-targets.
+     */
+    delete?: boolean | null;
+  };
+  siteDeployments?: {
+    /**
+     * Allow clients to find site-deployments.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create site-deployments.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update site-deployments.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete site-deployments.
+     */
+    delete?: boolean | null;
+  };
+  themeBindings?: {
+    /**
+     * Allow clients to find theme-bindings.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create theme-bindings.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update theme-bindings.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete theme-bindings.
+     */
+    delete?: boolean | null;
+  };
+  siteThemeSettings?: {
+    /**
+     * Allow clients to find site-theme-settings.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create site-theme-settings.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update site-theme-settings.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete site-theme-settings.
+     */
+    delete?: boolean | null;
+  };
+  webhooks?: {
+    /**
+     * Allow clients to find webhooks.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create webhooks.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update webhooks.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete webhooks.
+     */
+    delete?: boolean | null;
+  };
+  webhookDeliveries?: {
+    /**
+     * Allow clients to find webhook-deliveries.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create webhook-deliveries.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update webhook-deliveries.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete webhook-deliveries.
+     */
+    delete?: boolean | null;
+  };
+  auditLog?: {
+    /**
+     * Allow clients to find audit-log.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create audit-log.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update audit-log.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete audit-log.
+     */
+    delete?: boolean | null;
+  };
+  redirects?: {
+    /**
+     * Allow clients to find redirects.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create redirects.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update redirects.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete redirects.
+     */
+    delete?: boolean | null;
+  };
+  forms?: {
+    /**
+     * Allow clients to find forms.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create forms.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update forms.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete forms.
+     */
+    delete?: boolean | null;
+  };
+  formSubmissions?: {
+    /**
+     * Allow clients to find form-submissions.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create form-submissions.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update form-submissions.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete form-submissions.
+     */
+    delete?: boolean | null;
+  };
+  search?: {
+    /**
+     * Allow clients to find search.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create search.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update search.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete search.
+     */
+    delete?: boolean | null;
+  };
+  payloadFolders?: {
+    /**
+     * Allow clients to find payload-folders.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create payload-folders.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update payload-folders.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete payload-folders.
+     */
+    delete?: boolean | null;
+  };
+  domainReseller?: {
+    /**
+     * Allow clients to find domain-reseller global.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update domain-reseller global.
+     */
+    update?: boolean | null;
+  };
+  payments?: {
+    /**
+     * Allow clients to find payments global.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update payments global.
+     */
+    update?: boolean | null;
+  };
+  platformSettings?: {
+    /**
+     * Allow clients to find platform-settings global.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update platform-settings global.
+     */
+    update?: boolean | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+  enableAPIKey?: boolean | null;
+  apiKey?: string | null;
+  apiKeyIndex?: string | null;
+  collection: 'payload-mcp-api-keys';
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -3530,14 +4490,23 @@ export interface PayloadLockedDocument {
         value: string | Search;
       } | null)
     | ({
+        relationTo: 'payload-mcp-api-keys';
+        value: string | PayloadMcpApiKey;
+      } | null)
+    | ({
         relationTo: 'payload-folders';
         value: string | FolderInterface;
       } | null);
   globalSlug?: string | null;
-  user: {
-    relationTo: 'users';
-    value: string | User;
-  };
+  user:
+    | {
+        relationTo: 'users';
+        value: string | User;
+      }
+    | {
+        relationTo: 'payload-mcp-api-keys';
+        value: string | PayloadMcpApiKey;
+      };
   updatedAt: string;
   createdAt: string;
 }
@@ -3547,10 +4516,15 @@ export interface PayloadLockedDocument {
  */
 export interface PayloadPreference {
   id: string;
-  user: {
-    relationTo: 'users';
-    value: string | User;
-  };
+  user:
+    | {
+        relationTo: 'users';
+        value: string | User;
+      }
+    | {
+        relationTo: 'payload-mcp-api-keys';
+        value: string | PayloadMcpApiKey;
+      };
   key?: string | null;
   value?:
     | {
@@ -5252,6 +6226,430 @@ export interface SearchSelect<T extends boolean = true> {
       };
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-mcp-api-keys_select".
+ */
+export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
+  user?: T;
+  label?: T;
+  description?: T;
+  pages?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  posts?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  media?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  categories?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  users?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  sites?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  apiKeys?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  storageConnections?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  theme?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  siteBranding?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  header?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  footer?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  products?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  orders?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  store?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  paymentGateways?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  cdnZones?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  cdnEvents?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  domainResellerProducts?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  resellerDomains?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  resellerDomainOperations?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  resellerDomainEvents?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  plans?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  subscriptions?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  invoices?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  siteEntitlements?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  usageRecords?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  centralEntitlementProjections?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  billingUsageOutbox?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  billingUsageSamples?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  billingStorageAccounts?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  billingServiceCredentials?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  billingReplayNonces?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  featureFlags?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  plugins?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  themePackages?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  themeArtifacts?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  deployTargets?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  siteDeployments?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  themeBindings?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  siteThemeSettings?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  webhooks?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  webhookDeliveries?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  auditLog?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  redirects?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  forms?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  formSubmissions?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  search?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  payloadFolders?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  domainReseller?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+      };
+  payments?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+      };
+  platformSettings?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+  enableAPIKey?: T;
+  apiKey?: T;
+  apiKeyIndex?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

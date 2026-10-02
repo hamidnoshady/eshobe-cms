@@ -383,6 +383,9 @@ describe('store', () => {
         // by a superadmin. Same shape as `users`/`api-keys`: shared credential material,
         // not a site's own content (see src/collections/StorageConnections.ts).
         'storage-connections',
+        // MCP automation keys (`@payloadcms/plugin-mcp`). Same shape as `api-keys`:
+        // platform-issued credential material, not site content.
+        'payload-mcp-api-keys',
         /**
          * The SaaS control plane's catalogue half.
          *
