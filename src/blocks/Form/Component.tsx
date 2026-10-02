@@ -160,7 +160,7 @@ export const FormBlock: React.FC<
                   })}
               </div>
 
-              <Button form={formID} type="submit" variant="default">
+              <Button disabled={isLoading} form={formID} type="submit" variant="default">
                 {submitButtonLabel}
               </Button>
             </form>
