@@ -1,4 +1,4 @@
-import { APIError, type CollectionBeforeValidateHook, type PayloadRequest, type Plugin } from 'payload'
+import { APIError, type CollectionAfterReadHook, type PayloadRequest, type Plugin } from 'payload'
 
 import { clientKey, consume } from '@/lib/rate-limit'
 import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
@@ -105,9 +105,8 @@ const PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT = 'eshobePublicFormSiteAssignmentA
  * A public form has no logged-in tenant member, but its site is not caller-controlled:
  * the submission hook has just resolved it from the persisted form. The multi-tenant
  * plugin normally rejects anonymous REST/GraphQL tenant assignments, so mark only this
- * server-derived value as an internal assignment until that plugin's validation hook
- * runs. A final beforeValidate hook restores the original API mode before field and
- * after-change hooks execute.
+ * server-derived value as an internal assignment through collection and field validation.
+ * A final afterRead hook restores the original API mode before after-change hooks run.
  */
 export const allowDerivedPublicFormSiteAssignment = (
   req: PayloadRequest,
@@ -124,17 +123,17 @@ export const allowDerivedPublicFormSiteAssignment = (
   req.payloadAPI = 'local'
 }
 
-export const restorePublicFormSiteAssignmentAPI: CollectionBeforeValidateHook = ({ data, req }) => {
+export const restorePublicFormSiteAssignmentAPI: CollectionAfterReadHook = ({ doc, req }) => {
   const originalAPI = req.context?.[PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT]
   if (originalAPI === 'REST' || originalAPI === 'GraphQL') {
     req.payloadAPI = originalAPI
     delete req.context[PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT]
   }
 
-  return data
+  return doc
 }
 
-/** Runs after the multi-tenant plugin so its validation exception is immediately scoped. */
+/** Restore API mode after field validation, before downstream afterChange hooks run. */
 export const restorePublicFormSiteAssignment: Plugin = (config) => ({
   ...config,
   collections: config.collections?.map((collection) => {
@@ -144,8 +143,8 @@ export const restorePublicFormSiteAssignment: Plugin = (config) => ({
       ...collection,
       hooks: {
         ...collection.hooks,
-        beforeValidate: [
-          ...(collection.hooks?.beforeValidate ?? []),
+        afterRead: [
+          ...(collection.hooks?.afterRead ?? []),
           restorePublicFormSiteAssignmentAPI,
         ],
       },

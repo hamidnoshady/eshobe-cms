@@ -91,7 +91,7 @@ describe('anonymous public form submission protections', () => {
     allowDerivedPublicFormSiteAssignment(request as never, 'resolved-site-id')
     expect(request.payloadAPI).toBe('local')
 
-    restorePublicFormSiteAssignmentAPI({ data: { site: 'resolved-site-id' }, req: request } as never)
+    restorePublicFormSiteAssignmentAPI({ doc: { site: 'resolved-site-id' }, req: request } as never)
     expect(request.payloadAPI).toBe('REST')
     expect(request.context).toEqual({})
 

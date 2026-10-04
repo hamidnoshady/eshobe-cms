@@ -403,7 +403,6 @@ export const plugins: Plugin[] = [
   jalaliDates,
   publicReadLimits,
   tenantMediaPicker,
-  // Must run after multiTenant's assignment validator and restore REST/GraphQL
-  // mode before any field or after-change hooks observe the request.
+  // Restore REST/GraphQL mode after field validation, before after-change hooks.
   restorePublicFormSiteAssignment,
 ]
