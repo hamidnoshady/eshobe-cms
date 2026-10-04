@@ -4,7 +4,11 @@ import { createLocalReq, getPayload } from 'payload'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
-import { PUBLIC_READ_CACHE_CONTROL, PUBLIC_READ_MAX_LIMIT } from '@/lib/public-read-limits'
+import {
+  capPublicCollectionReads,
+  PUBLIC_READ_CACHE_CONTROL,
+  PUBLIC_READ_MAX_LIMIT,
+} from '@/lib/public-read-limits'
 
 describe('public read bounds through the Payload operation pipeline', () => {
   let payload: Payload
@@ -60,5 +64,75 @@ describe('public read bounds through the Payload operation pipeline', () => {
     )
 
     expect(req.responseHeaders?.get('cache-control')).toBe('private, no-store')
+  })
+
+  it('keeps nested version routes private even when the collection itself is public', async () => {
+    const req = await createLocalReq(
+      {
+        req: {
+          headers: new Headers({ accept: 'application/json', host: 'acme.localhost' }),
+          method: 'GET',
+          payloadAPI: 'REST',
+          url: 'http://acme.localhost/api/pages/example-id/versions',
+        } as Partial<PayloadRequest>,
+      },
+      payload,
+    )
+
+    capPublicCollectionReads({
+      args: { limit: 10 },
+      collection: { slug: 'pages' },
+      operation: 'findVersions',
+      req,
+    } as never)
+
+    expect(req.responseHeaders?.get('cache-control')).toBe('private, no-store')
+  })
+
+  it('does not replace the media-file router cache policy', async () => {
+    const req = await createLocalReq(
+      {
+        req: {
+          headers: new Headers({ accept: 'image/avif,image/webp', host: 'acme.localhost' }),
+          method: 'GET',
+          payloadAPI: 'REST',
+          url: 'http://acme.localhost/api/media/file/example.webp',
+        } as Partial<PayloadRequest>,
+      },
+      payload,
+    )
+
+    capPublicCollectionReads({
+      args: { depth: 0 },
+      collection: { slug: 'media' },
+      operation: 'findByID',
+      req,
+    } as never)
+
+    expect(req.responseHeaders?.get('cache-control') ?? null).toBeNull()
+  })
+
+  it('leaves endpoint response headers alone during internal collection reads', async () => {
+    const req = await createLocalReq(
+      {
+        req: {
+          headers: new Headers({ accept: 'application/json', host: 'acme.localhost' }),
+          method: 'GET',
+          payloadAPI: 'REST',
+          url: 'http://acme.localhost/api/platform/saas/overview',
+        } as Partial<PayloadRequest>,
+      },
+      payload,
+    )
+
+    await payload.find({
+      collection: 'sites',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      req,
+    })
+
+    expect(req.responseHeaders?.get('cache-control') ?? null).toBeNull()
   })
 })

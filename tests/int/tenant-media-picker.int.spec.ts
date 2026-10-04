@@ -34,7 +34,7 @@ const owner = async (email: string) => {
   return cmsTypedUser(docs[0])
 }
 
-const site = async (slug: 'acme' | 'studio') => {
+const site = async (slug: 'acme' | 'studio-naghsh') => {
   const { docs } = await payload.find({
     collection: 'sites',
     depth: 0,
@@ -62,7 +62,7 @@ const upload = async (ownerSite: Site, folder?: string) => {
 beforeAll(async () => {
   payload = await getPayload({ config: await config })
   acme = await site('acme')
-  studio = await site('studio')
+  studio = await site('studio-naghsh')
   acmeOwner = await owner('acme@eshobe.test')
   studioOwner = await owner('studio-naghsh@eshobe.test')
 }, 180_000)

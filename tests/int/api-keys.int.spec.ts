@@ -198,6 +198,7 @@ describe('a site key', () => {
 
     const created = await payload.create({
       collection: 'products',
+      locale: 'fa',
       overrideAccess: false,
       req,
       // Attempting to name a different site is exactly what `forceApiKeySite`
@@ -218,6 +219,7 @@ describe('a site key', () => {
 
     const created = await payload.create({
       collection: 'posts',
+      locale: 'fa',
       overrideAccess: false,
       req,
       data: {
@@ -234,6 +236,7 @@ describe('a site key', () => {
       await expect(
         payload.create({
           collection: 'posts',
+          locale: 'fa',
           overrideAccess: false,
           req,
           data: {
@@ -247,6 +250,7 @@ describe('a site key', () => {
       const updated = await payload.update({
         id: created.id,
         collection: 'posts',
+        locale: 'fa',
         overrideAccess: false,
         req,
         data: { title: 'عنوان ویرایش‌شده' } as never,

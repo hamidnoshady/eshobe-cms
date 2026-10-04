@@ -33,16 +33,58 @@ export const PUBLIC_READ_CACHE_CONTROL = 'public, s-maxage=30, stale-while-reval
 export const isAdminSessionForReadLimits = (user: null | { _strategy?: string } | undefined): boolean =>
   Boolean(user) && !MACHINE_AUTH_STRATEGIES.has(user?._strategy ?? '')
 
+const requestPathname = (req: PayloadRequest): string => {
+  if (typeof req.pathname === 'string') return req.pathname
+
+  try {
+    return new URL(req.url ?? '/', `http://${req.host ?? 'localhost'}`).pathname
+  } catch {
+    return ''
+  }
+}
+
+const normalizePath = (value: string): string => `/${value.split('/').filter(Boolean).join('/')}`
+
+/**
+ * Hooks also run for Local API reads performed *inside* an endpoint and for
+ * relationships populated by another collection read. They share the original HTTP
+ * request and response headers, but they are not the resource the caller requested.
+ * Only the matching REST collection route owns its cache policy; GraphQL owns one
+ * private policy for the entire `/graphql` response.
+ */
 const setPublicReadCacheHeaders = (
   req: PayloadRequest,
   collectionSlug: string,
 ): void => {
+  const apiPath = normalizePath(req.payload.config.routes.api ?? '/api')
+  const pathname = requestPathname(req)
+  const collectionPath = `${apiPath}/${collectionSlug}`
+  const matchesCollectionRoute =
+    req.payloadAPI === 'REST' &&
+    (pathname === collectionPath || pathname.startsWith(`${collectionPath}/`))
+  const collectionSuffix = matchesCollectionRoute
+    ? pathname.slice(collectionPath.length).split('/').filter(Boolean)
+    : []
+  const mediaFileRoute = collectionSlug === 'media' && collectionSuffix[0] === 'file'
+  const directCollectionRoute = matchesCollectionRoute && !mediaFileRoute
+  // The root list and `/collection/:id` are public document routes. Nested routes
+  // such as `/collection/:id/versions` can expose drafts/history and stay private.
+  const directPublicCollectionResourceRoute = collectionSuffix.length <= 1
+  const graphQLPath = `${apiPath}${normalizePath(req.payload.config.routes.graphQL ?? '/graphql')}`
+  const directGraphQLRoute = req.payloadAPI === 'GraphQL' && pathname === graphQLPath
+
+  // Internal reads must not overwrite headers chosen by their endpoint (e.g. the
+  // platform's exact `Cache-Control: no-store`) or another router policy (media
+  // file responses have their own cache rule in `next.config.ts`).
+  if (!directCollectionRoute && !directGraphQLRoute) return
+
   const responseHeaders = req.responseHeaders ?? new Headers()
   const method = req.method?.toUpperCase()
   const authorization = req.headers?.get?.('authorization')
   const cookie = req.headers?.get?.('cookie')
   const publicGET =
-    req.payloadAPI === 'REST' &&
+    directCollectionRoute &&
+    directPublicCollectionResourceRoute &&
     (method === 'GET' || method === 'HEAD') &&
     PUBLIC_CACHEABLE_COLLECTIONS.has(collectionSlug) &&
     !req.user &&
@@ -59,7 +101,7 @@ const setPublicReadCacheHeaders = (
     if (!vary.some((value) => value.toLowerCase() === 'host')) vary.push('Host')
     responseHeaders.set('vary', vary.join(', '))
   } else {
-    // Session, bearer-key and GraphQL responses are never eligible for shared caches.
+    // Session, bearer-key, mutations and GraphQL responses are never shared-cacheable.
     responseHeaders.set('cache-control', 'private, no-store')
   }
 

@@ -53,10 +53,15 @@ export const FormBlock: React.FC<
       const submitForm = async () => {
         setError(undefined)
 
-        const dataToSend = Object.entries(data).map(([name, value]) => ({
-          field: name,
-          value,
-        }))
+        const dataToSend = Object.entries(data)
+          // Keep the internal trap out of honest submissions even if the browser or
+          // an autofill extension populates it. The server still validates it for
+          // direct/bot requests that bypass this client.
+          .filter(([name]) => name !== PUBLIC_FORM_HONEYPOT_FIELD)
+          .map(([name, value]) => ({
+            field: name,
+            value,
+          }))
 
         // delay loading indicator by 1s
         loadingTimerID = setTimeout(() => {

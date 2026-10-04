@@ -138,9 +138,9 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     // «تنظیمات» — general, languages, connections, advanced. These are tabs on the
     // one tenant-scoped settings document (`sites`), not separate routes: a
     // customer edits their locales, domain and advanced options in the site edit
-    // view. API-key management is platform-owned (`api-keys` is `hiddenFromCustomers`).
+    // view. API-key management, including MCP keys, is platform-owned.
     label: 'تنظیمات',
-    entities: [collection('sites', 'تنظیمات سایت'), collection('payload-mcp-api-keys', 'کلیدهای MCP')],
+    entities: [collection('sites', 'تنظیمات سایت')],
   },
 ]
 
