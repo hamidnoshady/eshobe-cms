@@ -128,6 +128,18 @@ export const siteDescriptor: Endpoint = {
           overrideAccess: true,
           pagination: false,
           req,
+          select: {
+            compactLogo: true,
+            darkLogo: true,
+            displayName: true,
+            favicon: true,
+            homeLogo: true,
+            lightLogo: true,
+            primaryLogo: true,
+            shortName: true,
+            socialImage: true,
+            tagline: true,
+          },
           where: { site: { equals: siteId } },
         })
         .then(({ docs }) => docs[0] as unknown as Record<string, unknown> | undefined),

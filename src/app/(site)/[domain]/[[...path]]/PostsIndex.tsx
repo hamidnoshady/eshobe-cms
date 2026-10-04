@@ -29,6 +29,7 @@ export const PostsIndex: React.FC<{ page?: number }> = async ({ page = 1 }) => {
   if (!site) notFound()
 
   const { docs, page: currentPage, totalDocs, totalPages } = await findForSite('posts', site.id, {
+    cachePublic: !draft,
     limit: PER_PAGE,
     locale,
     page,

@@ -3,6 +3,8 @@
 // jose's JWT bits aren't in play here, but `createLocalReq({ user })` builds a
 // real session the same way `provisioning.int.spec.ts` does, and that spec
 // documents the jsdom/jose incompatibility for the whole suite to share.
+import { randomUUID } from 'node:crypto'
+
 import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
@@ -198,11 +200,17 @@ describe('a site key', () => {
 
     const created = await payload.create({
       collection: 'products',
+      locale: 'fa',
       overrideAccess: false,
       req,
       // Attempting to name a different site is exactly what `forceApiKeySite`
       // (`src/access/siteApiKey.ts`) exists to ignore.
-      data: { price: 1000, site: siteId.studio, title: 'محصول آزمایشی WAVE-9' } as never,
+      data: {
+        price: 1000,
+        site: siteId.studio,
+        slug: `api-key-product-${randomUUID()}`,
+        title: 'محصول آزمایشی WAVE-9',
+      } as never,
     })
 
     try {
@@ -218,11 +226,13 @@ describe('a site key', () => {
 
     const created = await payload.create({
       collection: 'posts',
+      locale: 'fa',
       overrideAccess: false,
       req,
       data: {
         content: richText([{ text: 'یک نوشتهٔ آزمایشی WAVE-9', type: 'paragraph' }]),
         site: siteId.studio, // forceApiKeySite must overwrite this to acme
+        slug: `api-key-post-${randomUUID()}`,
         title: 'نوشتهٔ آزمایشی WAVE-9',
       } as never,
     })
@@ -234,11 +244,13 @@ describe('a site key', () => {
       await expect(
         payload.create({
           collection: 'posts',
+          locale: 'fa',
           overrideAccess: false,
           req,
           data: {
             _status: 'published',
             content: richText([{ text: 'x', type: 'paragraph' }]),
+            slug: `api-key-post-${randomUUID()}`,
             title: 'نباید منتشر شود',
           } as never,
         }),
@@ -247,6 +259,7 @@ describe('a site key', () => {
       const updated = await payload.update({
         id: created.id,
         collection: 'posts',
+        locale: 'fa',
         overrideAccess: false,
         req,
         data: { title: 'عنوان ویرایش‌شده' } as never,

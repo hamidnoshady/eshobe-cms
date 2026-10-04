@@ -1,38 +1,50 @@
 import { mcpPlugin } from '@payloadcms/plugin-mcp'
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, CollectionSlug } from 'payload'
 
-import { platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
-import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
-import { MCP_COLLECTION_SLUGS, MCP_GLOBAL_SLUGS } from '@/plugins/mcp-slugs'
+import { MCP_COLLECTION_SLUGS } from '@/plugins/mcp-slugs'
 
-const allCollectionCrud = {
-  find: true,
-  create: true,
-  update: true,
-  delete: true,
-} as const
+const noDelete = { delete: false } as const
 
-const allGlobalAccess = {
-  find: true,
-  update: true,
-} as const
+/**
+ * A capability is available only when the operation is safe for tenant content.
+ * The plugin key is bound to its creating Payload user (the plugin's own default
+ * access policy); the multi-tenant plugin then scopes each operation to that user.
+ *
+ * No delete operation is exposed. Rows containing credentials, billing data, user/site
+ * administration, form submissions, deployments, webhooks and audit data are omitted
+ * entirely rather than relying on every individual key to leave them unchecked.
+ */
+const SAFE_CAPABILITIES = {
+  pages: { create: true, find: true, update: true, ...noDelete },
+  posts: { create: true, find: true, update: true, ...noDelete },
+  media: { find: true, update: true, ...noDelete },
+  categories: { create: true, find: true, update: true, ...noDelete },
+  'site-branding': { find: true, update: true, ...noDelete },
+  header: { find: true, update: true, ...noDelete },
+  footer: { find: true, update: true, ...noDelete },
+  products: { create: true, find: true, update: true, ...noDelete },
+  store: { find: true, update: true, ...noDelete },
+  forms: { find: true, update: true, ...noDelete },
+  'payload-folders': { create: true, find: true, update: true, ...noDelete },
+} satisfies Partial<Record<CollectionSlug, { create?: boolean; delete?: boolean; find?: boolean; update?: boolean }>>
 
 export const mcpCollectionCapabilities = Object.fromEntries(
-  MCP_COLLECTION_SLUGS.map((slug) => [slug, { enabled: allCollectionCrud }]),
-)
+  MCP_COLLECTION_SLUGS.map((slug) => [slug, { enabled: SAFE_CAPABILITIES[slug] }]),
+) as Record<(typeof MCP_COLLECTION_SLUGS)[number], { enabled: (typeof SAFE_CAPABILITIES)[(typeof MCP_COLLECTION_SLUGS)[number]] }>
 
-export const mcpGlobalCapabilities = Object.fromEntries(
-  MCP_GLOBAL_SLUGS.map((slug) => [slug, { enabled: allGlobalAccess }]),
-)
+export const mcpGlobalCapabilities = {} as const
 
 /**
  * Payload MCP — Model Context Protocol over `/api/mcp`.
  *
- * Step 1 (here): every collection/global is eligible for find/create/update/delete.
- * Step 2 (admin): each `payload-mcp-api-keys` row toggles what that key may call.
- * Payload access control still applies — a site editor's key cannot read another tenant.
+ * MCP API-key rows retain the plugin's safe default policy: authenticated users can
+ * create their own key, only read/update/delete their own rows, and the `user` field
+ * cannot be reassigned. The role attached to the key is therefore the real caller for
+ * normal Payload access checks, including multi-tenant scoping. Never replace that with
+ * platform-wide key management or `overrideAccess`.
  *
- * Deliberately no Caddy carve-out on customer domains: same boundary as `/api/platform/*`.
+ * Deliberately no Caddy carve-out on customer domains. Credentials and capabilities
+ * are enforced by this plugin plus collection access controls, not by a friendly UI.
  */
 export const mcp = mcpPlugin({
   collections: mcpCollectionCapabilities,
@@ -40,30 +52,14 @@ export const mcp = mcpPlugin({
   overrideApiKeyCollection: (collection: CollectionConfig) => {
     collection.admin = {
       ...collection.admin,
-      group: PLATFORM_GROUPS.integrations,
-      hidden: hiddenFromCustomers,
+      group: 'یکپارچه‌سازی',
     }
     collection.labels = {
       plural: 'کلیدهای MCP',
       singular: 'کلید MCP',
     }
-    collection.access = {
-      // Operators issue automation keys; customers use site/api-keys instead.
-      create: platformAdmin,
-      delete: platformAdmin,
-      read: platformAdmin,
-      unlock: platformAdmin,
-      update: platformAdmin,
-    }
-    for (const field of collection.fields) {
-      if ('name' in field && field.name === 'user' && field.type === 'relationship') {
-        field.access = {
-          ...field.access,
-          create: platformAdminFieldAccess,
-          update: platformAdminFieldAccess,
-        }
-      }
-    }
+
+    // Keep the plugin's per-user access rules and locked owner field intact.
     return collection
   },
   mcp: {

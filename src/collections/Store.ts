@@ -5,6 +5,7 @@ import { currencyCodes, currencies } from '../lib/money'
 import { paymentProviderOptions } from '../payments'
 import { scopedPublicRead } from '../access/siteRead'
 import { hiddenFromOperators } from '@/admin/visibility'
+import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 
 /**
  * A store site's commerce settings — one document per site, edited like a global.
@@ -87,4 +88,8 @@ export const Store: CollectionConfig<'store'> = {
       localized: true,
     },
   ],
+  hooks: {
+    afterChange: [revalidateSiteGlobal('store')],
+    afterDelete: [revalidateSiteGlobalDelete('store')],
+  },
 }

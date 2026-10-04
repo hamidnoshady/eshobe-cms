@@ -1,6 +1,7 @@
 // @vitest-environment node
 import type { Payload, PayloadRequest } from 'payload'
 
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createLocalReq, getPayload } from 'payload'
 
@@ -37,7 +38,15 @@ beforeAll(async () => {
   req = await createLocalReq({}, payload)
   site = (await payload.create({
     collection: 'sites',
-    data: { availableLocales: ['fa', 'en'], defaultLocale: 'fa', domain: DOMAIN, name: 'گرافیت آزمایشی', status: 'active', type: 'portfolio' },
+    data: {
+      availableLocales: ['fa', 'en'],
+      defaultLocale: 'fa',
+      domain: DOMAIN,
+      name: 'گرافیت آزمایشی',
+      slug: `demo-pack-${randomUUID()}`,
+      status: 'active',
+      type: 'portfolio',
+    },
     overrideAccess: true,
   } as never)) as unknown as Record<string, unknown>
 })

@@ -39,9 +39,9 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
  */
 export const storeSettingsForSite = async (
   siteId: string,
-  { locale }: { locale?: TypedLocale },
+  { cachePublic = false, locale }: { cachePublic?: boolean; locale?: TypedLocale },
 ): Promise<StoreSettings> => {
-  const doc = await findGlobalForSite('store', siteId, { depth: 0, locale })
+  const doc = await findGlobalForSite('store', siteId, { cachePublic, depth: 0, locale })
 
   return {
     currency: doc?.currency ?? DEFAULT_STORE_SETTINGS.currency,

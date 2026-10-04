@@ -8,7 +8,7 @@ export async function Header() {
   const { locale, site } = await getSiteContext()
 
   const headerData = site
-    ? await findGlobalForSite('header', site.id, { depth: 1, locale })
+    ? await findGlobalForSite('header', site.id, { cachePublic: true, depth: 1, locale })
     : null
 
   return <HeaderClient data={headerData} siteName={site?.name} />

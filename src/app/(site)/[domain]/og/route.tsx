@@ -1,6 +1,7 @@
 import type { TypedLocale } from 'payload'
 
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { ImageResponse } from 'next/og'
@@ -51,8 +52,39 @@ import { siteOrigin } from '@/lib/site-url'
  * - The subarray is copied into its own `ArrayBuffer`: `Buffer` is a view into a
  *   shared pool, and handing satori `buffer.buffer` hands it the whole pool.
  */
-const fontFile = async (url: URL): Promise<ArrayBuffer> => {
-  const buffer = await readFile(fileURLToPath(url))
+const fontFile = async (url: URL, sourceFilename: string): Promise<ArrayBuffer> => {
+  // Next's production server bundle rewrites literal `new URL(font, import.meta.url)`
+  // assets to `static/media/<hashed-name>` beside the standalone server. Dev server
+  // bundlers use different output folders, so the literal source path is also kept as
+  // a fallback for `pnpm dev` and local previews.
+  const emittedFilename = url.pathname.split('/').at(-1)
+  const filenames = [emittedFilename, sourceFilename].filter(
+    (filename): filename is string => Boolean(filename),
+  )
+  const outputDirectories = [
+    '.next/server/chunks/static/media',
+    '.next/dev/server/chunks/static/media',
+    '.next/static/media',
+  ]
+  const candidates = [
+    ...(url.protocol === 'file:' ? [fileURLToPath(url)] : []),
+    ...outputDirectories.flatMap((directory) =>
+      filenames.map((filename) => join(process.cwd(), directory, filename)),
+    ),
+    join(process.cwd(), 'src/app/(site)/[domain]/og/fonts', sourceFilename),
+  ]
+
+  let buffer: Buffer | undefined
+  for (const candidate of candidates) {
+    try {
+      buffer = await readFile(candidate)
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+
+  if (!buffer) throw new Error(`Unable to locate Open Graph font asset: ${sourceFilename}`)
 
   return buffer.buffer.slice(
     buffer.byteOffset,
@@ -62,13 +94,33 @@ const fontFile = async (url: URL): Promise<ArrayBuffer> => {
 
 const fonts = Promise.all(
   [
-    [new URL('./fonts/vazirmatn-arabic-400-normal.woff', import.meta.url), 400, 'Vazirmatn'],
-    [new URL('./fonts/vazirmatn-arabic-700-normal.woff', import.meta.url), 700, 'Vazirmatn'],
-    [new URL('./fonts/vazirmatn-latin-400-normal.woff', import.meta.url), 400, 'VazirmatnLatin'],
-    [new URL('./fonts/vazirmatn-latin-700-normal.woff', import.meta.url), 700, 'VazirmatnLatin'],
-  ].map(async ([url, weight, name]) => ({
-    data: await fontFile(url as URL),
-    name: name as string,
+    {
+      file: 'vazirmatn-arabic-400-normal.woff',
+      name: 'Vazirmatn',
+      url: new URL('./fonts/vazirmatn-arabic-400-normal.woff', import.meta.url),
+      weight: 400,
+    },
+    {
+      file: 'vazirmatn-arabic-700-normal.woff',
+      name: 'Vazirmatn',
+      url: new URL('./fonts/vazirmatn-arabic-700-normal.woff', import.meta.url),
+      weight: 700,
+    },
+    {
+      file: 'vazirmatn-latin-400-normal.woff',
+      name: 'VazirmatnLatin',
+      url: new URL('./fonts/vazirmatn-latin-400-normal.woff', import.meta.url),
+      weight: 400,
+    },
+    {
+      file: 'vazirmatn-latin-700-normal.woff',
+      name: 'VazirmatnLatin',
+      url: new URL('./fonts/vazirmatn-latin-700-normal.woff', import.meta.url),
+      weight: 700,
+    },
+  ].map(async ({ file, name, url, weight }) => ({
+    data: await fontFile(url, file),
+    name,
     style: 'normal' as const,
     weight: weight as 400 | 700,
   })),
@@ -80,6 +132,7 @@ type Doc = { meta?: { title?: null | string } | null; title?: null | string }
 
 const findDoc = async (site: Site, locale: string, slug: string): Promise<Doc | null> => {
   const { docs } = await findForSite('pages', String(site.id), {
+    cachePublic: true,
     depth: 0,
     limit: 1,
     locale: locale as TypedLocale,

@@ -34,6 +34,8 @@ export const queryPage = cache(async (slug: string): Promise<Page | null> => {
   const { draft, user } = await draftAndViewer()
 
   const { docs } = await findForSite('pages', site.id, {
+    cachePublic: !draft && !user,
+    depth: 1,
     draft,
     limit: 1,
     locale,
@@ -58,6 +60,7 @@ export const queryPost = cache(async (slug: string): Promise<Post | null> => {
   const { draft, user } = await draftAndViewer()
 
   const { docs } = await findForSite('posts', site.id, {
+    cachePublic: !draft && !user,
     depth: 1,
     draft,
     limit: 1,
@@ -78,6 +81,7 @@ export const queryProduct = cache(async (slug: string): Promise<Product | null> 
   const { draft, user } = await draftAndViewer()
 
   const { docs } = await findForSite('products', site.id, {
+    cachePublic: !draft && !user,
     depth: 1,
     draft,
     limit: 1,

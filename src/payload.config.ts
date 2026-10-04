@@ -58,6 +58,7 @@ import { Footer } from './Footer/config'
 import { Header } from './Header/config'
 import { runtimeDatabaseOptions } from './lib/database'
 import { assertProductionEnv, jobsAutoRunEnabled } from './lib/env'
+import { mayRunPayloadJobs } from './lib/jobs-access'
 import { defaultLocale, locales } from './lib/locales'
 import { billingIntegrationTask } from './billing/task'
 import { advanceDeploymentsTask } from './deploy/task'
@@ -478,19 +479,12 @@ export default buildConfig({
    */
   jobs: {
     access: {
-      run: ({ req }: { req: PayloadRequest }): boolean => {
-        // Allow logged in users to execute this endpoint (default)
-        if (req.user) return true
-
-        const secret = process.env.CRON_SECRET
-        if (!secret) return false
-
-        // If there is no logged in user, then check
-        // for the Vercel Cron secret to be present as an
-        // Authorization header:
-        const authHeader = req.headers.get('authorization')
-        return authHeader === `Bearer ${secret}`
-      },
+      run: ({ req }: { req: PayloadRequest }): boolean =>
+        mayRunPayloadJobs({
+          authorization: req.headers.get('authorization'),
+          cronSecret: process.env.CRON_SECRET,
+          user: req.user as null | { role?: unknown },
+        }),
     },
     // Empty, not merely gated by `shouldAutoRun`: an entry here schedules a cron on
     // every boot, and a cron that immediately decides to do nothing is still a timer

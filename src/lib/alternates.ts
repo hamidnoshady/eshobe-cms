@@ -71,6 +71,7 @@ export const localeSlugs = cache(
     const results = await Promise.all(
       served.map(async (locale) => {
         const { docs } = await findForSite(collection, String(site.id), {
+          cachePublic: true,
           depth: 0,
           fallbackLocale: false,
           limit: 1,

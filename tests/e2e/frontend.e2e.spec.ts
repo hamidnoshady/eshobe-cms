@@ -188,10 +188,17 @@ test.describe('contact form', () => {
     await page.locator('#name').fill('حمید نوشادی')
     await page.locator('#email').fill('hamid@example.test')
     await page.locator('#message').fill('یک پیام آزمایشی از تست.')
+    const submission = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/api/form-submissions'),
+    )
     await page.getByRole('button', { name: 'ارسال پیام' }).click()
+    const response = await submission
 
-    // 30s, not the 5s default: this is the run's first POST to the API route, so the
-    // dev server compiles it while the form sits on «در حال ارسال…».
+    // Expose the API's validation message if a future hook rejects this honest
+    // submission; otherwise the UI-only timeout hides the useful failure detail.
+    expect(response.status(), await response.text()).toBeLessThan(400)
     await expect(page.getByText('پیام شما رسید')).toBeVisible({ timeout: 30_000 })
   })
 
@@ -220,6 +227,26 @@ test.describe('live preview', () => {
     const csp = (await page.goto(`${acme}/about`))?.headers()['content-security-policy']
 
     expect(csp).toBe("frame-ancestors 'self' http://localhost:3000")
+  })
+
+  test('lets an authenticated site owner preview an unpublished draft', async ({ page }) => {
+    const login = await page.request.post('http://localhost:3000/api/users/login', {
+      data: { email: 'acme@eshobe.test', password: 'test1234' },
+    })
+    expect(login.status()).toBe(200)
+    const { token } = (await login.json()) as { token?: string }
+    expect(token).toBeTruthy()
+
+    const params = new URLSearchParams({
+      path: '/coming-soon',
+      previewSecret: process.env.PREVIEW_SECRET ?? '',
+      token: token!,
+    })
+    const res = await page.goto(`${acme}/next/preview?${params.toString()}`)
+
+    expect(res?.status()).toBe(200)
+    await expect(page).toHaveURL(`${acme}/coming-soon`)
+    await expect(page.locator('body')).toContainText('این صفحه هنوز منتشر نشده است')
   })
 
   test('refuses to turn on draft mode without the preview secret', async ({ page }) => {
