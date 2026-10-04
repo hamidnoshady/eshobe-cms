@@ -25,34 +25,37 @@ export const beforeSyncWithSearch: BeforeSync = async ({ req, originalDoc, searc
   }
 
   if (categories && Array.isArray(categories) && categories.length > 0) {
-    const populatedCategories: { id: string | number; title: string }[] = []
-    for (const category of categories) {
-      if (!category) {
-        continue
-      }
+    // ⚡ Bolt: Fetch categories in parallel using Promise.all to avoid N+1 queries during search sync
+    const resolvedCategories = await Promise.all(
+      categories
+        .filter((category) => !!category)
+        .map(async (category) => {
+          if (typeof category === 'object') {
+            return category
+          }
 
-      if (typeof category === 'object') {
-        populatedCategories.push(category)
-        continue
-      }
+          const doc = await req.payload.findByID({
+            collection: 'categories',
+            id: category,
+            disableErrors: true,
+            depth: 0,
+            select: { title: true },
+            req,
+          })
 
-      const doc = await req.payload.findByID({
-        collection: 'categories',
-        id: category,
-        disableErrors: true,
-        depth: 0,
-        select: { title: true },
-        req,
-      })
+          if (doc === null) {
+            console.error(
+              `Failed. Category not found when syncing collection '${collection}' with id: '${id}' to search.`,
+            )
+            return null
+          }
+          return doc
+        }),
+    )
 
-      if (doc !== null) {
-        populatedCategories.push(doc)
-      } else {
-        console.error(
-          `Failed. Category not found when syncing collection '${collection}' with id: '${id}' to search.`,
-        )
-      }
-    }
+    const populatedCategories = resolvedCategories.filter(
+      (doc): doc is { id: string | number; title: string } => doc !== null,
+    )
 
     modifiedDoc.categories = populatedCategories.map((each) => ({
       relationTo: 'categories',
