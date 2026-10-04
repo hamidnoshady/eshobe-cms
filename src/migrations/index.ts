@@ -25,6 +25,7 @@ import * as migration_20260928_120000_branding_home_logo from './20260928_120000
 import * as migration_20261001_120000_folders_site from './20261001_120000_folders_site';
 import * as migration_20261002_163500_payload_mcp_plugin from './20261002_163500_payload_mcp_plugin';
 import * as migration_20261004_120000_mcp_key_lifecycle from './20261004_120000_mcp_key_lifecycle';
+import * as migration_20261004_130000_payload_390_columns from './20261004_130000_payload_390_columns';
 
 export const migrations = [
   {
@@ -161,5 +162,10 @@ export const migrations = [
     up: migration_20261004_120000_mcp_key_lifecycle.up,
     down: migration_20261004_120000_mcp_key_lifecycle.down,
     name: '20261004_120000_mcp_key_lifecycle'
+  },
+  {
+    up: migration_20261004_130000_payload_390_columns.up,
+    down: migration_20261004_130000_payload_390_columns.down,
+    name: '20261004_130000_payload_390_columns'
   },
 ];
