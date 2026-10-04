@@ -42,6 +42,7 @@ const publishedPages = async (site: Site): Promise<SlugsById> => {
 
   for (const locale of served) {
     const { docs } = await findForSite('pages', String(site.id), {
+      cachePublic: true,
       depth: 0,
       fallbackLocale: false,
       limit: MAX_URLS,

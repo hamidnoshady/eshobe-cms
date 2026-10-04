@@ -56,7 +56,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // site's nav, footer and colours is not a suspension.
   const theme =
     site && serving
-      ? themeCss(await findGlobalForSite('theme', String(site.id), { depth: 0, locale }))
+      ? themeCss(await findGlobalForSite('theme', String(site.id), { cachePublic: true, depth: 0, locale }))
       : ''
 
   return (

@@ -140,7 +140,7 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     // customer edits their locales, domain and advanced options in the site edit
     // view. API-key management is platform-owned (`api-keys` is `hiddenFromCustomers`).
     label: 'تنظیمات',
-    entities: [collection('sites', 'تنظیمات سایت')],
+    entities: [collection('sites', 'تنظیمات سایت'), collection('payload-mcp-api-keys', 'کلیدهای MCP')],
   },
 ]
 

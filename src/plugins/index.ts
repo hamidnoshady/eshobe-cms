@@ -4,7 +4,7 @@ import { nestedDocsPlugin } from '@payloadcms/plugin-nested-docs'
 import { redirectsPlugin } from '@payloadcms/plugin-redirects'
 import { seoPlugin } from '@payloadcms/plugin-seo'
 import { searchPlugin } from '@payloadcms/plugin-search'
-import { Plugin } from 'payload'
+import type { Plugin } from 'payload'
 import { revalidateRedirects } from '@/hooks/revalidateRedirects'
 import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 import { GenerateTitle, GenerateURL } from '@payloadcms/plugin-seo/types'
@@ -19,8 +19,17 @@ import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '@/access/anyone'
 import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
+import { idOf } from '@/lib/ids'
+import {
+  enforcePublicFormSubmissionRateLimit,
+  rejectPublicFormSubmission,
+  stripPublicFormHoneypot,
+  verifyPublicFormChallenge,
+} from '@/lib/form-submission-rate-limit'
 import { jalaliDates } from './jalaliDates'
 import { mcp } from './mcp'
+import { publicReadLimits } from '@/lib/public-read-limits'
+import { tenantMediaPicker } from '@/plugins/tenant-media-picker'
 import { storage } from './storage'
 import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
@@ -111,24 +120,36 @@ export const plugins: Plugin[] = [
       hooks: {
         beforeValidate: [
           async ({ data, req }) => {
-            if (!data) return data
+            const { data: cleanData, filled } = stripPublicFormHoneypot(data)
+            const record = cleanData && typeof cleanData === 'object'
+              ? cleanData as Record<string, unknown>
+              : undefined
+
+            if (filled) {
+              // A filled trap is charged to a bounded fallback bucket and gets one
+              // generic refusal; neither the honeypot name nor site existence leaks.
+              enforcePublicFormSubmissionRateLimit(req, null)
+              rejectPublicFormSubmission()
+            }
+
+            if (!record) {
+              enforcePublicFormSubmissionRateLimit(req, null)
+              return cleanData
+            }
 
             /**
              * The submission's site always comes from the form, never from the
-             * request.
-             *
-             * `create` access on this collection is `() => true` — it has to be, a
-             * contact form is submitted by anonymous visitors — and the plugin only
-             * ANDs its tenant constraint on when `req.user` exists. So for an
-             * anonymous POST there is nothing between the request body and the
-             * database: sending `{ form: <acme form>, site: <studio site> }` filed
-             * acme's enquiry under studio. Deriving it from the form closes that,
-             * and also supplies the required field that an admin's tenant cookie
-             * would have (a public POST has no cookie, so without this every real
-             * submission failed validation).
+             * request. Deriving it also lets the anonymous budget follow the real
+             * tenant rather than a caller-controlled form ID or Host header.
              */
-            const formId = typeof data.form === 'object' ? data.form?.id : data.form
-            if (!formId) return data
+            const formValue = record.form
+            const formId = formValue && typeof formValue === 'object'
+              ? (formValue as { id?: unknown }).id
+              : formValue
+            if (!formId) {
+              enforcePublicFormSubmissionRateLimit(req, null)
+              return cleanData
+            }
 
             const form = await req.payload.findByID({
               id: String(formId),
@@ -141,8 +162,15 @@ export const plugins: Plugin[] = [
               req,
               select: { site: true },
             })
+            const formSite = (form as { site?: unknown } | null)?.site
+            const siteID = idOf(formSite)
+            enforcePublicFormSubmissionRateLimit(req, siteID)
 
-            return { ...data, site: (form as { site?: unknown } | null)?.site }
+            if (!await verifyPublicFormChallenge({ data: record, req, siteID })) {
+              rejectPublicFormSubmission()
+            }
+
+            return { ...record, site: formSite }
           },
         ],
       },
@@ -361,6 +389,10 @@ export const plugins: Plugin[] = [
   // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
   // tenant-scoped collection already exists in config.
   mcp,
-  // Last: must see the fields every plugin above adds.
+  // These final plugins must see fields/collections/hooks every plugin above adds,
+  // including the MCP key collection. Public reads remain capped; tenant-owned upload
+  // fields then receive one reusable picker plus a server-side same-site relation guard.
   jalaliDates,
+  publicReadLimits,
+  tenantMediaPicker,
 ]

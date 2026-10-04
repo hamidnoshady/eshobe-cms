@@ -1,10 +1,11 @@
 import type { CollectionAfterChangeHook, CollectionAfterDeleteHook, PayloadRequest } from 'payload'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 
 import { tryRevalidate } from '@/hooks/revalidate'
 import { defaultLocale } from '@/lib/locales'
 import { notifyRenderers } from '@/lib/renderer-webhook'
+import { siteTag } from '@/lib/site-cache'
 import { revalidationPaths } from '@/lib/site-url'
 
 /**
@@ -63,8 +64,21 @@ const revalidate = async (
   base: string,
   slug?: null | string,
 ): Promise<void> => {
-  const { domain, siteDefaultLocale } = await routingFor(doc.site, req)
+  const siteId = doc.site && typeof doc.site === 'object' ? doc.site.id : doc.site
+  if (siteId) {
+    const collection = base.startsWith('/') ? base.slice(1) : base || 'pages'
+    const tag = siteTag(String(siteId), collection)
+    tryRevalidate(req.payload, tag, () => revalidateTag(tag, 'max'))
 
+    // The public search index is a denormalized copy of posts. A post write also
+    // invalidates that site’s result list, including unpublish and delete hooks.
+    if (collection === 'posts') {
+      const searchTag = siteTag(String(siteId), 'search')
+      tryRevalidate(req.payload, searchTag, () => revalidateTag(searchTag, 'max'))
+    }
+  }
+
+  const { domain, siteDefaultLocale } = await routingFor(doc.site, req)
   if (!domain) return
 
   const locale = String(req.locale ?? defaultLocale)
@@ -80,8 +94,6 @@ const revalidate = async (
   // The other half of the same event: this app's cache is not the only one holding the
   // document. Best-effort and env-gated, so a platform without an external renderer
   // never makes a request.
-  const siteId = doc.site && typeof doc.site === 'object' ? doc.site.id : doc.site
-
   if (siteId) {
     const resource = base ? base.replace(/^\//, '').replace(/s$/, '') : 'page'
     notifyRenderers({

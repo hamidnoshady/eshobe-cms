@@ -10,12 +10,16 @@ import type {
 } from 'payload'
 
 import configPromise from '@payload-config'
+import { unstable_cache } from 'next/cache'
 import { getPayload } from 'payload'
 import { cache } from 'react'
 
 import type { Site } from '@/payload-types'
 
 import { hostFromHeader, siteHostMatch } from './domains'
+import { PUBLIC_SITE_DATA_REVALIDATE_SECONDS, siteTag } from './site-cache'
+
+export { siteTag }
 
 /**
  * The only module allowed to call the Local API from front-end code.
@@ -29,6 +33,8 @@ import { hostFromHeader, siteHostMatch } from './domains'
 
 /** Deliberately narrow: `collection`, `overrideAccess` and tenant scoping are ours. */
 type FindArgs = {
+  /** Persist this anonymous, published, site-scoped read for up to one minute. */
+  cachePublic?: boolean
   depth?: number
   draft?: boolean
   /**
@@ -52,10 +58,6 @@ type FindArgs = {
   user?: TypedUser | null
   where?: Where
 }
-
-/** Cache tag for one site's slice of a collection. Shared by readers and revalidate hooks. */
-export const siteTag = (siteId: string, ...parts: string[]): string =>
-  ['site', siteId, ...parts].join(':')
 
 /** The result of resolving an inbound hostname, including whether it was canonical. */
 export type SiteHostResolution = {
@@ -148,23 +150,38 @@ export const siteFromRequest = async (req: PayloadRequest): Promise<Site | null>
 export const findForSite = async <T extends CollectionSlug>(
   collection: T,
   siteId: string,
-  { where, ...args }: FindArgs,
+  { cachePublic = false, where, ...args }: FindArgs,
 ): Promise<PaginatedDocs<DataFromCollectionSlug<T>>> => {
   const payload = await getPayload({ config: configPromise })
+  const scopedWhere = {
+    and: [{ site: { equals: siteId } }, ...(where ? [where] : [])],
+  }
 
   // `payload.find`'s options are a union over every collection slug; resolving it
   // against a generic slug exceeds TS's union limit (TS2590). The cast is only
   // about that limit — the public signature above stays fully typed.
-  const result = await (payload.find as (args: unknown) => Promise<PaginatedDocs<unknown>>)({
-    ...args,
-    collection,
-    overrideAccess: false,
-    where: {
-      and: [{ site: { equals: siteId } }, ...(where ? [where] : [])],
-    },
+  const read = async (): Promise<PaginatedDocs<unknown>> =>
+    (payload.find as (args: unknown) => Promise<PaginatedDocs<unknown>>)({
+      ...args,
+      collection,
+      overrideAccess: false,
+      where: scopedWhere,
+    })
+
+  // Draft and user-backed reads are never persisted. Public callers opt in only
+  // after choosing a published query; including the complete normalized arguments
+  // in the key keeps locale, pagination, filters, sort and depth isolated.
+  if (!cachePublic || args.draft === true || args.user) {
+    return (await read()) as PaginatedDocs<DataFromCollectionSlug<T>>
+  }
+
+  const key = JSON.stringify({ args, where: scopedWhere }) ?? '{}'
+  const cachedRead = unstable_cache(read, ['site-query', collection, siteId, key], {
+    revalidate: PUBLIC_SITE_DATA_REVALIDATE_SECONDS,
+    tags: [siteTag(siteId, collection)],
   })
 
-  return result as PaginatedDocs<DataFromCollectionSlug<T>>
+  return (await cachedRead()) as PaginatedDocs<DataFromCollectionSlug<T>>
 }
 
 /**

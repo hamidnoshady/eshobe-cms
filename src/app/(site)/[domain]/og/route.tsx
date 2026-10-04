@@ -1,7 +1,7 @@
 import type { TypedLocale } from 'payload'
 
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 import { ImageResponse } from 'next/og'
 
@@ -52,7 +52,12 @@ import { siteOrigin } from '@/lib/site-url'
  *   shared pool, and handing satori `buffer.buffer` hands it the whole pool.
  */
 const fontFile = async (url: URL): Promise<ArrayBuffer> => {
-  const buffer = await readFile(fileURLToPath(url))
+  // Next's server bundle rewrites literal `new URL(font, import.meta.url)` assets to
+  // `/_next/static/media/<hashed-name>`. The traced files live beside the standalone
+  // server under `.next/server/chunks/static/media`, not at that browser URL.
+  const filename = url.pathname.split('/').at(-1)
+  if (!filename) throw new Error('The Open Graph font asset path is unavailable.')
+  const buffer = await readFile(join(process.cwd(), '.next/server/chunks/static/media', filename))
 
   return buffer.buffer.slice(
     buffer.byteOffset,
@@ -80,6 +85,7 @@ type Doc = { meta?: { title?: null | string } | null; title?: null | string }
 
 const findDoc = async (site: Site, locale: string, slug: string): Promise<Doc | null> => {
   const { docs } = await findForSite('pages', String(site.id), {
+    cachePublic: true,
     depth: 0,
     limit: 1,
     locale: locale as TypedLocale,

@@ -1,59 +1,23 @@
-import type { GlobalSlug } from 'payload'
+import type { CollectionSlug } from 'payload'
 
 /**
- * Collections exposed to MCP clients (see `src/plugins/mcp.ts`).
- * Exported for tests — keep in sync with the plugin config.
+ * The intentionally small MCP surface. Sensitive operational rows, user/site
+ * administration, submissions, credentials and deployment records are not MCP
+ * resources at all; they cannot be enabled on a key by toggling a checkbox.
  */
 export const MCP_COLLECTION_SLUGS = [
   'pages',
   'posts',
   'media',
   'categories',
-  'users',
-  'sites',
-  'api-keys',
-  'storage-connections',
-  'theme',
   'site-branding',
   'header',
   'footer',
   'products',
-  'orders',
   'store',
-  'payment-gateways',
-  'cdn-zones',
-  'cdn-events',
-  'domain-reseller-products',
-  'reseller-domains',
-  'reseller-domain-operations',
-  'reseller-domain-events',
-  'plans',
-  'subscriptions',
-  'invoices',
-  'site-entitlements',
-  'usage-records',
-  'central-entitlement-projections',
-  'billing-usage-outbox',
-  'billing-usage-samples',
-  'billing-storage-accounts',
-  'billing-service-credentials',
-  'billing-replay-nonces',
-  'feature-flags',
-  'plugins',
-  'theme-packages',
-  'theme-artifacts',
-  'deploy-targets',
-  'site-deployments',
-  'theme-bindings',
-  'site-theme-settings',
-  'webhooks',
-  'webhook-deliveries',
-  'audit-log',
-  'redirects',
   'forms',
-  'form-submissions',
-  'search',
   'payload-folders',
-] as const
+] as const satisfies readonly CollectionSlug[]
 
-export const MCP_GLOBAL_SLUGS: GlobalSlug[] = ['domain-reseller', 'payments', 'platform-settings']
+/** There are no platform-wide globals available to MCP clients. */
+export const MCP_GLOBAL_SLUGS = [] as const

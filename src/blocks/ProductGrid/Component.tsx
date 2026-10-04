@@ -40,7 +40,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
   // The site is what makes a price mean anything: the currency is a property of the
   // store, and a price without its unit is an order of magnitude waiting to happen.
   const { currency } = site
-    ? await storeSettingsForSite(String(site.id), { locale })
+    ? await storeSettingsForSite(String(site.id), { cachePublic: true, locale })
     : { currency: 'IRT' as const }
 
   // Which Iranian PSPs this site has switched on, already ordered for the buyer. Empty on
@@ -61,6 +61,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
     // Local API would otherwise hand every other customer's catalogue to this one —
     // and their drafts too, because `draft: false` does not filter drafts.
     const { docs } = await findForSite('products', String(site.id), {
+      cachePublic: true,
       limit: limit ?? 6,
       locale,
       sort: '-createdAt',

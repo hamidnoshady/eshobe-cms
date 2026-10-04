@@ -35,6 +35,7 @@ export const SearchResults: React.FC<{ page?: number; q?: string }> = async ({
   const term = (q ?? '').replace(/[%_]/g, '').trim()
 
   const { docs, page: currentPage, totalDocs } = await findForSite('search', site.id, {
+    cachePublic: true,
     limit: PER_PAGE,
     locale,
     page,
@@ -57,8 +58,9 @@ export const SearchResults: React.FC<{ page?: number; q?: string }> = async ({
     })
     .filter((id): id is string => typeof id === 'string')
   const translated = postIds.length
-    ? await findForSite('posts', site.id, {
-        depth: 0,
+      ? await findForSite('posts', site.id, {
+          cachePublic: true,
+          depth: 0,
         fallbackLocale: false,
         limit: postIds.length,
         locale,

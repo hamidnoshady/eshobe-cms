@@ -22,6 +22,26 @@ const indexOf = (needle: string): number => {
   return index
 }
 
+describe('Caddyfile transport and public form protections', () => {
+  it('enables zstd/gzip compression on both HTTPS sites', () => {
+    const blocks = caddyfile.split(/(?=^https:\/\/)/m).filter((block) => /^https:\/\//.test(block))
+
+    expect(blocks).toHaveLength(2)
+    for (const block of blocks) expect(block).toMatch(/^https:\/\/[^\n]*\n\s+encode zstd gzip/m)
+  })
+
+  it('bounds only the public form POST body before proxying to the application', () => {
+    const matcher = indexOf('@form_submissions')
+    const handle = indexOf('handle @form_submissions')
+    const nextMatcher = caddyfile.indexOf('@checkout', handle)
+    const block = caddyfile.slice(handle, nextMatcher)
+
+    expect(matcher).toBeLessThan(handle)
+    expect(block).toContain('request_body {\n            max_size 1MB\n        }')
+    expect(block).toContain('reverse_proxy web:3000')
+  })
+})
+
 describe('Caddyfile control-plane API guard', () => {
   it('carves out authenticated API calls before blocking anonymous reads', () => {
     const controlPlane = indexOf('https://{$CONTROL_PLANE_HOST} {')

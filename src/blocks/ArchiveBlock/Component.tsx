@@ -30,6 +30,7 @@ export const ArchiveBlock: React.FC<
     // here would list every customer's posts on every customer's site.
     const fetchedPosts = site
       ? await findForSite('posts', site.id, {
+          cachePublic: true,
           depth: 1,
           limit,
           locale,

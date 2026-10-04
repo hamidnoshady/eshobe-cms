@@ -20,7 +20,7 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
   if (!product) notFound()
 
   const { currency } = site
-    ? await storeSettingsForSite(String(site.id), { locale })
+    ? await storeSettingsForSite(String(site.id), { cachePublic: !draft, locale })
     : { currency: 'IRT' as const }
 
   // Same list the product grid renders, from the same helper: a buyer who sees Digipay on

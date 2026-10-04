@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
 
 import { fields } from './fields'
+import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
 import { getClientSideURL } from '@/utilities/getURL'
 
 export type FormBlockType = {
@@ -136,6 +137,16 @@ export const FormBlock: React.FC<
           )}
           {!hasSubmitted && (
             <form id={formID} onSubmit={handleSubmit(onSubmit)}>
+              <div aria-hidden="true" className="absolute -start-[10000px] h-px w-px overflow-hidden">
+                <label htmlFor={`${formID}-website-check`}>Leave this field blank</label>
+                <input
+                  autoComplete="off"
+                  id={`${formID}-website-check`}
+                  tabIndex={-1}
+                  type="text"
+                  {...register(PUBLIC_FORM_HONEYPOT_FIELD as never)}
+                />
+              </div>
               <div className="mb-4 last:mb-0">
                 {formFromProps &&
                   formFromProps.fields &&

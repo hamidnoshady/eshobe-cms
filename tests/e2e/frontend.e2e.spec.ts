@@ -222,6 +222,26 @@ test.describe('live preview', () => {
     expect(csp).toBe("frame-ancestors 'self' http://localhost:3000")
   })
 
+  test('lets an authenticated site owner preview an unpublished draft', async ({ page }) => {
+    const login = await page.request.post('http://localhost:3000/api/users/login', {
+      data: { email: 'acme@eshobe.test', password: 'test1234' },
+    })
+    expect(login.status()).toBe(200)
+    const { token } = (await login.json()) as { token?: string }
+    expect(token).toBeTruthy()
+
+    const params = new URLSearchParams({
+      path: '/coming-soon',
+      previewSecret: process.env.PREVIEW_SECRET ?? '',
+      token: token!,
+    })
+    const res = await page.goto(`${acme}/next/preview?${params.toString()}`)
+
+    expect(res?.status()).toBe(200)
+    await expect(page).toHaveURL(`${acme}/coming-soon`)
+    await expect(page.locator('body')).toContainText('این صفحه هنوز منتشر نشده است')
+  })
+
   test('refuses to turn on draft mode without the preview secret', async ({ page }) => {
     // The token in the URL is the editor's session; the secret is the second half.
     // Both are checked before `draftMode().enable()`, and a 403 here is what keeps

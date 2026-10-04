@@ -12,7 +12,7 @@ export async function Footer() {
   const { locale, site } = await getSiteContext()
 
   const footerData = site
-    ? await findGlobalForSite('footer', site.id, { depth: 1, locale })
+    ? await findGlobalForSite('footer', site.id, { cachePublic: true, depth: 1, locale })
     : null
 
   const navItems = footerData?.navItems || []

@@ -14,6 +14,8 @@ http:// {
 
 # The control plane keeps Payload admin and authenticated API access on its own host.
 https://{$CONTROL_PLANE_HOST} {
+    encode zstd gzip
+
     # The ask endpoint is Caddy-internal (reached as web:3000 over the Docker
     # network); never expose it publicly, or anyone can enumerate customer domains.
     @domain_check path /api/domain-check*
@@ -77,6 +79,8 @@ https://{$CONTROL_PLANE_HOST} {
 # reads and writes one site's content through its API key while still sending this
 # site's own domain as `Host` — see the note on @cms_content below.
 https:// {
+    encode zstd gzip
+
     tls {
         on_demand
     }
@@ -86,6 +90,9 @@ https:// {
         path /api/form-submissions
     }
     handle @form_submissions {
+        request_body {
+            max_size 1MB
+        }
         reverse_proxy web:3000
     }
 
