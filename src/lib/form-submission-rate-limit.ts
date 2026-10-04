@@ -1,4 +1,4 @@
-import { APIError, type PayloadRequest } from 'payload'
+import { APIError, type CollectionBeforeValidateHook, type PayloadRequest, type Plugin } from 'payload'
 
 import { clientKey, consume } from '@/lib/rate-limit'
 import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
@@ -98,3 +98,57 @@ export const enforcePublicFormSubmissionRateLimit = (
 export const rejectPublicFormSubmission = (): never => {
   throw new APIError('Submission was rejected.', 400, undefined, true)
 }
+
+const PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT = 'eshobePublicFormSiteAssignmentAPI'
+
+/**
+ * A public form has no logged-in tenant member, but its site is not caller-controlled:
+ * the submission hook has just resolved it from the persisted form. The multi-tenant
+ * plugin normally rejects anonymous REST/GraphQL tenant assignments, so mark only this
+ * server-derived value as an internal assignment until that plugin's validation hook
+ * runs. A final beforeValidate hook restores the original API mode before field and
+ * after-change hooks execute.
+ */
+export const allowDerivedPublicFormSiteAssignment = (
+  req: PayloadRequest,
+  siteID: null | string,
+): void => {
+  if (
+    !siteID ||
+    req.user ||
+    (req.payloadAPI !== 'REST' && req.payloadAPI !== 'GraphQL')
+  ) return
+
+  req.context ??= {}
+  req.context[PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT] = req.payloadAPI
+  req.payloadAPI = 'local'
+}
+
+export const restorePublicFormSiteAssignmentAPI: CollectionBeforeValidateHook = ({ data, req }) => {
+  const originalAPI = req.context?.[PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT]
+  if (originalAPI === 'REST' || originalAPI === 'GraphQL') {
+    req.payloadAPI = originalAPI
+    delete req.context[PUBLIC_FORM_SITE_ASSIGNMENT_API_CONTEXT]
+  }
+
+  return data
+}
+
+/** Runs after the multi-tenant plugin so its validation exception is immediately scoped. */
+export const restorePublicFormSiteAssignment: Plugin = (config) => ({
+  ...config,
+  collections: config.collections?.map((collection) => {
+    if (collection.slug !== 'form-submissions') return collection
+
+    return {
+      ...collection,
+      hooks: {
+        ...collection.hooks,
+        beforeValidate: [
+          ...(collection.hooks?.beforeValidate ?? []),
+          restorePublicFormSiteAssignmentAPI,
+        ],
+      },
+    }
+  }),
+})

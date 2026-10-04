@@ -56,7 +56,10 @@ const setPublicReadCacheHeaders = (
   req: PayloadRequest,
   collectionSlug: string,
 ): void => {
-  const apiPath = normalizePath(req.payload.config.routes.api ?? '/api')
+  // Lightweight synthetic requests are used by pure hook tests and by a few
+  // internal integrations. They may not carry Payload's full request config.
+  const routes = req.payload?.config?.routes
+  const apiPath = normalizePath(routes?.api ?? '/api')
   const pathname = requestPathname(req)
   const collectionPath = `${apiPath}/${collectionSlug}`
   const matchesCollectionRoute =
@@ -70,7 +73,7 @@ const setPublicReadCacheHeaders = (
   // The root list and `/collection/:id` are public document routes. Nested routes
   // such as `/collection/:id/versions` can expose drafts/history and stay private.
   const directPublicCollectionResourceRoute = collectionSuffix.length <= 1
-  const graphQLPath = `${apiPath}${normalizePath(req.payload.config.routes.graphQL ?? '/graphql')}`
+  const graphQLPath = `${apiPath}${normalizePath(routes?.graphQL ?? '/graphql')}`
   const directGraphQLRoute = req.payloadAPI === 'GraphQL' && pathname === graphQLPath
 
   // Internal reads must not overwrite headers chosen by their endpoint (e.g. the
@@ -147,7 +150,7 @@ export const capPublicCollectionReads: CollectionBeforeOperationHook = ({ args, 
   // operations consume `limit`; adding it to findByID does not affect that operation.
   const boundedArgs = args as typeof args & { depth?: number; limit?: number }
   boundedArgs.limit = boundedPublicLimit(boundedArgs.limit)
-  boundedArgs.depth = boundedPublicDepth(boundedArgs.depth ?? req.payload.config.defaultDepth ?? 0)
+  boundedArgs.depth = boundedPublicDepth(boundedArgs.depth ?? req.payload?.config?.defaultDepth ?? 0)
 
   return args
 }

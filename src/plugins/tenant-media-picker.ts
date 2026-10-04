@@ -184,7 +184,6 @@ const assertMediaBelongsToSite: CollectionBeforeChangeHook = async ({
   originalDoc,
   req,
 }) => {
-  const collection = req.payload.config.collections.find((item) => item.slug === 'media')
   const foldersConfig = req.payload.config.folders as { fieldName?: string; slug?: string } | undefined
   const folderFieldName = foldersConfig?.fieldName || 'folder'
   const dataRecord = data as DataRecord | undefined
@@ -193,9 +192,13 @@ const assertMediaBelongsToSite: CollectionBeforeChangeHook = async ({
     ? dataRecord.site
     : originalRecord?.site
   const siteID = idOf(siteValue)
-  const existingMedia = collection?.fields
-    ? collectTenantMediaIDs(collection.fields, mergeData(originalDoc, data))
-    : []
+  // Validate against the fields of the document being written, not the media
+  // collection's fields. Product/post/page upload relations live on that target
+  // collection; using Media's schema silently skipped every such relation.
+  const existingMedia = collectTenantMediaIDs(
+    currentCollection.fields ?? [],
+    mergeData(originalDoc, data),
+  )
 
   if (!siteID && existingMedia.length) {
     throw new APIError('Media selections must belong to the current site.', 400)

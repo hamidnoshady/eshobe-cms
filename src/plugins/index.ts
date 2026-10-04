@@ -21,8 +21,10 @@ import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
 import { idOf } from '@/lib/ids'
 import {
+  allowDerivedPublicFormSiteAssignment,
   enforcePublicFormSubmissionRateLimit,
   rejectPublicFormSubmission,
+  restorePublicFormSiteAssignment,
   stripPublicFormHoneypot,
   verifyPublicFormChallenge,
 } from '@/lib/form-submission-rate-limit'
@@ -166,11 +168,17 @@ export const plugins: Plugin[] = [
             const siteID = idOf(formSite)
             enforcePublicFormSubmissionRateLimit(req, siteID)
 
-            if (!await verifyPublicFormChallenge({ data: record, req, siteID })) {
+            if (!siteID || !await verifyPublicFormChallenge({ data: record, req, siteID })) {
               rejectPublicFormSubmission()
             }
 
-            return { ...record, site: formSite }
+            // The tenant ID is resolved from this persisted form, never from the
+            // submitted `site` value. Let the multi-tenant plugin validate this
+            // server-derived assignment without treating an anonymous visitor as a
+            // member of the site's editor team.
+            allowDerivedPublicFormSiteAssignment(req, siteID)
+
+            return { ...record, site: siteID }
           },
         ],
       },
@@ -395,4 +403,7 @@ export const plugins: Plugin[] = [
   jalaliDates,
   publicReadLimits,
   tenantMediaPicker,
+  // Must run after multiTenant's assignment validator and restore REST/GraphQL
+  // mode before any field or after-change hooks observe the request.
+  restorePublicFormSiteAssignment,
 ]

@@ -88,6 +88,7 @@ describe('public REST and GraphQL collection read limits', () => {
       method: 'GET',
       payloadAPI: 'REST',
       responseHeaders: new Headers(),
+      url: 'http://acme.localhost/api/pages',
       user: null,
     }
     capPublicCollectionReads({
@@ -109,6 +110,7 @@ describe('public REST and GraphQL collection read limits', () => {
         method: 'GET',
         payloadAPI: 'REST',
         responseHeaders: new Headers(),
+        url: 'http://acme.localhost/api/pages',
         user: null,
       },
       {
@@ -116,6 +118,7 @@ describe('public REST and GraphQL collection read limits', () => {
         method: 'POST',
         payloadAPI: 'GraphQL',
         responseHeaders: new Headers(),
+        url: 'http://acme.localhost/api/graphql',
         user: null,
       },
     ]) {

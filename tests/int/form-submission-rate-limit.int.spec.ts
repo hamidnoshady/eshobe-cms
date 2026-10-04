@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
+  allowDerivedPublicFormSiteAssignment,
   enforcePublicFormSubmissionRateLimit,
+  restorePublicFormSiteAssignmentAPI,
   stripPublicFormHoneypot,
   verifyPublicFormChallenge,
 } from '@/lib/form-submission-rate-limit'
@@ -81,6 +83,21 @@ describe('anonymous public form submission protections', () => {
     })
     expect(bot.filled).toBe(true)
     expect(JSON.stringify(bot.data)).not.toContain(PUBLIC_FORM_HONEYPOT_FIELD)
+  })
+
+  it('temporarily allows only the form-derived anonymous tenant assignment', () => {
+    const request = { context: {}, payloadAPI: 'REST', user: null }
+
+    allowDerivedPublicFormSiteAssignment(request as never, 'resolved-site-id')
+    expect(request.payloadAPI).toBe('local')
+
+    restorePublicFormSiteAssignmentAPI({ data: { site: 'resolved-site-id' }, req: request } as never)
+    expect(request.payloadAPI).toBe('REST')
+    expect(request.context).toEqual({})
+
+    const authenticated = { context: {}, payloadAPI: 'REST', user: { id: 'editor' } }
+    allowDerivedPublicFormSiteAssignment(authenticated as never, 'resolved-site-id')
+    expect(authenticated.payloadAPI).toBe('REST')
   })
 
   it('runs an optional challenge verifier and fails closed if it rejects or throws', async () => {
