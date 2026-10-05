@@ -8,6 +8,7 @@ import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
 import { formatPrice } from '@/lib/format'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Loader2 } from 'lucide-react'
 import { uiString } from '@/lib/ui-strings'
 import React, { useState } from 'react'
 import { cn } from '@/utilities/ui'
@@ -258,6 +259,7 @@ export const PurchaseForm: React.FC<{
       />
 
       <Button className="w-full" disabled={status === 'sending'} type="submit">
+        {status === 'sending' && <Loader2 className="animate-spin" />}
         {status === 'sending' ? uiString('submitting', locale) : uiString('buyNow', locale)}
       </Button>
 

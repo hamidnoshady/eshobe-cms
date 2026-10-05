@@ -1,3 +1,3 @@
-## 2024-10-02 - Icon-Only Button Accessibility
-**Learning:** Found a missing `aria-label` on the mobile hamburger close button (`NavHamburgerButton` in `src/admin/nav/EshobeNav.client.tsx`). Adding `aria-label` provides critical context for screen readers when an icon is used alone.
-**Action:** When finding or creating icon-only buttons (like `Hamburger` icons, `X` close buttons), ensure to add an `aria-label` in the appropriate local language (e.g., Persian `بستن منو` for Close menu in this project).
+## 2024-05-15 - Inline loading states for async actions
+**Learning:** Moving loading text elements from loose blocks (like `<p>در حال ارسال…</p>`) into the submission button itself, alongside a spinner and `disabled` state, is much more accessible and provides better immediate feedback to users regarding async actions.
+**Action:** Always wrap async submission buttons in a disabled state and swap their content for an animated spinner (like `Loader2` from `lucide-react`) combined with localized loading text.
