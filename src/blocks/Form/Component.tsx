@@ -6,6 +6,7 @@ import React, { useCallback, useState } from 'react'
 import { useForm, FormProvider } from 'react-hook-form'
 import RichText from '@/components/RichText'
 import { Button } from '@/components/ui/button'
+import { Loader2 } from 'lucide-react'
 import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
 
 import { fields } from './fields'
@@ -128,7 +129,6 @@ export const FormBlock: React.FC<
           {!isLoading && hasSubmitted && confirmationType === 'message' && (
             <RichText data={confirmationMessage} />
           )}
-          {isLoading && !hasSubmitted && <p>در حال ارسال…</p>}
           {error && (
             /**
              * `role="alert"` so a screen reader announces a failed submission — the
@@ -176,8 +176,9 @@ export const FormBlock: React.FC<
                   })}
               </div>
 
-              <Button form={formID} type="submit" variant="default">
-                {submitButtonLabel}
+              <Button form={formID} type="submit" variant="default" disabled={isLoading}>
+                {isLoading && <Loader2 className="animate-spin" />}
+                {isLoading ? 'در حال ارسال…' : submitButtonLabel}
               </Button>
             </form>
           )}
