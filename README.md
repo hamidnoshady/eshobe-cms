@@ -298,6 +298,17 @@ be discovered by Coolify pulling it into production.
     (safe for staging / pre-DNS deploys). This is a **build-time** value inlined
     into the client bundle; changing it in Coolify's runtime env does nothing,
     it has to be right when CI builds.
+- **`DEPLOY_CMS_URL`** (CMS runtime env, not a repository variable) — the
+  `ESHOBE_CMS_URL` every deployed theme is given, falling back to
+  `NEXT_PUBLIC_SERVER_URL`. It must be an address the **theme containers** can
+  reach **without going through a proxy that routes by `Host`/SNI** — e.g. the
+  CMS container on the shared Docker network (`http://eshobe-cms-web:3000`) or a
+  host-local port, not `https://cms.eshobe.com` behind Traefik. Through such a
+  proxy, a theme relaying a visitor request can be routed back to itself and every
+  CMS call times out as `503 cms-unavailable`. The value is written into each
+  application's env at deploy time: changing it does not reach running themes, so
+  live rows built with the old value show «استقرار مجدد» in «استقرار پوسته» until
+  they are redeployed.
 - **Packages permissions** — `GITHUB_TOKEN` pushes to GHCR; under
   Settings → Actions → General, set _Workflow permissions_ to
   _Read repository contents and packages permissions_. The workflow itself grants

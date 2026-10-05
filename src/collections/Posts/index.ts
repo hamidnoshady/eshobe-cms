@@ -161,7 +161,7 @@ export const Posts: CollectionConfig<'posts'> = {
           admin: { condition: (_data, _siblingData, { user }) => Boolean(user) },
           // Text facts are written per language — «تهران» on the Persian page, "Tehran" on
           // the English one. The date is one value for every language. Localized by
-          // migration 20261005_180000_project_metadata_localized, which copies each
+          // migration 20261005_190000_project_metadata_localized, which copies each
           // existing value into every locale the post already has, so nothing a visitor
           // sees changes until an editor translates it.
           fields: [

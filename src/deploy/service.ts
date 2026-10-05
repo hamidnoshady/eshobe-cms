@@ -1116,6 +1116,20 @@ export const runDeployment = async (
         repointed.detail,
       )
     }
+
+    // The application now answers on this row's hostname, so the binding records that
+    // one. It used to be written only when the application was created, and kept a
+    // hostname format the deployments had long since stopped using.
+    if (previewDomain && String(binding.applicationHostname ?? '') !== previewDomain) {
+      await req.payload.update({
+        collection: 'theme-bindings',
+        data: { applicationHostname: previewDomain },
+        depth: 0,
+        id: bindingId,
+        overrideAccess: true,
+        req,
+      })
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1161,6 +1175,9 @@ export const runDeployment = async (
     collection: 'site-deployments',
     data: {
       apiKey: apiKeyId,
+      // What the application's platform env was built from; a later change to it
+      // (DEPLOY_CMS_URL, the site's locales …) shows the row as needing a redeploy.
+      platformEnvFingerprint: environment.platformFingerprint,
       revalidateSecret: encryptDeploySecret(revalidateSecret),
     },
     depth: 0,
@@ -1746,7 +1763,7 @@ export const promoteDeployment = async (
   const previousThemePackageId = idOf(previousActiveDeployment?.themePackage)
   const nextThemePackageId = idOf(deployment.themePackage)
 
-  const { docs: previous } = await req.payload.find({
+  const { docs: candidates } = await req.payload.find({
     collection: 'site-deployments',
     depth: 0,
     limit: 50,
@@ -1758,12 +1775,24 @@ export const promoteDeployment = async (
         { site: { equals: siteId } },
         { id: { not_equals: deploymentId } },
         { status: { in: ['live', 'verifying', 'building', 'creating'] } },
-        ...(isProductionMode(mode) ? [] : [{ domainMode: { equals: 'preview' } }]),
       ],
     },
   })
 
-  for (const row of previous as unknown as Record<string, unknown>[]) {
+  /**
+   * Only the promoted row's own lane is superseded. A production promotion — a
+   * re-run of the current version included — used to stop every other live row of
+   * the site, so the preview lane's row was marked «جایگزین شد» and its application
+   * stopped. The lanes are independent: a preview never stops production and a
+   * production deploy never stops the preview. `laneForDeployment` reads `lane` and
+   * falls back to the `domainMode` mapping for rows written before the column.
+   */
+  const lane = laneForDeployment(deployment)
+  const previous = (candidates as unknown as Record<string, unknown>[]).filter(
+    (row) => laneForDeployment(row) === lane,
+  )
+
+  for (const row of previous) {
     await stopDeployment(req, String(row.id), 'جایگزین شد با استقرار تازه.', {
       // Same application: the new row is running on it now.
       stopApplication: !appUuid || String(row.appUuid ?? '') !== appUuid,

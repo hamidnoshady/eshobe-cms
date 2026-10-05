@@ -784,6 +784,10 @@ export interface SiteDeployment {
   appUuid?: string | null;
   lastDeploymentUuid?: string | null;
   /**
+   * خلاصهٔ غیرمحرمانهٔ متغیرهایی که سکو هنگام این استقرار به اپلیکیشن داد (مانند نشانی CMS).
+   */
+  platformEnvFingerprint?: string | null;
+  /**
    * کلید role: "site" که این اجرا با آن محتوا می‌خواند. با توقف این استقرار باطل می‌شود.
    */
   apiKey?: (string | null) | ApiKey;
@@ -5188,6 +5192,7 @@ export interface SiteDeploymentsSelect<T extends boolean = true> {
   imageDigest?: T;
   appUuid?: T;
   lastDeploymentUuid?: T;
+  platformEnvFingerprint?: T;
   apiKey?: T;
   revalidateSecret?: T;
   lastError?: T;
