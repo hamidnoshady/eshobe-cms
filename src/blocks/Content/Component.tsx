@@ -9,12 +9,16 @@ import { CMSLink } from '../../components/Link'
 export const ContentBlock: React.FC<ContentBlockProps> = (props) => {
   const { columns } = props
 
+  // Written out in full: Tailwind scans source text, so an interpolated
+  // `lg:col-span-${n}` generated no CSS and every column fell back to full width.
   const colsSpanClasses = {
-    full: '12',
-    half: '6',
-    oneThird: '4',
-    twoThirds: '8',
-  }
+    full: 'lg:col-span-12',
+    half: 'lg:col-span-6',
+    oneQuarter: 'lg:col-span-3',
+    oneThird: 'lg:col-span-4',
+    threeQuarters: 'lg:col-span-9',
+    twoThirds: 'lg:col-span-8',
+  } as const
 
   return (
     <div className="container my-16">
@@ -26,7 +30,7 @@ export const ContentBlock: React.FC<ContentBlockProps> = (props) => {
 
             return (
               <div
-                className={cn(`col-span-4 lg:col-span-${colsSpanClasses[size!]}`, {
+                className={cn('col-span-4', colsSpanClasses[size ?? 'oneThird'], {
                   'md:col-span-2': size !== 'full',
                 })}
                 key={index}

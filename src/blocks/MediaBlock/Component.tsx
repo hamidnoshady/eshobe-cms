@@ -4,11 +4,11 @@ import { cn } from '@/utilities/ui'
 import React from 'react'
 import RichText from '@/components/RichText'
 
-import type { MediaBlock as MediaBlockProps } from '@/payload-types'
+import type { MediaBlock as MediaBlockProps, MediaBlockInline } from '@/payload-types'
 
 import { Media } from '../../components/Media'
 
-type Props = MediaBlockProps & {
+type Props = (MediaBlockProps | MediaBlockInline) & {
   breakout?: boolean
   captionClassName?: string
   className?: string
@@ -27,10 +27,15 @@ export const MediaBlock: React.FC<Props> = (props) => {
     media,
     staticImage,
     disableInnerContainer,
+    aspect,
+    size,
   } = props
 
+  // The block's own caption wins; older rows fall back to the medium's rich caption.
+  const blockCaption = typeof props.caption === 'string' && props.caption.trim() ? props.caption : null
   let caption
-  if (media && typeof media === 'object') caption = media.caption
+  if (!blockCaption && media && typeof media === 'object') caption = media.caption
+  const ratio = aspect && aspect !== 'auto' && aspect !== 'original' ? aspect.replace('/', ' / ') : undefined
 
   return (
     <div
@@ -38,16 +43,26 @@ export const MediaBlock: React.FC<Props> = (props) => {
         '',
         {
           container: enableGutter,
+          'mx-auto max-w-xl': size === 'narrow',
+          'mx-auto max-w-3xl': size === 'content',
         },
         className,
       )}
     >
-      {(media || staticImage) && (
-        <Media
-          imgClassName={cn('border border-border rounded-[0.8rem]', imgClassName)}
-          resource={media}
-          src={staticImage}
-        />
+      {(media || staticImage) &&
+        (ratio ? (
+          <div className="relative overflow-hidden rounded-[0.8rem] border border-border" style={{ aspectRatio: ratio }}>
+            <Media fill imgClassName={cn('object-cover', imgClassName)} resource={media} src={staticImage} />
+          </div>
+        ) : (
+          <Media
+            imgClassName={cn('border border-border rounded-[0.8rem] max-h-[75svh] w-auto mx-auto object-contain', imgClassName)}
+            resource={media}
+            src={staticImage}
+          />
+        ))}
+      {blockCaption && (
+        <p className={cn('mt-3 text-sm text-muted-foreground', captionClassName)}>{blockCaption}</p>
       )}
       {caption && (
         <div

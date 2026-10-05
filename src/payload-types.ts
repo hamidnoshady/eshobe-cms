@@ -1028,7 +1028,10 @@ export interface User {
 export interface ContentBlock {
   columns?:
     | {
-        size?: ('oneThird' | 'half' | 'twoThirds' | 'full') | null;
+        /**
+         * ستون‌ها روی یک شبکهٔ ۱۲ستونه کنار هم می‌نشینند و در موبایل زیر هم می‌روند.
+         */
+        size?: ('oneQuarter' | 'oneThird' | 'half' | 'twoThirds' | 'threeQuarters' | 'full') | null;
         richText?: {
           root: {
             type: string;
@@ -1077,6 +1080,12 @@ export interface ContentBlock {
  */
 export interface MediaBlock {
   media: string | Media;
+  size?: ('narrow' | 'content' | 'wide' | 'full') | null;
+  /**
+   * تصویر قاب را پر می‌کند و نقطهٔ کانونی رسانه حفظ می‌شود.
+   */
+  aspect?: ('auto' | '16/9' | '3/2' | '4/3' | '1/1' | '4/5' | '3/4' | 'original') | null;
+  caption?: string | null;
   id?: string | null;
   blockName?: string | null;
   blockType: 'mediaBlock';
@@ -1692,17 +1701,38 @@ export interface SiteBranding {
   id: string;
   site?: (string | null) | Site;
   displayName: string;
+  /**
+   * برای سربرگ موبایل و جاهای تنگ؛ حداکثر ۴۰ نویسه.
+   */
   shortName?: string | null;
   tagline?: string | null;
-  primaryLogo?: (string | null) | Media;
-  compactLogo?: (string | null) | Media;
   /**
-   * نشان بزرگ صفحهٔ اول پوسته (انیمیشن ورودی). فایل SVG پشتیبانی می‌شود؛ اگر خالی بماند «نشان اصلی» به کار می‌رود.
+   * نشان بزرگ وسط صفحهٔ اول پوسته که با انیمیشن ورودی نمایش داده می‌شود. فایل SVG بهترین نتیجه را دارد.
    */
   homeLogo?: (string | null) | Media;
+  /**
+   * سربرگ صفحه‌های داخلی.
+   */
+  primaryLogo?: (string | null) | Media;
+  /**
+   * نسخهٔ کوچک برای موبایل.
+   */
+  compactLogo?: (string | null) | Media;
+  /**
+   * برای زمینهٔ تیره.
+   */
   lightLogo?: (string | null) | Media;
+  /**
+   * برای زمینهٔ روشن.
+   */
   darkLogo?: (string | null) | Media;
+  /**
+   * مربعی، حداقل ۱۸۰×۱۸۰ پیکسل.
+   */
   favicon?: (string | null) | Media;
+  /**
+   * پیشنهاد: ۱۲۰۰×۶۳۰ پیکسل.
+   */
   socialImage?: (string | null) | Media;
   updatedAt: string;
   createdAt: string;
@@ -3863,6 +3893,9 @@ export interface ContentBlockSelect<T extends boolean = true> {
  */
 export interface MediaBlockSelect<T extends boolean = true> {
   media?: T;
+  size?: T;
+  aspect?: T;
+  caption?: T;
   id?: T;
   blockName?: T;
 }
@@ -4376,9 +4409,9 @@ export interface SiteBrandingSelect<T extends boolean = true> {
   displayName?: T;
   shortName?: T;
   tagline?: T;
+  homeLogo?: T;
   primaryLogo?: T;
   compactLogo?: T;
-  homeLogo?: T;
   lightLogo?: T;
   darkLogo?: T;
   favicon?: T;
@@ -5911,6 +5944,35 @@ export interface TaskSchedulePublish {
         } | null);
   };
   output?: unknown;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "MediaBlockInline".
+ */
+export interface MediaBlockInline {
+  media: string | Media;
+  size?: ('narrow' | 'content' | 'wide' | 'full') | null;
+  /**
+   * تصویر قاب را پر می‌کند و نقطهٔ کانونی رسانه حفظ می‌شود.
+   */
+  aspect?: ('auto' | '16/9' | '3/2' | '4/3' | '1/1' | '4/5' | '3/4' | 'original') | null;
+  caption?: string | null;
+  id?: string | null;
+  blockName?: string | null;
+  blockType: 'mediaBlock';
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "MediaGridBlock".
+ */
+export interface MediaGridBlock {
+  images: (string | Media)[];
+  columns?: ('2' | '3' | '4') | null;
+  aspect?: ('16/9' | '3/2' | '4/3' | '1/1' | '4/5' | '3/4') | null;
+  caption?: string | null;
+  id?: string | null;
+  blockName?: string | null;
+  blockType: 'mediaGrid';
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

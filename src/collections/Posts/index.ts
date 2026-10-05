@@ -22,7 +22,8 @@ import { scopedPublishedRead } from '../../access/siteRead'
 import { writeUnlessPublishing } from '../../access/publish'
 import { Banner } from '../../blocks/Banner/config'
 import { Code } from '../../blocks/Code/config'
-import { MediaBlock } from '../../blocks/MediaBlock/config'
+import { MediaBlockInline } from '../../blocks/MediaBlock/config'
+import { MediaGrid } from '../../blocks/MediaGrid/config'
 import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalidateSiteDoc'
 import { uniqueSlugPerSite } from '../../hooks/uniqueSlugPerSite'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
@@ -110,7 +111,7 @@ export const Posts: CollectionConfig<'posts'> = {
                   return [
                     ...rootFeatures,
                     HeadingFeature({ enabledHeadingSizes: ['h1', 'h2', 'h3', 'h4'] }),
-                    BlocksFeature({ blocks: [Banner, Code, MediaBlock] }),
+                    BlocksFeature({ blocks: [MediaBlockInline, MediaGrid, Banner, Code] }),
                     FixedToolbarFeature(),
                     InlineToolbarFeature(),
                     HorizontalRuleFeature(),

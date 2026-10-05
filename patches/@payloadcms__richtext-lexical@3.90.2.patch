@@ -1,0 +1,13 @@
+diff --git a/dist/features/heading/server/i18n.js b/dist/features/heading/server/i18n.js
+index e0ad4b16df5a57c67abd47739f2f6d3f0274a531..80bb4f5a6a8044ade4867e176b277b2a82243be6 100644
+--- a/dist/features/heading/server/i18n.js
++++ b/dist/features/heading/server/i18n.js
+@@ -27,7 +27,7 @@ export const i18n = {
+     label: 'Pealkiri {{headingLevel}}'
+   },
+   fa: {
+-    label: '[SKIPPED]'
++    label: 'عنوان {{headingLevel}}'
+   },
+   fr: {
+     label: 'En-tête {{headingLevel}}'
