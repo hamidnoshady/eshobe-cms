@@ -26,7 +26,13 @@ import { resolveEntitlement } from '@/platform/entitlements'
 import { applyThemeDesignDefaults } from '@/platform/saas-report'
 import { emitPlatformEvent } from '@/platform/webhooks'
 import { readDeployTargetToken } from '@/collections/hooks/deploySecrets'
-import { CoolifyClient, boundedLabel, scrubDetail, type DeployTarget } from './coolify'
+import {
+  CoolifyClient,
+  boundedLabel,
+  hostOfDomain,
+  scrubDetail,
+  type DeployTarget,
+} from './coolify'
 import { buildEnvironment } from './environment'
 import { resolveCommitSha } from './github'
 import { requestThemeRoutesRegeneration } from './routing'
@@ -36,6 +42,7 @@ import {
   ensureThemeBinding,
   laneForDeployment,
   persistBindingApp,
+  releaseBindingProvisioning,
   resolveBindingAppUuid,
 } from './bindings'
 import { bindingAppName } from '@/lib/deploy/appIdentity'
@@ -303,11 +310,14 @@ export const updateInfoFor = (
 /**
  * The preview hostname a deployment gets before any customer DNS moves.
  *
- * `<site-domain>-<theme-key>[-<variant>].sites.example.com`. Deterministic, so a
- * redeploy of the same pair reuses it, and so `findApplicationByName` has something
- * stable to reconcile against. An `edge`/`direct` deployment uses the unsuffixed
- * name (it is also Caddy's upstream); a `preview` deployment passes `'preview'` and
- * gets a hostname — and an application — of its own.
+ * `<site-key>-<theme-key>[-<variant>].sites.example.com`, where `<site-key>` is the
+ * first 12 hex digits of the site id — the same stable key the Coolify application
+ * name uses (`bindingAppName`). The full 36-character UUID made every name long
+ * enough that the 50-character bound cut the theme key in half
+ * (`…-cms-arch3-the`). Deterministic, so a redeploy of the same pair reuses it. An
+ * `edge`/`direct` deployment uses the unsuffixed name (its staging host); a
+ * `preview` deployment passes `'preview'` and gets a hostname — and an application —
+ * of its own.
  */
 export const previewHostname = (
   wildcardDomain: null | string | undefined,
@@ -319,7 +329,8 @@ export const previewHostname = (
     .replace(/^\*\./, '')
     .trim()
   if (!base) return null
-  const label = boundedLabel(`${String(site.id)}-${themeKey}`, 50, variant)
+  const siteKey = String(site.id).replace(/-/g, '').slice(0, 12)
+  const label = boundedLabel(`${siteKey}-${themeKey}`, 50, variant)
   return label ? `${label}.${base}` : null
 }
 
@@ -924,21 +935,17 @@ export const runDeployment = async (
    * racing for one hostname is a rate limit and an outage. It gets the preview name
    * only, and Caddy points at it.
    *
-   * A production (`direct`) deployment answers on **both** names: the customer's domain,
-   * and the application's own hostname. The health check (`verifyDeployment`) probes the
-   * application's own hostname on purpose — the customer's domain may still point
-   * somewhere else while DNS settles — so if Coolify is never told to route that name the
-   * check reaches Traefik's default certificate, fails with a bare «fetch failed», and the
-   * deploy sits in «در حال بررسی سلامت» forever even though the container is healthy.
+   * A production (`direct`) application is built and health-checked on its own
+   * hostname **only**. The customer's domain is usually still held by the theme it is
+   * replacing, and Coolify refuses a hostname two applications claim (`Domain
+   * conflicts detected`) — so the domain is moved over only once this build has proven
+   * healthy (`moveSiteDomain`, from `verifyDeployment`). A redeploy of the theme that
+   * already holds the domain keeps it. The health check probes the application's own
+   * hostname on purpose (see `applicationHostOf`), so that name is always routed.
    */
-  const domainHosts =
-    lane === 'preview' || domainMode === 'edge'
-      ? [previewDomain].filter(Boolean)
-      : [siteDomain, previewDomain].filter(Boolean)
+  const stagingDomains = [previewDomain].filter(Boolean).map((host) => deployOrigin(String(host)))
 
-  const domains = domainHosts.map((host) => deployOrigin(String(host)))
-
-  if (!domains.length) {
+  if (!stagingDomains.length) {
     return fail(req, deploymentId, 'هیچ میزبانی برای این استقرار مشخص نشده است.')
   }
 
@@ -999,13 +1006,16 @@ export const runDeployment = async (
           }
     const created = await client.createApplication({
       source: applicationSource,
-      domains,
+      domains: stagingDomains,
       healthCheckPath: manifest.build.healthCheckPath,
       name: appName,
       port: manifest.build.port,
     })
 
+    // Every exit between the claim and `persistBindingApp` releases the claim. A
+    // failed create that kept it blocked every later deploy of this pair.
     if (!created.ok) {
+      await releaseBindingProvisioning(req, bindingId)
       return fail(
         req,
         deploymentId,
@@ -1015,7 +1025,10 @@ export const runDeployment = async (
     }
 
     appUuid = String(created.data.uuid ?? '')
-    if (!appUuid) return fail(req, deploymentId, 'Coolify شناسهٔ اپلیکیشن برنگرداند.')
+    if (!appUuid) {
+      await releaseBindingProvisioning(req, bindingId)
+      return fail(req, deploymentId, 'Coolify شناسهٔ اپلیکیشن برنگرداند.')
+    }
 
     await persistBindingApp(req, bindingId, { appUuid, applicationHostname: previewDomain })
 
@@ -1051,6 +1064,22 @@ export const runDeployment = async (
     // documents why placement and credential fields are absent here. The registry
     // digest travels in the stored shape (`repo@sha256` name + bare-hash tag);
     // anything richer is a 422 `Validation failed` from Coolify's PATCH allowlist.
+    let domains = stagingDomains
+    if (lane === 'production' && domainMode === 'direct' && siteDomain) {
+      const holders = await client.applicationsHoldingHost(siteDomain)
+      if (!holders.ok) {
+        return fail(
+          req,
+          deploymentId,
+          `خواندن دامنه‌های Coolify ناموفق بود: ${holders.message}`,
+          holders.detail,
+        )
+      }
+      if (holders.data.some((holder) => holder.uuid === appUuid)) {
+        domains = [deployOrigin(siteDomain), ...stagingDomains]
+      }
+    }
+
     const repointed = await client.repointApplication(appUuid, {
       domains: domains.join(','),
       healthCheckPath: manifest.build.healthCheckPath,
@@ -1210,6 +1239,8 @@ export const pollDeployment = async (
     await setDeploymentStatus(req, deploymentId, 'failed', {
       lastError: `Coolify گزارش داد: ${result.data.raw}`,
     })
+    // A restart that failed mid cut-over must not leave the domain on this app.
+    await returnSiteDomain(req, deploymentId)
     return { changed: true, status: 'failed' }
   }
 
@@ -1311,6 +1342,194 @@ const probeHealth = async (url: string): Promise<HealthProbe> => {
  * 500 on its first request because an env var it needed is absent. Nothing flips to
  * `live`, and no site's `renderedBy` changes, until this has had a 2xx.
  */
+/**
+ * Every Coolify application this site's deployments and bindings have used — the
+ * applications the domain cut-over may take the customer's domain from. One it does
+ * not know (another site's, or one made by hand) is never touched.
+ */
+const siteApplicationUuids = async (req: PayloadRequest, siteId: string): Promise<Set<string>> => {
+  const owned = new Set<string>()
+  for (const collection of ['site-deployments', 'theme-bindings'] as const) {
+    const { docs } = await req.payload.find({
+      collection,
+      depth: 0,
+      limit: 500,
+      overrideAccess: true,
+      pagination: false,
+      req,
+      where: { site: { equals: siteId } },
+    })
+    for (const doc of docs as unknown as Record<string, unknown>[]) {
+      if (doc.appUuid) owned.add(String(doc.appUuid))
+    }
+  }
+  return owned
+}
+
+const withoutHost = (domains: string[], host: string): string[] =>
+  domains.filter((domain) => hostOfDomain(domain) !== host)
+
+export type DomainMove =
+  | { state: 'held' }
+  | { deploymentUuid: string; state: 'moving' }
+  | { message: string; state: 'refused' }
+
+/**
+ * Give the customer's domain to a production application that has just proven healthy
+ * on its own hostname — how a site changes theme without downtime, every time.
+ *
+ * 1. The domain is removed from the configuration of whichever of the site's
+ *    applications holds it. Its *running* container keeps the routing labels it was
+ *    started with, so the old theme goes on answering the customer meanwhile.
+ * 2. The domain is added to this application, which is restarted (no rebuild) so its
+ *    container picks the domain up. The row goes back to `building` to follow that
+ *    restart, then through the health check again.
+ * 3. `promoteDeployment` then stops — never deletes — the old application.
+ *
+ * `held` means this application already has the domain (a redeploy of the serving
+ * theme, or step 2 done): promote. Every refusal puts back whatever it changed.
+ */
+export const moveSiteDomain = async (
+  req: PayloadRequest,
+  deployment: Record<string, unknown>,
+  site: Record<string, unknown>,
+  client: CoolifyClient,
+): Promise<DomainMove> => {
+  const siteDomain = String(site.domain ?? '').trim()
+  const appUuid = String(deployment.appUuid ?? '')
+  const ownHost = applicationHostOf(deployment)
+  if (!siteDomain || !appUuid) {
+    return { message: 'دامنهٔ سایت یا اپلیکیشن این استقرار مشخص نیست.', state: 'refused' }
+  }
+  const host = hostOfDomain(siteDomain)
+
+  const holders = await client.applicationsHoldingHost(host)
+  if (!holders.ok) {
+    return { message: `خواندن دامنه‌های Coolify ناموفق بود: ${holders.message}`, state: 'refused' }
+  }
+  if (holders.data.some((holder) => holder.uuid === appUuid)) return { state: 'held' }
+
+  const owned = await siteApplicationUuids(req, String(site.id))
+  const foreign = holders.data.filter((holder) => !owned.has(holder.uuid))
+  if (foreign.length) {
+    return {
+      message: `دامنهٔ ${host} در Coolify به اپلیکیشن «${foreign
+        .map((holder) => holder.name || holder.uuid)
+        .join('، ')}» تعلق دارد که متعلق به این سایت نیست؛ انتقال خودکار انجام نشد.`,
+      state: 'refused',
+    }
+  }
+
+  const released: { domains: string[]; uuid: string }[] = []
+  const putBack = async (): Promise<void> => {
+    for (const holder of released) await client.setDomains(holder.uuid, holder.domains)
+  }
+
+  for (const holder of holders.data) {
+    const result = await client.setDomains(holder.uuid, withoutHost(holder.domains, host))
+    if (!result.ok) {
+      await putBack()
+      return {
+        message: `برداشتن دامنه از پوستهٔ قبلی ناموفق بود: ${result.message}`,
+        state: 'refused',
+      }
+    }
+    released.push(holder)
+  }
+
+  const ownDomains = [deployOrigin(host), ...(ownHost ? [deployOrigin(ownHost)] : [])]
+  const assigned = await client.setDomains(appUuid, ownDomains)
+  if (!assigned.ok) {
+    await putBack()
+    return {
+      message: `افزودن دامنه به پوستهٔ جدید ناموفق بود: ${assigned.message}`,
+      state: 'refused',
+    }
+  }
+
+  const restarted = await client.restart(appUuid)
+  if (!restarted.ok) {
+    await client.setDomains(appUuid, withoutHost(ownDomains, host))
+    await putBack()
+    return {
+      message: `راه‌اندازی مجدد پوسته روی دامنه ناموفق بود: ${restarted.message}`,
+      state: 'refused',
+    }
+  }
+
+  return { deploymentUuid: restarted.data.deploymentUuid, state: 'moving' }
+}
+
+/**
+ * Undo a cut-over whose deployment then failed: the customer's domain goes back to
+ * the site's serving application, and the failed application — whose container may
+ * still carry routing labels for the domain — is stopped so it cannot answer for it.
+ *
+ * The serving application was never restarted during the cut-over, so its container
+ * still routes the domain; this only makes its configuration say so again, so a later
+ * restart of it keeps the domain. A no-op unless this deployment's application holds
+ * the domain and a *different* deployment is the site's active one.
+ */
+export const returnSiteDomain = async (
+  req: PayloadRequest,
+  deploymentId: string,
+): Promise<void> => {
+  const deployment = (await req.payload.findByID({
+    collection: 'site-deployments',
+    depth: 0,
+    disableErrors: true,
+    id: deploymentId,
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+  if (!deployment || deployment.domainMode !== 'direct' || !deployment.appUuid) return
+
+  const site = (await req.payload.findByID({
+    collection: 'sites',
+    depth: 0,
+    disableErrors: true,
+    id: String(idOf(deployment.site)),
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+  const activeId = idOf(site?.activeDeployment)
+  if (!site || !site.domain || !activeId || activeId === deploymentId) return
+
+  const active = (await req.payload.findByID({
+    collection: 'site-deployments',
+    depth: 0,
+    disableErrors: true,
+    id: activeId,
+    overrideAccess: true,
+    req,
+  })) as unknown as null | Record<string, unknown>
+  const servingApp = String(active?.appUuid ?? '')
+  const failedApp = String(deployment.appUuid)
+  if (!servingApp || servingApp === failedApp) return
+
+  const target = await loadTarget(req, String(idOf(deployment.target)))
+  if (!target) return
+  const client = new CoolifyClient(target)
+  const host = hostOfDomain(String(site.domain))
+
+  const holders = await client.applicationsHoldingHost(host)
+  if (!holders.ok) return
+  const failedHolder = holders.data.find((holder) => holder.uuid === failedApp)
+  if (!failedHolder) return
+
+  const serving = await client.applicationDomains(servingApp)
+  if (!serving.ok) return
+  const servingDomains = serving.data
+
+  await client.setDomains(failedApp, withoutHost(failedHolder.domains, host))
+  await client.setDomains(servingApp, [deployOrigin(host), ...withoutHost(servingDomains, host)])
+  await client.stop(failedApp)
+
+  req.payload.logger.warn({
+    msg: `deployment ${deploymentId}: failed after domain cut-over; ${host} returned to ${servingApp}`,
+  })
+}
+
 export const verifyDeployment = async (
   req: PayloadRequest,
   deploymentId: string,
@@ -1344,6 +1563,7 @@ export const verifyDeployment = async (
   const blocker = promotionBlocker(deployment, site)
   if (blocker) {
     await setDeploymentStatus(req, deploymentId, 'failed', { lastError: blocker })
+    await returnSiteDomain(req, deploymentId)
     return { message: blocker, ok: false }
   }
 
@@ -1415,7 +1635,39 @@ export const verifyDeployment = async (
       healthCheckedAt: new Date().toISOString(),
       lastError: reason,
     })
+    await returnSiteDomain(req, deploymentId)
     return { message: reason, ok: false }
+  }
+
+  // A production build proven healthy on its own hostname takes the customer's domain
+  // only now — see `moveSiteDomain`. Until it holds the domain it is not promoted.
+  if (deployment.domainMode === 'direct' && site) {
+    const target = await loadTarget(req, String(idOf(deployment.target)))
+    if (!target) {
+      await setDeploymentStatus(req, deploymentId, 'failed', {
+        lastError: 'سرور استقرار در دسترس نیست یا توکن آن خوانا نیست.',
+      })
+      return { message: 'سرور استقرار در دسترس نیست.', ok: false }
+    }
+
+    const move = await moveSiteDomain(req, deployment, site, new CoolifyClient(target))
+    if (move.state === 'refused') {
+      await setDeploymentStatus(req, deploymentId, 'failed', {
+        healthCheckedAt: new Date().toISOString(),
+        lastError: move.message,
+      })
+      return { message: move.message, ok: false }
+    }
+    if (move.state === 'moving') {
+      const message = `پوسته سالم است؛ دامنهٔ ${String(site.domain)} به آن منتقل شد و اپلیکیشن دوباره راه‌اندازی می‌شود.`
+      await setDeploymentStatus(req, deploymentId, 'building', {
+        healthCheckedAt: null,
+        lastDeploymentUuid: move.deploymentUuid,
+        lastError: null,
+        logTail: message,
+      })
+      return { message, ok: true }
+    }
   }
 
   await promoteDeployment(req, deployment)

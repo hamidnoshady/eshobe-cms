@@ -234,6 +234,18 @@ describe('theme binding persistence', () => {
     expect(wonA).toBe(true)
     expect(wonB).toBe(false)
 
+    // A holder that finished without releasing (a failed create, a killed process)
+    // must not block the pair forever: the next deploy takes the claim over.
+    await payload.update({
+      collection: 'site-deployments',
+      data: { status: 'failed' },
+      id: String(depA.id),
+      overrideAccess: true,
+    })
+    expect(await claimBindingProvisioning(adminReq, id, String(depB.id))).toBe(true)
+    // …and it is now B's, so A cannot take it back.
+    expect(await claimBindingProvisioning(adminReq, id, String(depA.id))).toBe(false)
+
     await payload.update({
       collection: 'theme-bindings',
       data: { provisioningDeployment: undefined, state: 'active' },

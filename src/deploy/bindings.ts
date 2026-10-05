@@ -132,13 +132,73 @@ export const ensureThemeBinding = async (
   return { binding: created as unknown as ThemeBindingRow, ok: true }
 }
 
+/** A deployment in one of these can no longer be creating anything. */
+const FINISHED_STATUSES = new Set(['failed', 'live', 'removed', 'stopped'])
+
+/**
+ * Take the binding's provisioning claim for `deploymentId`.
+ *
+ * The claim is released on every exit of the create path, but a claim can still be
+ * orphaned — a process killed between claim and release. One whose holder has
+ * finished (or been deleted) is taken over instead of blocking every later deploy of
+ * the pair with «استقرار دیگری در حال ایجاد اپلیکیشن…» forever. The takeover is
+ * conditional on the stale holder, so two deploys racing for it still get one winner.
+ */
 export const claimBindingProvisioning = async (
   req: PayloadRequest,
   bindingId: string,
   deploymentId: string,
 ): Promise<boolean> => {
   if (!isUuid(bindingId)) return false
+  if (await claimIfFree(req, bindingId, deploymentId)) return true
 
+  const binding = (await req.payload.findByID({
+    collection: 'theme-bindings',
+    depth: 0,
+    disableErrors: true,
+    id: bindingId,
+    overrideAccess: true,
+    req,
+  })) as unknown as null | ThemeBindingRow
+  if (!binding || binding.state !== 'provisioning') return false
+
+  const holderId = idOf(binding.provisioningDeployment)
+  if (holderId) {
+    const holder = (await req.payload.findByID({
+      collection: 'site-deployments',
+      depth: 0,
+      disableErrors: true,
+      id: holderId,
+      overrideAccess: true,
+      req,
+    })) as unknown as null | Record<string, unknown>
+    if (holder && !FINISHED_STATUSES.has(String(holder.status ?? ''))) return false
+  }
+
+  const { docs } = await req.payload.update({
+    collection: 'theme-bindings',
+    data: { provisioningDeployment: deploymentId, state: 'provisioning' },
+    depth: 0,
+    overrideAccess: true,
+    req,
+    where: {
+      and: [
+        { id: { equals: bindingId } },
+        { state: { equals: 'provisioning' } },
+        holderId
+          ? { provisioningDeployment: { equals: holderId } }
+          : { provisioningDeployment: { exists: false } },
+      ],
+    },
+  })
+  return docs.length > 0
+}
+
+const claimIfFree = async (
+  req: PayloadRequest,
+  bindingId: string,
+  deploymentId: string,
+): Promise<boolean> => {
   const { docs } = await req.payload.update({
     collection: 'theme-bindings',
     data: { provisioningDeployment: deploymentId, state: 'provisioning' },

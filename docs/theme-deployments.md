@@ -164,10 +164,14 @@ hand-made row (no artifact, no preview hostname) is a row that can only fail at 
 
 | Mode | Customer DNS | Coolify app answers on | Caddy | `renderedBy` after success |
 |---|---|---|---|---|
-| `preview` | unchanged | `<domain>-<key>-preview.<wildcard>` only | not involved | unchanged |
-| `edge` *(recommended)* | Caddy | `<domain>-<key>.<wildcard>` only | proxies **pages** of the customer domain to the app; `/api/*` stays on `web:3000` | `deployment` |
-| `direct` | Coolify | the customer domain **and** `<domain>-<key>.<wildcard>` | not in the path any more | `deployment` |
+| `preview` | unchanged | `<site-key>-<key>-preview.<wildcard>` only | not involved | unchanged |
+| `edge` *(recommended)* | Caddy | `<site-key>-<key>.<wildcard>` only | proxies **pages** of the customer domain to the app; `/api/*` stays on `web:3000` | `deployment` |
+| `direct` | Coolify | `<site-key>-<key>.<wildcard>`, plus the customer domain once healthy (§5 step 5) | not in the path any more | `deployment` |
 
+- `<site-key>` is the first 12 hex digits of the site id — the same key the Coolify
+  application name uses — so the whole theme key fits in the label
+  (`f8ce1dbaeeeb-cms-arch3-theme-preview.theme.eshobe.com`). Older rows keep the
+  long `<site-id>-…` names they were created with until their next deploy.
 - Anything but `preview` requires `domainVerified`.
 - `direct` is refused unless the manifest declares `proxiesApi: true` — otherwise checkout,
   forms and media stop working the moment DNS moves.
@@ -183,7 +187,8 @@ hand-made row (no artifact, no preview hostname) is a row that can only fail at 
 
 ```
 POST …/deployment ─► queued ─► creating ─► building ─► verifying ─► live
-                        │          │           │            │
+                        │          │           │   ▲        │
+                        │          │           │   └────────┤ direct: domain moved, restart
                         └──────────┴───────────┴────────────┴─► failed ─► (retry = new row / queued)
                                                                 live ─► stopped
 ```
@@ -224,7 +229,19 @@ POST …/deployment ─► queued ─► creating ─► building ─► verifyi
    default 5000 apart) but never past `DEPLOY_HEALTH_BUDGET_MS` (default 30 s) per row per
    tick, then retried on later ticks until `DEPLOY_HEALTH_DEADLINE_MS` (default 10 min)
    after the first unanswered probe, which fails the row. Any other status fails it at once.
-5. **Promote** — the row becomes `live` first, then what it replaces is stopped (every
+5. **Take the domain** (`direct` only, `moveSiteDomain`). A `direct` application is
+   created on its own hostname only: the customer's domain usually still belongs to the
+   theme being replaced, and Coolify refuses a hostname two applications claim
+   (`Domain conflicts detected`). Once the build is healthy, the domain is removed from
+   the configuration of the site's application that holds it — whose *running* container
+   keeps its routing labels and goes on serving — added to this one, and this one is
+   restarted (no rebuild). The row goes back to `building` to follow that restart, then
+   through the health check again, and only then is promoted. So switching a site from
+   one theme to another, and back, works every time and without a gap. A domain held by
+   an application that is not this site's is never taken: the row fails and says whose it
+   is. If the deployment fails after taking the domain, `returnSiteDomain` gives the
+   domain back to the site's active application and stops the failed one.
+6. **Promote** — the row becomes `live` first, then what it replaces is stopped (every
    other row of the site for `edge`/`direct`; only other previews for `preview`), then for
    `edge`/`direct` the package's design defaults are copied only if this is the
    first successful adoption of a different theme, then `renderedBy`/`activeDeployment` switch.
