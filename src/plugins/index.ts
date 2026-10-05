@@ -20,6 +20,7 @@ import { anyone } from '@/access/anyone'
 import { authenticated } from '@/access/authenticated'
 import { scopedPublicRead } from '@/access/siteRead'
 import { idOf } from '@/lib/ids'
+import { validateSubmissionData, type SubmissionFormField } from '@/lib/form-submission-validation'
 import {
   allowDerivedPublicFormSiteAssignment,
   enforcePublicFormSubmissionRateLimit,
@@ -162,7 +163,7 @@ export const plugins: Plugin[] = [
               // is anonymous by design and cannot be asked to have read access to it.
               overrideAccess: true,
               req,
-              select: { site: true },
+              select: { fields: true, site: true },
             })
             const formSite = (form as { site?: unknown } | null)?.site
             const siteID = idOf(formSite)
@@ -172,13 +173,26 @@ export const plugins: Plugin[] = [
               rejectPublicFormSubmission()
             }
 
+            // An anonymous visitor's values must fit the form they claim to answer:
+            // declared fields only, required ones present, bounded and well-formed.
+            // Staff writing through the admin or Local API are not held to it.
+            let submission = record
+            if (req.payloadAPI !== 'local' && !req.user) {
+              const checked = validateSubmissionData(
+                (form as { fields?: SubmissionFormField[] } | null)?.fields,
+                record.submissionData,
+              )
+              if (!checked.ok) rejectPublicFormSubmission()
+              else submission = { ...record, submissionData: checked.submissionData }
+            }
+
             // The tenant ID is resolved from this persisted form, never from the
             // submitted `site` value. Let the multi-tenant plugin validate this
             // server-derived assignment without treating an anonymous visitor as a
             // member of the site's editor team.
             allowDerivedPublicFormSiteAssignment(req, siteID)
 
-            return { ...record, site: siteID }
+            return { ...submission, site: siteID }
           },
         ],
       },

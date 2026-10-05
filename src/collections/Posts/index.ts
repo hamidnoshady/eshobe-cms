@@ -159,8 +159,13 @@ export const Posts: CollectionConfig<'posts'> = {
           name: 'projectMetadata',
           label: 'مشخصات پروژه (اختیاری)',
           admin: { condition: (_data, _siblingData, { user }) => Boolean(user) },
+          // Text facts are written per language — «تهران» on the Persian page, "Tehran" on
+          // the English one. The date is one value for every language. Localized by
+          // migration 20261005_190000_project_metadata_localized, which copies each
+          // existing value into every locale the post already has, so nothing a visitor
+          // sees changes until an editor translates it.
           fields: [
-            { name: 'location', type: 'text', label: 'مکان' },
+            { name: 'location', type: 'text', label: 'مکان', localized: true },
             {
               name: 'date',
               type: 'date',
@@ -170,16 +175,16 @@ export const Posts: CollectionConfig<'posts'> = {
                 date: { pickerAppearance: 'dayOnly' },
               },
             },
-            { name: 'area', type: 'text', label: 'مساحت' },
-            { name: 'status', type: 'text', label: 'وضعیت' },
-            { name: 'client', type: 'text', label: 'کارفرما' },
+            { name: 'area', type: 'text', label: 'مساحت', localized: true },
+            { name: 'status', type: 'text', label: 'وضعیت', localized: true },
+            { name: 'client', type: 'text', label: 'کارفرما', localized: true },
             {
               name: 'additionalFacts',
               type: 'array',
               label: 'اطلاعات تکمیلی',
               fields: [
-                { name: 'label', type: 'text', required: true, label: 'عنوان' },
-                { name: 'value', type: 'text', required: true, label: 'مقدار' },
+                { name: 'label', type: 'text', required: true, label: 'عنوان', localized: true },
+                { name: 'value', type: 'text', required: true, label: 'مقدار', localized: true },
               ],
             },
           ],
