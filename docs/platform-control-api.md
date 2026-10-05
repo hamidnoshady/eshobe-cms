@@ -400,5 +400,7 @@ commit/digest syntax is strict. A duplicate package + commit + digest is idempot
 `docs/theme-artifacts.md` for the request and deployment semantics.
 
 Deployment create accepts optional `artifact`; redeploy accepts optional `artifact` and
-`upgrade: true`. Registry rollback always takes the source deployment's stored artifact.
+`upgrade: true`. Without either, redeploy runs the source deployment's own artifact *and*
+commit, so a source-built (`coolify_build`) package rebuilds the commit that is live rather
+than `defaultRef` HEAD; pass `upgrade: true` to take the package's latest. Registry rollback always takes the source deployment's stored artifact.
 `GET /api/platform/sites/:id/deployment` reports source and artifact update state separately.

@@ -58,6 +58,13 @@ services:
       PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
       NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
       JOBS_AUTORUN: ${JOBS_AUTORUN:-true}
+      # Deployable themes (docs/theme-deployments.md §11b). Optional: blank keeps
+      # the feature it gates off (503 on the CI callback / GitHub webhook, no
+      # private-repo sync) and DEPLOY_SECRET_KEY falls back to PAYLOAD_SECRET.
+      ESHOBE_THEME_ARTIFACT_SECRET: ${ESHOBE_THEME_ARTIFACT_SECRET:-}
+      GITHUB_THEME_TOKEN: ${GITHUB_THEME_TOKEN:-}
+      GITHUB_THEME_WEBHOOK_SECRET: ${GITHUB_THEME_WEBHOOK_SECRET:-}
+      DEPLOY_SECRET_KEY: ${DEPLOY_SECRET_KEY:-}
     ports:
       - '127.0.0.1:3001:3000'
     scale: 1

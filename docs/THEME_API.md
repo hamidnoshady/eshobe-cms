@@ -1923,12 +1923,13 @@ What the platform does around a deployed theme, and what that asks of the theme:
   itself, listen on IPv4 (`0.0.0.0`), and declare `build.healthCheckPath`: without it
   Coolify has no health check, the CMS probes `/` instead, and a broken new container can be
   swapped in for a working one.
-- **The promotion probe is short.** After a build the CMS gives the app hostname about a
-  minute and a half of retries on 404/502/503/504 and fails on any other non-2xx/3xx answer.
-  Start fast, and do not block startup on warming caches.
+- **The promotion probe expects a 200.** After a build the CMS probes the app hostname and
+  waits out 404/502/503/504 and connection errors for up to 10 minutes. Any other non-2xx
+  answer fails the deploy, including a redirect from a declared `healthCheckPath`. Start
+  fast, and do not block startup on warming caches.
 - **Ship an image, not a source build.** With `registry_image` the preview and production run
-  the same digest and a rollback is a pull. With a source build, production and redeploy
-  rebuild the branch at run time unless the operator pinned a commit
+  the same digest and a rollback is a pull. With a source build every deploy, including the
+  production publish of a reviewed commit, is a fresh build on the Coolify server
   ([`theme-artifacts.md`](./theme-artifacts.md#which-strategy-to-use)).
 
 ### Security checklist for theme authors

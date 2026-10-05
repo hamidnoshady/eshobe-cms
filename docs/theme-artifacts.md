@@ -14,16 +14,16 @@ the bytes that run in production are provably the bytes that passed preview:
 
 | | `registry_image` | `coolify_build` |
 |---|---|---|
-| Production publish from the console | Ships the live preview's artifact (same digest) | Rebuilds the package's effective ref on the Coolify server |
-| «اجرای دوبارهٔ نسخهٔ فعلی» (redeploy) | Reuses the current artifact, no build | Rebuilds the effective ref: **branch HEAD** unless the package has a pinned commit |
+| Production publish from the console | Ships the live preview's artifact (same digest) | Rebuilds the live preview's commit; same source, not the same bytes |
+| «اجرای دوبارهٔ نسخهٔ فعلی» (redeploy) | Reuses the current artifact, no build | Rebuilds the current row's commit |
 | Rollback | Pulls the old digest, no build | Rebuilds the old commit |
 | Build load on the Coolify server | None (a pull) | A full build per deploy, preview and production separately |
 
-With `coolify_build`, production and redeploy resolve the ref when the deployment runs
-(`effectiveRefFor`: explicit ref › `pinnedCommit` › `defaultRef`). If nobody pinned a
-commit, a commit pushed after the preview was reviewed ships to production unreviewed,
-and a "redeploy the current version" can ship a newer one. Pin a commit on the package
-before publishing a `coolify_build` theme, or switch it to `registry_image`.
+A `coolify_build` deployment resolves a *branch* only when it is asked for one: a
+`POST …/deployment` without `ref`, or a redeploy with `upgrade: true`, builds
+`effectiveRefFor` (explicit ref › `pinnedCommit` › `defaultRef` HEAD) at the moment the
+job runs. The console never does that for production: it sends the preview's commit.
+A caller of the API that omits `ref` for production gets HEAD, so pass the commit.
 
 ## Recommended repository workflow
 
@@ -41,8 +41,8 @@ On the CMS (`theme-packages` row):
 
 On the CMS server: `ESHOBE_THEME_ARTIFACT_SECRET` in the **web** process environment. Without
 it the endpoint answers 503 to every callback. Compose files pass an explicit allowlist to
-`web`, so the variable has to be added there too; `docker-compose.srv1.yml` does not pass it
-today.
+`web`, so the variable has to be listed there too. `docker-compose.srv1.yml` lists it; set its
+value in Komodo and redeploy the stack.
 
 In the theme repository, three GitHub Actions secrets:
 

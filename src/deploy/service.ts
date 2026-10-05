@@ -1253,25 +1253,55 @@ export const promotionBlocker = (
 const NOT_ROUTED_YET = new Set([404, 502, 503, 504])
 
 /**
- * One health probe, retried while the answer looks like propagation delay. Attempts and
- * spacing are read per call so a test (or a slow machine) can tune them.
+ * The in-tick probe budget and the overall "still not answering" deadline, read per
+ * call so a test (or a slow machine) can tune them.
+ *
+ * The budget exists because the probe runs inside the jobs-queue tick, one row after
+ * another, on the same `default` queue as scheduled publishing: six attempts with a
+ * 10 s timeout each used to hold a tick for ~85 s *per verifying row*. Anything that is
+ * still not answering when the budget runs out is retried by the next tick instead,
+ * until the deadline — measured from the first unanswered probe — fails the row.
  */
-const probeHealth = async (url: string): Promise<Response> => {
-  const attempts = Math.max(1, Number(process.env.DEPLOY_HEALTH_ATTEMPTS ?? 6))
-  const delayMs = Math.max(0, Number(process.env.DEPLOY_HEALTH_RETRY_MS ?? 5_000))
-  let response!: Response
+const healthAttempts = (): number => Math.max(1, Number(process.env.DEPLOY_HEALTH_ATTEMPTS || 6))
+const healthRetryMs = (): number => Math.max(0, Number(process.env.DEPLOY_HEALTH_RETRY_MS || 5_000))
+const healthBudgetMs = (): number =>
+  Math.max(1_000, Number(process.env.DEPLOY_HEALTH_BUDGET_MS || 30_000))
+const healthDeadlineMs = (): number => {
+  const raw = process.env.DEPLOY_HEALTH_DEADLINE_MS
+  return Math.max(0, raw === undefined || raw === '' ? 10 * 60_000 : Number(raw))
+}
+
+type HealthProbe = { error?: string; status?: number }
+
+/**
+ * One health probe, retried while the answer looks like propagation delay — a proxy
+ * status, or no answer at all (DNS, refused, timeout) — and never past the budget.
+ */
+const probeHealth = async (url: string): Promise<HealthProbe> => {
+  const attempts = healthAttempts()
+  const delayMs = healthRetryMs()
+  const budgetMs = healthBudgetMs()
+  const startedAt = Date.now()
+  let result: HealthProbe = {}
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    response = await fetch(url, {
-      headers: { 'user-agent': 'eshobe-cms-healthcheck' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!NOT_ROUTED_YET.has(response.status) || attempt === attempts) break
+    const remaining = budgetMs - (Date.now() - startedAt)
+    try {
+      const response = await fetch(url, {
+        headers: { 'user-agent': 'eshobe-cms-healthcheck' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(Math.min(10_000, Math.max(1_000, remaining))),
+      })
+      result = { status: response.status }
+      if (!NOT_ROUTED_YET.has(response.status)) break
+    } catch (error) {
+      result = { error: (error as Error)?.message ?? 'unreachable' }
+    }
+    if (attempt === attempts || Date.now() - startedAt + delayMs >= budgetMs) break
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
   }
 
-  return response
+  return result
 }
 
 /**
@@ -1330,34 +1360,62 @@ export const verifyDeployment = async (
     req,
   })) as unknown as null | Record<string, unknown>
 
-  const path = String(pkg?.healthCheckPath ?? '') || '/'
+  const declaredPath = String(pkg?.healthCheckPath ?? '')
+  const probe = await probeHealth(`${deployOrigin(host)}${declaredPath || '/'}`)
+  const status = probe.status
 
-  let response: null | Response = null
-  try {
-    response = await probeHealth(`${deployOrigin(host)}${path}`)
-  } catch (error) {
-    await req.payload.update({
-      collection: 'site-deployments',
-      data: {
-        healthCheckedAt: new Date().toISOString(),
-        lastError: logLine((error as Error).message),
-      },
-      depth: 0,
-      id: deploymentId,
-      overrideAccess: true,
-      req,
-    })
-    return { message: 'پوسته پاسخ نداد.', ok: false }
-  }
-
-  const healthy = response.status >= 200 && response.status < 400
+  /**
+   * A declared health path is the theme's own promise to answer 200; Coolify's container
+   * check holds it to the same. A redirect there means the container answers something
+   * other than the endpoint it declared. Only the `/` fallback (no path declared) may
+   * redirect — a site root sending `/` to `/fa` is normal.
+   */
+  const healthy =
+    status !== undefined &&
+    ((status >= 200 && status < 300) || (!declaredPath && status >= 300 && status < 400))
 
   if (!healthy) {
+    const reason =
+      status === undefined
+        ? `پوسته پاسخ نداد: ${logLine(probe.error)}`
+        : `بررسی سلامت پاسخ ${status} گرفت.`
+    const notReady = status === undefined || NOT_ROUTED_YET.has(status)
+
+    if (notReady) {
+      /**
+       * Not answering yet is retried by the next tick, until a deadline measured from the
+       * *first* unanswered probe. `healthCheckedAt` holds that moment while the row is
+       * `verifying` and is never moved forward by a retry: every retry still writes
+       * `lastError`, which refreshes `updatedAt`, so the queue's one-hour staleness guard
+       * alone would never fire and the row would be probed every minute forever.
+       */
+      const firstMiss = Date.parse(String(deployment.healthCheckedAt ?? ''))
+      const deadline = healthDeadlineMs()
+      const expired = Number.isFinite(firstMiss)
+        ? Date.now() - firstMiss >= deadline
+        : deadline <= 0
+
+      if (!expired) {
+        await req.payload.update({
+          collection: 'site-deployments',
+          data: {
+            ...(Number.isFinite(firstMiss) ? {} : { healthCheckedAt: new Date().toISOString() }),
+            lastError: reason,
+          },
+          depth: 0,
+          id: deploymentId,
+          overrideAccess: true,
+          req,
+        })
+        return { message: 'پوسته هنوز پاسخ نداده است؛ دوباره بررسی می‌شود.', ok: false }
+      }
+    }
+
     await setDeploymentStatus(req, deploymentId, 'failed', {
       healthCheckedAt: new Date().toISOString(),
-      lastError: `بررسی سلامت پاسخ ${response.status} گرفت.`,
+      lastError: reason,
     })
-    return { message: `بررسی سلامت پاسخ ${response.status} گرفت.`, ok: false }
+    return { message: reason, ok: false }
   }
 
   await promoteDeployment(req, deployment)

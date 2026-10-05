@@ -552,14 +552,20 @@ export const siteDeploymentCreateEndpoint: Endpoint = {
 /**
  * `POST /api/platform/sites/:id/deployment/redeploy` — build the site's theme again.
  *
- * The upgrade button and the retry button: a *new* row for the same package, target
- * and domain mode as the deployment the site runs (`redeploySource`; with `lane`, the
- * latest row of that lane — a preview redeploy never rebuilds production), at the ref the
- * package would deploy now (`effectiveRefFor` — pin, else default branch), for the
- * site's *current* primary domain. That last part is what clears `needsRedeploy`
- * after a domain change.
+ * The retry button and, with `upgrade: true`, the upgrade button: a *new* row for the
+ * same package, target and domain mode as the deployment the site runs
+ * (`redeploySource`; with `lane`, the latest row of that lane — a preview redeploy never
+ * rebuilds production), for the site's *current* primary domain. That last part is what
+ * clears `needsRedeploy` after a domain change.
  *
- * `{ ref?, domainMode? }` may override those two, and nothing else: the repository,
+ * Without `upgrade` it runs **the source row's own version**: its artifact, and its
+ * commit. The commit matters for a source-built (`coolify_build`) package, which has no
+ * artifact — resolving the package's ref instead would rebuild `defaultRef` HEAD and ship
+ * code nobody reviewed under a button that promises "the current version again".
+ * `upgrade: true` (or an explicit `artifact`) drops that pin and takes what the package
+ * would deploy now (`effectiveRefFor` — pin, else default branch).
+ *
+ * `{ lane?, ref?, domainMode?, artifact?, upgrade? }` and nothing else: the repository,
  * the package and the target come from the source row, so this route cannot be used
  * to build something the operator did not already deploy to this site. Every check
  * `createDeployment` makes — site active, package published, site type, plan
@@ -616,6 +622,11 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
     })
     if (!('lane' in mode)) return json({ message: mode.message, ok: false }, mode.status)
 
+    const upgrading = body?.upgrade === true || Boolean(body?.artifact)
+    const sourceCommit = /^[0-9a-f]{40}$/i.test(String(source.commitSha ?? ''))
+      ? String(source.commitSha).toLowerCase()
+      : null
+
     const created = await createDeployment({
       artifactRef: body?.artifact
         ? String(body.artifact)
@@ -625,7 +636,7 @@ export const siteDeploymentRedeployEndpoint: Endpoint = {
       domainMode: mode.domainMode,
       lane: mode.lane,
       packageRef: String(idOf(source.themePackage)),
-      ref,
+      ref: ref ?? (upgrading ? null : sourceCommit),
       req,
       site,
       targetRef: String(idOf(source.target)),

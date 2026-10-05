@@ -145,13 +145,12 @@ the current production version again, for changed «تنظیمات پوسته» 
 primary domain (`needsRedeploy`) or a broken container. `/redeploy` resolves its source
 row within the `lane` it is given, so a preview redeploy can never rebuild production.
 
-**"What was reviewed" and "the current version" hold only for `registry_image`
-packages.** There, both buttons carry an artifact id and production runs the same digest.
-A `coolify_build` package has no artifact: step 3 and redeploy both rebuild the package's
-effective ref when the job runs (pinned commit, else **HEAD of `defaultRef`**), so a commit
-pushed after the preview can reach production, and redeploy can ship a newer version than
-the one live. Use `registry_image`, or pin a commit before publishing
-([`theme-artifacts.md`](./theme-artifacts.md#which-strategy-to-use)). Stop, revert
+Both buttons pin a version. Step 3 sends the live preview's `artifact` *and* its commit
+as `ref` (only when the preview is of the package being published), and redeploy reuses the
+source row's artifact and commit. With `registry_image` production runs the reviewed digest;
+with `coolify_build` it rebuilds the reviewed commit, which is the same source but not the
+same bytes ([`theme-artifacts.md`](./theme-artifacts.md#which-strategy-to-use)). Only an
+explicit upgrade, or an API caller that omits `ref`, resolves a branch. Stop, revert
 and rollback live in the collapsed «توقف و بازگشت» and «تاریخچهٔ استقرارها» sections.
 A direct link to the tab sits on
 the **«نمای ۳۶۰ مشتری»** overview pane. Rows in **«انتشارها»** (`site-deployments`) are
@@ -218,22 +217,22 @@ POST …/deployment ─► queued ─► creating ─► building ─► verifyi
    site's primary domain is not the one this build was made for or is unverified. Then a
    health check against the **application's own hostname** (the preview name — the
    customer domain may still point at Caddy, whose built-in renderer would answer 200),
-   at the manifest's `healthCheckPath` (else `/`). The probe does not follow redirects;
-   any 2xx or 3xx passes. A 404/502/503/504 is treated as "the proxy has not picked the
-   container up yet" and retried: `DEPLOY_HEALTH_ATTEMPTS` (default 6) requests, 10 s
-   timeout each, `DEPLOY_HEALTH_RETRY_MS` (default 5000) apart, so one row can hold the
-   tick for about 85 s. Any other status fails the row. A network error (DNS, refused,
-   timeout) is not retried within the tick: the row stays `verifying`, the error goes to
-   `lastError`, and the next tick tries again.
+   at the manifest's `healthCheckPath` (else `/`). The probe does not follow redirects. A
+   2xx passes; a 3xx passes only on the `/` fallback, never on a declared health path.
+   A 404/502/503/504 or a network error (DNS, refused, timeout) means "not answering yet":
+   it is retried within the tick (`DEPLOY_HEALTH_ATTEMPTS`, default 6, `DEPLOY_HEALTH_RETRY_MS`,
+   default 5000 apart) but never past `DEPLOY_HEALTH_BUDGET_MS` (default 30 s) per row per
+   tick, then retried on later ticks until `DEPLOY_HEALTH_DEADLINE_MS` (default 10 min)
+   after the first unanswered probe, which fails the row. Any other status fails it at once.
 5. **Promote** — the row becomes `live` first, then what it replaces is stopped (every
    other row of the site for `edge`/`direct`; only other previews for `preview`), then for
    `edge`/`direct` the package's design defaults are copied only if this is the
    first successful adoption of a different theme, then `renderedBy`/`activeDeployment` switch.
 
 A row whose `updatedAt` has not changed for an hour is failed by the queue. A `verifying`
-row whose probe keeps hitting a network error rewrites `lastError` every tick, which
-refreshes `updatedAt`, so that hour never runs out: it stays `verifying` until the host
-answers or an operator stops it. **A failed deploy changes
+row rewrites `lastError` on every retry, so it is bounded by the health deadline above
+instead; while it waits, `healthCheckedAt` holds the time of the first unanswered probe.
+**A failed deploy changes
 nothing but its own row**: the previous live deployment and the site stay exactly as they
 were. One caveat, from sharing an application between redeploys of the same theme: the
 new container replaces the old one through Coolify's own deploy of that application. A
@@ -249,10 +248,11 @@ application having a health check — so declare `healthCheckPath` in the manife
   فعلی») creates a *new* row from the latest deployment in the requested `lane` (its
   package and target), for the site's *current* primary domain. It runs every check a
   create does. The body is `{ lane?, ref?, domainMode?, artifact?, upgrade? }`:
-  - registry strategy: reuses the source row's artifact (no build) unless `artifact` names
-    another ready one or `upgrade: true` asks for the package's pinned/synced commit;
-  - `coolify_build`: builds `ref` if given, else the package's effective ref (pin, else
-    `defaultRef` HEAD), resolved when the job runs.
+  - by default it runs the source row's own version: its artifact (registry, no build) and
+    its commit (`coolify_build` rebuilds that commit);
+  - `upgrade: true` takes what the package would deploy now: the ready artifact for the
+    pinned/synced commit (registry), or the effective ref, pin else `defaultRef` HEAD
+    (`coolify_build`). An explicit `artifact` or `ref` overrides either.
 - **New version available** — `GET …/deployment` reports `update: { deployedCommit,
   latestCommit, packageRef, updateAvailable }` for a live deployment. `latestCommit` is the
   pin, else `syncedCommitSha`; the comparison is between commit shas, never branch names,
@@ -417,7 +417,8 @@ invalidates every stored token and tenant secret; there is no re-encryption job.
 
 Read per call from the **web** process's environment. Every compose file passes `web` an
 explicit allowlist, so a variable set in Komodo/Coolify but missing from that list never
-reaches the process. `docker-compose.srv1.yml` passes none of the variables below today.
+reaches the process. `docker-compose.srv1.yml` passes the four secrets below (blank by
+default); the tuning variables use their defaults there.
 
 | Variable | Needed for | Unset means |
 |---|---|---|
@@ -427,7 +428,7 @@ reaches the process. `docker-compose.srv1.yml` passes none of the variables belo
 | `DEPLOY_SECRET_KEY` | Encrypting Coolify tokens and tenant secrets | Falls back to `PAYLOAD_SECRET`. Setting it later makes every stored value undecryptable (§11). |
 | `DEPLOY_CMS_URL` | `ESHOBE_CMS_URL` given to themes when the public origin is not reachable from the container | `NEXT_PUBLIC_SERVER_URL`. Leave unset in production. |
 | `DEPLOY_PUBLIC_SCHEME` | `http` for local Coolify only | `https`. |
-| `DEPLOY_HEALTH_ATTEMPTS`, `DEPLOY_HEALTH_RETRY_MS` | Tuning the promotion probe (§5) | 6 attempts, 5000 ms apart. |
+| `DEPLOY_HEALTH_ATTEMPTS`, `DEPLOY_HEALTH_RETRY_MS`, `DEPLOY_HEALTH_BUDGET_MS`, `DEPLOY_HEALTH_DEADLINE_MS` | Tuning the promotion probe (§5) | 6 attempts, 5000 ms apart, 30 s per tick, 10 min overall. |
 | `THEME_ROUTES_FILE` | Legacy `edge` only (§9) | Routes are rendered by the script instead. |
 | `JOBS_AUTORUN` | Running the queue that advances deployments | Rows stay «در صف» unless «بررسی وضعیت» is pressed. |
 
@@ -447,10 +448,11 @@ this database (`pnpm payload migrate:status`).
 | Symptom | Look at |
 |---|---|
 | Stays «در صف» | The jobs queue is not running (`JOBS_AUTORUN`, `src/instrumentation.ts`); «بررسی وضعیت» advances it by hand. |
-| Stays «در حال بررسی سلامت» with a network error in `lastError` | The application hostname does not resolve or refuses connections from the CMS. It is retried every minute and never times out on its own (§5); fix DNS/proxy or stop the row. |
+| Stays «در حال بررسی سلامت» with «پوسته پاسخ نداد» in `lastError` | The application hostname does not resolve or refuses connections from the CMS. It is retried every minute and fails at the health deadline (§5); fix DNS/proxy and redeploy. |
+| `failed` with «بررسی سلامت پاسخ 30x گرفت» | The declared `healthCheckPath` redirects. It must answer 200 itself. |
 | CI registration answers 503 / 401 / 422 | 503: `ESHOBE_THEME_ARTIFACT_SECRET` is not in the web process (§11b). 401: the secret differs or the body was re-serialised after signing. 422: `repository` or `image` does not match the package row. See `theme-artifacts.md`. |
 | CI registration answers 404 from a customer domain | `ESHOBE_CMS_URL` in the theme repo must be the control-plane origin; `/api/platform/*` is not routed on customer domains. |
-| Production shows code that was not in the preview | A `coolify_build` package without a pinned commit rebuilds `defaultRef` HEAD on publish (§4). |
+| Production shows code that was not in the preview | The deploy was made over the API without `ref`, or with `upgrade: true`, on a `coolify_build` package; those build `defaultRef` HEAD (§4). |
 | `failed` with «تنظیمات پوسته کامل نیست» | A required tenant variable is empty — the customer fills it in «تنظیمات پوسته», then redeploy. |
 | `failed` at verification with the domain message | The primary domain changed during the build. Verify the new domain, redeploy. |
 | `failed` with «برای این کامیت هنوز تصویر آماده و تأییدشده‌ای وجود ندارد» | A registry-strategy package whose commit has no ready `theme-artifacts` row. The CI callback (see `docs/theme-artifacts.md`) registers one; wait for the build or deploy the artifact that exists. A row that arrives without an artifact is repaired automatically at run time — this message now means the registry genuinely has nothing ready for that commit. |

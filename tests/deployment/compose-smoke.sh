@@ -103,6 +103,12 @@ try:
         '${APP_DATABASE_ROLE'
     )
     assert 'APP_DATABASE_ROLE' not in web['environment']
+    # Deployable themes read these from web's own environment; a variable missing
+    # from this allowlist silently disables the feature it gates (503 on CI callbacks).
+    for key in ('ESHOBE_THEME_ARTIFACT_SECRET', 'GITHUB_THEME_TOKEN',
+                'GITHUB_THEME_WEBHOOK_SECRET', 'DEPLOY_SECRET_KEY'):
+        assert key in web['environment'], f'web: {key} missing from allowlist'
+        assert key not in migrate['environment'], f'migrate: {key} must not reach the one-shot'
     assert len(web['ports']) == 1
     assert web['ports'][0]['host_ip'] == '127.0.0.1'
     assert str(web['ports'][0]['published']) == '3001'
