@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { PayloadRequest } from 'payload'
 import { getPayload } from 'payload'
 
@@ -31,7 +32,14 @@ export async function GET(req: NextRequest): Promise<Response> {
   const previewSecret = searchParams.get('previewSecret')
   const token = searchParams.get('token')
 
-  if (previewSecret !== process.env.PREVIEW_SECRET) {
+  const expectedSecret = process.env.PREVIEW_SECRET
+  if (!expectedSecret || !previewSecret) {
+    return new Response('You are not allowed to preview this page', { status: 403 })
+  }
+
+  const expectedHash = createHash('sha256').update(expectedSecret).digest()
+  const providedHash = createHash('sha256').update(previewSecret).digest()
+  if (!timingSafeEqual(expectedHash, providedHash)) {
     return new Response('You are not allowed to preview this page', { status: 403 })
   }
 
