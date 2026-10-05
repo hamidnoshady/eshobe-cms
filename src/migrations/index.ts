@@ -27,6 +27,7 @@ import * as migration_20261002_163500_payload_mcp_plugin from './20261002_163500
 import * as migration_20261004_120000_mcp_key_lifecycle from './20261004_120000_mcp_key_lifecycle';
 import * as migration_20261004_130000_payload_390_columns from './20261004_130000_payload_390_columns';
 import * as migration_20261005_120000_page_builder_media from './20261005_120000_page_builder_media';
+import * as migration_20261005_180000_deploy_flow_fixes from './20261005_180000_deploy_flow_fixes';
 
 export const migrations = [
   {
@@ -173,5 +174,10 @@ export const migrations = [
     up: migration_20261005_120000_page_builder_media.up,
     down: migration_20261005_120000_page_builder_media.down,
     name: '20261005_120000_page_builder_media'
+  },
+  {
+    up: migration_20261005_180000_deploy_flow_fixes.up,
+    down: migration_20261005_180000_deploy_flow_fixes.down,
+    name: '20261005_180000_deploy_flow_fixes'
   },
 ];

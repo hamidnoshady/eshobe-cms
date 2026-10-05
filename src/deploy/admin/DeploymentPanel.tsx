@@ -54,6 +54,8 @@ type Deployment = {
   deployedAt: null | string
   domain: null | string
   domainMode: string
+  /** The application's platform env (e.g. ESHOBE_CMS_URL) differs from what a deploy writes now. */
+  envOutdated?: boolean
   id: string
   lane?: string
   lastError: null | string
@@ -557,7 +559,11 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
       >
         {productionBlocked && <Banner type="error">{productionBlocked}</Banner>}
         {alreadyPublished && (
-          <Banner type="success">روی دامنه همین نسخهٔ پیش‌نمایش در حال اجراست.</Banner>
+          <Banner type="success">
+            روی دامنه همین نسخهٔ پیش‌نمایش در حال اجراست؛ برای همین «انتشار روی دامنه» غیرفعال است
+            و چیزی برای انتشار نمانده. برای اعمال دوبارهٔ «تنظیمات پوسته» یا متغیرهای محیطی (مانند
+            نشانی CMS) روی همین نسخه، دکمهٔ «اجرای دوبارهٔ نسخهٔ فعلی» را در پایین همین بخش بزنید.
+          </Banner>
         )}
         {productionRow && PENDING.has(productionRow.status) && (
           <Banner type="info">
@@ -589,9 +595,15 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           {productionRow && laneOf(productionRow) === 'production' && productionRow.status !== 'removed' && (
             <ActionButton
               body={{ lane: 'production' }}
-              confirm={`نسخهٔ فعلی روی دامنه (${shortSha(productionRow.commitSha)}) دوباره ساخته و جایگزین می‌شود — نسخهٔ جدیدی منتشر نمی‌شود. برای اعمال متغیرهای تغییرکردهٔ «تنظیمات پوسته»، دامنهٔ اصلی جدید یا بازیابی یک کانتینر خراب است. ادامه می‌دهید؟`}
+              confirm={`نسخهٔ فعلی روی دامنه (${shortSha(productionRow.commitSha)}) دوباره ساخته و جایگزین می‌شود — نسخهٔ جدیدی منتشر نمی‌شود. برای اعمال متغیرهای تغییرکردهٔ «تنظیمات پوسته» یا متغیرهای محیطی سکو (مانند نشانی CMS)، دامنهٔ اصلی جدید یا بازیابی یک کانتینر خراب است. ادامه می‌دهید؟`}
               confirmHeading="اجرای دوبارهٔ نسخهٔ فعلی"
-              label={productionRow.needsRedeploy ? 'استقرار مجدد روی دامنهٔ جدید' : 'اجرای دوبارهٔ نسخهٔ فعلی'}
+              label={
+                productionRow.needsRedeploy
+                  ? productionRow.envOutdated
+                    ? 'استقرار مجدد'
+                    : 'استقرار مجدد روی دامنهٔ جدید'
+                  : 'اجرای دوبارهٔ نسخهٔ فعلی'
+              }
               onSuccess={load}
               style={productionRow.needsRedeploy ? 'primary' : 'secondary'}
               successMessage="اجرای دوباره در صف قرار گرفت."

@@ -303,7 +303,7 @@ queue (`advanceDeployments`, once a minute) does the Coolify work, and the conso
 {
   "ok": true,
   "renderedBy": "deployment",          // who serves the customer domain
-  "needsRedeploy": false,              // any live edge/direct row built for another domain
+  "needsRedeploy": false,              // any row below with needsRedeploy
   "current": {                         // the row the site runs (active → live → latest)
     "id": "…", "status": "live", "domainMode": "edge",
     "domain": "acme.ir", "previewDomain": "acme-ir-bazaar.sites.example.com",
@@ -311,6 +311,7 @@ queue (`advanceDeployments`, once a minute) does the Coolify work, and the conso
     "ref": "main", "commitSha": "…", "appUuid": "…", "themeBinding": "…",
     "runtime": { "appName": "…", "appUuid": "…", "serverUuid": "…", "coolifyProjectUuid": "…", "environmentName": "production", "applicationHostname": "…", "bindingState": "active" },
     "needsRedeploy": false, "attention": null,   // Persian message when needsRedeploy
+    "envOutdated": false,                // live, and its platform env (ESHOBE_CMS_URL …) differs from a deploy now
     "lastError": null, "logTail": "…", "createdAt": "…", "deployedAt": "…", "healthCheckedAt": "…"
   },
   "deployments": [ /* the last 25 rows, same shape, newest first */ ],
@@ -320,6 +321,13 @@ queue (`advanceDeployments`, once a minute) does the Coolify work, and the conso
   }
 }
 ```
+
+A row `needsRedeploy` when it is a live `edge`/`direct` row built for another primary
+domain, **or** `envOutdated`: its application was given platform env values
+(`ESHOBE_CMS_URL` from `DEPLOY_CMS_URL`, the site's id/type/locales, the contract version)
+that differ from what a deploy would write now — compared by a stored, non-secret
+fingerprint. A live row built before the fingerprint existed reports `envOutdated` until
+its next deploy. Only the domain case drops a row from routing or blocks a promotion.
 
 `update` makes no GitHub request; a sync is what refreshes `latestCommit`. It compares
 commit shas, and "available" means "different from what the package would deploy now".

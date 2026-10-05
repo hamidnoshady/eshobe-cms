@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { PayloadRequest } from 'payload'
 
 import { contractVersion } from '@eshobe/site-runtime'
@@ -43,6 +45,8 @@ export type EnvironmentInput = {
 
 export type EnvironmentResult = {
   errors: string[]
+  /** `platformEnvFingerprint(site)` at build time — stored on the row. */
+  platformFingerprint: string
   variables: EnvVariable[]
 }
 
@@ -56,13 +60,68 @@ export type EnvironmentResult = {
  * `DEPLOY_CMS_URL` overrides it for the deployed theme only. On a developer machine the
  * admin is `http://localhost:3000`, which inside a Coolify container is the container
  * itself; the theme has to be told `http://host.docker.internal:3000` instead. In
- * production the two are the same public origin and this stays unset.
+ * production it must be an address the theme containers reach without passing a
+ * proxy that routes by Host/SNI — through one, a theme relaying a visitor request can
+ * be sent back to itself. Read per call, and fingerprinted (`platformEnvFingerprint`)
+ * so changing it marks every live row built with the old value.
  */
 const cmsOrigin = (): string =>
   (process.env.DEPLOY_CMS_URL || process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000').replace(
     /\/+$/,
     '',
   )
+
+/**
+ * The platform values that come from this deployment's configuration and the site's
+ * record — the half of the environment a running application can silently fall
+ * behind on. Written to the application by `buildEnvironment`, and fingerprinted so a
+ * live row whose application was built from different values is reported as needing
+ * a redeploy (`platformEnvOutdated`).
+ *
+ * Deliberately out of the fingerprint: secrets (the key and revalidate secret are
+ * per row and never hashed into anything readable), `ESHOBE_PUBLIC_ORIGIN` (fixed by
+ * the row's own hostname), `ESHOBE_CURRENCY` (a `store` read; not worth a query per
+ * listed row) and `ESHOBE_SITE_DOMAIN` (a domain change already has its own signal,
+ * `needsRedeploy` in `src/lib/deploy/status.ts`, with its own message and routing rule).
+ */
+const fingerprintedPlatformEnv = (site: Record<string, unknown>): EnvVariable[] => {
+  const locales = Array.isArray(site.availableLocales)
+    ? (site.availableLocales as unknown[]).map(String)
+    : ['fa']
+  return [
+    { key: 'ESHOBE_CMS_URL', value: cmsOrigin() },
+    { key: 'ESHOBE_SITE_ID', value: String(site.id) },
+    { key: 'ESHOBE_SITE_TYPE', value: String(site.type ?? 'business') },
+    { key: 'ESHOBE_DEFAULT_LOCALE', value: String(site.defaultLocale ?? 'fa') },
+    { key: 'ESHOBE_LOCALES', value: locales.join(',') },
+    { key: 'ESHOBE_CONTRACT_VERSION', value: String(contractVersion) },
+  ]
+}
+
+/** Stable, non-secret digest of `fingerprintedPlatformEnv`. Read per call: `DEPLOY_CMS_URL` may change. */
+export const platformEnvFingerprint = (site: Record<string, unknown>): string =>
+  createHash('sha256')
+    .update(JSON.stringify(fingerprintedPlatformEnv(site).map(({ key, value }) => [key, value])))
+    .digest('hex')
+    .slice(0, 32)
+
+export const PLATFORM_ENV_OUTDATED_MESSAGE =
+  'متغیرهای محیطی‌ای که سکو به پوسته می‌دهد (مانند نشانی CMS) پس از این استقرار تغییر کرده‌اند و اپلیکیشن هنوز با مقادیر قبلی اجرا می‌شود. برای اعمال آن‌ها «استقرار مجدد» را بزنید.'
+
+/**
+ * A live row whose application env no longer matches what a deploy would write now.
+ *
+ * Derived on read, like `needsRedeploy`. A live row with no fingerprint was built
+ * before the CMS recorded one, so nobody knows what its application holds — it is
+ * reported too: one redeploy settles it, while assuming "current" is exactly how
+ * apps kept a stale `ESHOBE_CMS_URL` after `DEPLOY_CMS_URL` changed.
+ */
+export const platformEnvOutdated = (
+  deployment: { platformEnvFingerprint?: unknown; status?: unknown },
+  site: Record<string, unknown>,
+): boolean =>
+  deployment.status === 'live' &&
+  String(deployment.platformEnvFingerprint ?? '') !== platformEnvFingerprint(site)
 
 /** The site's store currency, if it has a store. A theme renders prices; it must not guess the unit. */
 const currencyFor = async (req: PayloadRequest, siteId: string): Promise<null | string> => {
@@ -151,10 +210,8 @@ export const buildEnvironment = async (input: EnvironmentInput): Promise<Environ
   )
   const { errors, values: tenant } = validateTenantEnv(manifest, tenantRaw)
 
-  const locales = Array.isArray(site.availableLocales)
-    ? (site.availableLocales as unknown[]).map(String)
-    : ['fa']
   const currency = await currencyFor(req, siteId)
+  const [cmsUrl, ...fromSite] = fingerprintedPlatformEnv(site)
 
   /**
    * Platform values, written after the tenant's so they cannot be shadowed. The
@@ -162,13 +219,9 @@ export const buildEnvironment = async (input: EnvironmentInput): Promise<Environ
    * other one, and both are deliberate.
    */
   const platform: EnvVariable[] = [
-    { key: 'ESHOBE_CMS_URL', value: cmsOrigin() },
+    cmsUrl!,
     { key: 'ESHOBE_SITE_DOMAIN', value: String(site.domain ?? '') },
-    { key: 'ESHOBE_SITE_ID', value: siteId },
-    { key: 'ESHOBE_SITE_TYPE', value: String(site.type ?? 'business') },
-    { key: 'ESHOBE_DEFAULT_LOCALE', value: String(site.defaultLocale ?? 'fa') },
-    { key: 'ESHOBE_LOCALES', value: locales.join(',') },
-    { key: 'ESHOBE_CONTRACT_VERSION', value: String(contractVersion) },
+    ...fromSite,
     /**
      * The origin the theme's own code should use for links it emits — the hostname it
      * is actually reachable at, which on a preview deployment is *not* the site's
@@ -196,5 +249,5 @@ export const buildEnvironment = async (input: EnvironmentInput): Promise<Environ
     ...platform,
   ]
 
-  return { errors, variables }
+  return { errors, platformFingerprint: platformEnvFingerprint(site), variables }
 }

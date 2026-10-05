@@ -443,7 +443,7 @@ default); the tuning variables use their defaults there.
 | `GITHUB_THEME_TOKEN` | Sync of a **private** theme repository (read-only PAT) | Sync of a private repo fails; public repos are unaffected. |
 | `GITHUB_THEME_WEBHOOK_SECRET` | `POST /api/platform/theme-packages/github-webhook` | Webhook answers 503; manual sync still works. |
 | `DEPLOY_SECRET_KEY` | Encrypting Coolify tokens and tenant secrets | Falls back to `PAYLOAD_SECRET`. Setting it later makes every stored value undecryptable (§11). |
-| `DEPLOY_CMS_URL` | `ESHOBE_CMS_URL` given to themes when the public origin is not reachable from the container | `NEXT_PUBLIC_SERVER_URL`. Leave unset in production. |
+| `DEPLOY_CMS_URL` | `ESHOBE_CMS_URL` given to themes. Must be reachable from the theme containers without a Host/SNI-routing proxy in between (internal network address); a change reaches running apps only on redeploy, and live rows report `needsRedeploy` until then | `NEXT_PUBLIC_SERVER_URL` |
 | `DEPLOY_PUBLIC_SCHEME` | `http` for local Coolify only | `https`. |
 | `DEPLOY_HEALTH_ATTEMPTS`, `DEPLOY_HEALTH_RETRY_MS`, `DEPLOY_HEALTH_BUDGET_MS`, `DEPLOY_HEALTH_DEADLINE_MS` | Tuning the promotion probe (§5) | 6 attempts, 5000 ms apart, 30 s per tick, 10 min overall. |
 | `THEME_ROUTES_FILE` | Legacy `edge` only (§9) | Routes are rendered by the script instead. |
