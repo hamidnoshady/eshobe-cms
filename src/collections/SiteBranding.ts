@@ -16,43 +16,119 @@ export const SiteBranding: CollectionConfig<'site-branding'> = {
   },
   admin: { group: SITE_CONTENT_GROUP, hidden: hiddenFromOperators, useAsTitle: 'displayName' },
   labels: { singular: 'هویت بصری', plural: 'هویت بصری' },
+  /**
+   * Unnamed tabs are presentational only — every field keeps its top-level path, so the
+   * stored shape, `GET /api/site`'s `branding` and every theme reading it are unchanged.
+   */
   fields: [
-    { name: 'displayName', type: 'text', required: true, label: 'نام نمایشی' },
-    { name: 'shortName', type: 'text', label: 'نام کوتاه', maxLength: 40 },
-    { name: 'tagline', type: 'text', localized: true, label: 'شعار' },
     {
-      type: 'row',
-      fields: [
-        { name: 'primaryLogo', type: 'upload', relationTo: 'media', label: 'نشان اصلی' },
-        { name: 'compactLogo', type: 'upload', relationTo: 'media', label: 'نشان فشرده' },
-      ],
-    },
-    {
-      name: 'homeLogo',
-      type: 'upload',
-      relationTo: 'media',
-      label: 'نشان صفحهٔ نخست',
-      admin: {
-        description:
-          'نشان بزرگ صفحهٔ اول پوسته (انیمیشن ورودی). فایل SVG پشتیبانی می‌شود؛ اگر خالی بماند «نشان اصلی» به کار می‌رود.',
-      },
-    },
-    {
-      type: 'row',
-      fields: [
-        { name: 'lightLogo', type: 'upload', relationTo: 'media', label: 'نشان روشن' },
-        { name: 'darkLogo', type: 'upload', relationTo: 'media', label: 'نشان تیره' },
-      ],
-    },
-    {
-      type: 'row',
-      fields: [
-        { name: 'favicon', type: 'upload', relationTo: 'media', label: 'فاوآیکون' },
+      type: 'tabs',
+      tabs: [
         {
-          name: 'socialImage',
-          type: 'upload',
-          relationTo: 'media',
-          label: 'تصویر پیش‌فرض شبکه‌های اجتماعی',
+          label: 'نام و شعار',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'displayName',
+                  type: 'text',
+                  required: true,
+                  label: 'نام نمایشی',
+                  admin: { width: '50%' },
+                },
+                {
+                  name: 'shortName',
+                  type: 'text',
+                  label: 'نام کوتاه',
+                  maxLength: 40,
+                  admin: {
+                    description: 'برای سربرگ موبایل و جاهای تنگ؛ حداکثر ۴۰ نویسه.',
+                    width: '50%',
+                  },
+                },
+              ],
+            },
+            { name: 'tagline', type: 'text', localized: true, label: 'شعار' },
+          ],
+        },
+        {
+          label: 'نشان‌ها',
+          description: 'SVG و تصاویر معمولی پشتیبانی می‌شوند. هر نشانی که خالی بماند از «نشان اصلی» جایگزین می‌شود.',
+          fields: [
+            {
+              name: 'homeLogo',
+              type: 'upload',
+              relationTo: 'media',
+              label: 'نشان صفحهٔ نخست',
+              admin: {
+                description:
+                  'نشان بزرگ وسط صفحهٔ اول پوسته که با انیمیشن ورودی نمایش داده می‌شود. فایل SVG بهترین نتیجه را دارد.',
+              },
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'primaryLogo',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'نشان اصلی',
+                  admin: { description: 'سربرگ صفحه‌های داخلی.', width: '50%' },
+                },
+                {
+                  name: 'compactLogo',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'نشان فشرده',
+                  admin: { description: 'نسخهٔ کوچک برای موبایل.', width: '50%' },
+                },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'lightLogo',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'نشان روشن',
+                  admin: { description: 'برای زمینهٔ تیره.', width: '50%' },
+                },
+                {
+                  name: 'darkLogo',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'نشان تیره',
+                  admin: { description: 'برای زمینهٔ روشن.', width: '50%' },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'فاوآیکون و اشتراک‌گذاری',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'favicon',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'فاوآیکون',
+                  admin: { description: 'مربعی، حداقل ۱۸۰×۱۸۰ پیکسل.', width: '50%' },
+                },
+                {
+                  name: 'socialImage',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'تصویر پیش‌فرض شبکه‌های اجتماعی',
+                  admin: { description: 'پیشنهاد: ۱۲۰۰×۶۳۰ پیکسل.', width: '50%' },
+                },
+              ],
+            },
+          ],
         },
       ],
     },
