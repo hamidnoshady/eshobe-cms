@@ -362,8 +362,15 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
     return null
   })()
 
-  /** What «انتشار» ships: the reviewed preview build when there is one, else the package's latest. */
-  const publishCommit = previewLive?.commitSha ?? null
+  /**
+   * What «انتشار» ships: the reviewed preview build when there is one (of the package
+   * being published), else the package's latest. The preview is pinned by artifact
+   * *and* commit: a source-built (`coolify_build`) preview has no artifact, and without
+   * its commit production would rebuild `defaultRef` HEAD — code nobody reviewed.
+   */
+  const reviewedPreview =
+    previewLive && (!selected || previewLive.themePackage === selected.id) ? previewLive : null
+  const publishCommit = reviewedPreview?.commitSha ?? null
   const alreadyPublished = Boolean(
     productionLive && publishCommit && productionLive.commitSha === publishCommit,
   )
@@ -560,8 +567,9 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
         <div className="theme-actions">
           <ActionButton
             body={{
-              artifact: previewLive?.themeArtifact ?? undefined,
+              artifact: reviewedPreview?.themeArtifact ?? undefined,
               lane: 'production',
+              ref: publishCommit ?? undefined,
               package: selectedKey,
             }}
             confirm={`نسخهٔ ${publishCommit ? shortSha(publishCommit) : 'آخرین'} روی ${siteDomain} منتشر می‌شود و پس از بررسی سلامت جایگزین نسخهٔ فعلی خواهد شد. ادامه می‌دهید؟`}

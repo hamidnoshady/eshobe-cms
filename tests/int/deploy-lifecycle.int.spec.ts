@@ -81,6 +81,8 @@ const net = {
   healthStatus: 200,
   /** Answers this many health probes with the proxy's 404 before the real status. */
   healthNotRouted: 0,
+  /** Fails this many health probes at the network level (DNS, refused, timeout). */
+  healthUnreachable: 0,
   refs: { main: SHA_MAIN } as Record<string, string>,
   stopFails: false,
 }
@@ -127,6 +129,10 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   if (url.includes(`.${WILDCARD}`)) {
+    if (net.healthUnreachable > 0) {
+      net.healthUnreachable -= 1
+      throw new TypeError('fetch failed')
+    }
     if (net.healthNotRouted > 0) {
       net.healthNotRouted -= 1
       return new Response('404 page not found', { status: 404 })
@@ -417,6 +423,7 @@ beforeEach(async () => {
   net.deployOmitsUuid = false
   net.healthStatus = 200
   net.healthNotRouted = 0
+  net.healthUnreachable = 0
   net.refs = { main: SHA_MAIN }
   net.stopFails = false
   await flushThemeRoutesRegeneration()
@@ -654,6 +661,63 @@ describe('an edge deployment, from queued to live', () => {
 
     expect((await row(id)).status).toBe('live')
     expect(callsTo('GET', new RegExp("/health$"))).toHaveLength(3)
+  })
+
+  it('keeps probing an unreachable application on later ticks, and promotes it once it answers', async () => {
+    process.env.DEPLOY_HEALTH_DEADLINE_MS = String(10 * 60_000)
+    try {
+      net.healthUnreachable = 1_000
+      const id = await deployToLive('preview')
+
+      const waiting = await row(id)
+      expect(waiting.status).toBe('verifying')
+      expect(String(waiting.lastError)).toContain('پوسته پاسخ نداد')
+      const firstMiss = String(waiting.healthCheckedAt)
+      expect(firstMiss).toBeTruthy()
+
+      // A retry does not move the first-miss stamp forward.
+      await advanceDeployment(await reqAsAdmin(), id)
+      expect((await row(id)).healthCheckedAt).toBe(firstMiss)
+
+      net.healthUnreachable = 0
+      await advanceDeployment(await reqAsAdmin(), id)
+      expect((await row(id)).status).toBe('live')
+    } finally {
+      process.env.DEPLOY_HEALTH_DEADLINE_MS = '0'
+    }
+  })
+
+  it('fails an application that is still unreachable at the deadline instead of probing it forever', async () => {
+    process.env.DEPLOY_HEALTH_DEADLINE_MS = String(10 * 60_000)
+    try {
+      net.healthUnreachable = 1_000
+      const id = await deployToLive('preview')
+      expect((await row(id)).status).toBe('verifying')
+
+      await payload.update({
+        collection: 'site-deployments',
+        data: { healthCheckedAt: new Date(Date.now() - 11 * 60_000).toISOString() },
+        id,
+        overrideAccess: true,
+      })
+      await advanceDeployment(await reqAsAdmin(), id)
+
+      const failed = await row(id)
+      expect(failed.status).toBe('failed')
+      expect(String(failed.lastError)).toContain('پوسته پاسخ نداد')
+    } finally {
+      process.env.DEPLOY_HEALTH_DEADLINE_MS = '0'
+    }
+  })
+
+  it('does not count a redirect from the declared health path as healthy', async () => {
+    net.healthStatus = 302
+
+    const id = await deployToLive('preview')
+
+    const failed = await row(id)
+    expect(failed.status).toBe('failed')
+    expect(String(failed.lastError)).toContain('302')
   })
 
   it('does not apply production design defaults when health verification fails', async () => {
@@ -895,7 +959,7 @@ describe('redeploy, upgrade and rollback', () => {
     expect(JSON.stringify(status)).not.toMatch(/enc:|revalidateSecret|apiToken|eshobe_live_/)
 
     const res = await siteDeploymentRedeployEndpoint.handler!(
-      await reqAsAdmin({ ...withParams({ id: siteId }), ...withBody({}) }),
+      await reqAsAdmin({ ...withParams({ id: siteId }), ...withBody({ upgrade: true }) }),
     )
     const { deployment, domainMode, ref } = await bodyOf(res)
     expect(res.status).toBe(202)
@@ -933,6 +997,33 @@ describe('redeploy, upgrade and rollback', () => {
     expect(String(fresh.apiKey)).not.toBe(String(superseded.apiKey))
 
     expect((await getDeployment()).update.updateAvailable).toBe(false)
+  })
+
+  it('re-runs the deployed commit of a source build, not the branch HEAD, unless upgrading', async () => {
+    await deployToLive('edge')
+
+    // `main` moved on after the live build: a push nobody has reviewed yet.
+    net.refs.main = SHA_NEXT
+    await payload.update({
+      collection: 'theme-packages',
+      context: { eshobeThemePackageSync: true },
+      data: { syncedCommitSha: SHA_NEXT },
+      id: packageId,
+      overrideAccess: true,
+    })
+
+    const res = await siteDeploymentRedeployEndpoint.handler!(
+      await reqAsAdmin({ ...withParams({ id: siteId }), ...withBody({}) }),
+    )
+    expect(res.status).toBe(202)
+    const { deployment, ref } = await bodyOf(res)
+    expect(ref).toBe(SHA_MAIN)
+
+    net.calls = []
+    await advanceDeployment(await reqAsAdmin(), deployment)
+    expect((await row(deployment)).commitSha).toBe(SHA_MAIN)
+    const repoint = callsTo('PATCH', /\/applications\/app-1$/)[0]
+    expect(repoint?.body).toMatchObject({ git_commit_sha: SHA_MAIN })
   })
 
   it('treats a pin as the package’s version, and a rollback beats the pin', async () => {

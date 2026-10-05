@@ -7,3 +7,6 @@ import 'dotenv/config'
 delete process.env.DEPLOY_CMS_URL
 delete process.env.DEPLOY_PUBLIC_SCHEME
 process.env.DEPLOY_HEALTH_RETRY_MS = "0"
+// No cross-tick grace: a probe that is still not answering fails the row at once, as it
+// did before the deadline existed. Tests that exercise the deadline set it themselves.
+process.env.DEPLOY_HEALTH_DEADLINE_MS = "0"
