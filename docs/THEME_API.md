@@ -3,7 +3,7 @@
 **For AI agents and human developers building headless themes (including ecommerce).**
 
 *Version: `contractVersion = 1` — `GET /api/site` returns this number. Bump = breaking change.*
-*Stack: Payload 3.88 + Next 16 + Postgres + Tailwind v4. Platform is Persian-first, RTL by default, multi-tenant via `Host`.*
+*Stack: Payload 3.90 + Next 16 + Postgres + Tailwind v4. Platform is Persian-first, RTL by default, multi-tenant via `Host`.*
 *Base: this repo `hamidnoshady/eshobe-cms`. Docs cover REST + Payload API, blocks, theming, i18n, money, routing and checkout.*
 
 > **Read this once before writing code:** every date/number/price must go through `@eshobe/site-runtime` helpers, every price is integer minor units of the **site's** currency (never hardcode Toman/Rial), tenant comes from `Host` header or site API key — never from a query param/body field.
@@ -59,7 +59,9 @@ plain Node server, or any app that can answer HTTP.
 13. Push the repository to GitHub.
 14. Register the repository as a Theme in Eshobe CMS.
 15. Sync the manifest.
-16. Build an immutable GHCR artifact or let Coolify build from source.
+16. Build an immutable GHCR artifact (recommended; CI setup and its three repository
+    secrets are in [`theme-artifacts.md`](./theme-artifacts.md)) or let Coolify build from
+    source.
 17. Deploy preview.
 18. Publish production only after health verification.
 
@@ -1874,8 +1876,11 @@ controls the runtime/build contract. The CI callback supplies repository, commit
 - commit SHA and digest syntax are strict;
 - duplicate package + commit + digest is idempotent.
 
-Production deploys prefer `ghcr.io/owner/image@sha256:<digest>`, not a mutable tag. Existing
-`theme-artifacts` rows remain immutable rollback inputs.
+Registry deploys always run `ghcr.io/owner/image@sha256:<digest>`, never a mutable tag. Existing
+`theme-artifacts` rows remain immutable rollback inputs. The CI side (the three repository
+secrets `ESHOBE_CMS_URL`, `ESHOBE_THEME_ARTIFACT_SECRET`, `ESHOBE_THEME_PACKAGE_ID`, a signing
+step, and the response codes) is in [`theme-artifacts.md`](./theme-artifacts.md). Making the
+GHCR package public or private changes only how Coolify pulls it.
 
 ### Operational flow
 
@@ -1894,6 +1899,37 @@ Operator deploys preview or production explicitly
 There is no automatic production deployment in v1. Preview and production use separate
 Theme Bindings; production promotion happens only after health verification, and a failed
 production attempt never destroys the previous healthy state.
+
+### Performance and stability for deployed themes
+
+What the platform does around a deployed theme, and what that asks of the theme:
+
+- **Cache `GET /api/site`; do not fetch it per request.** Called with the site key it answers
+  `cache-control: private, no-store` and is rebuilt on every call (several queries: site,
+  store, theme, branding, settings, bindings). Hold it in memory and drop it when a
+  revalidation notice arrives. The same goes for page, post and product reads: cache by
+  path/tag and let `/api/revalidate` invalidate them.
+- **Also expire caches on a timer.** Revalidation is at-most-once with a 3 s timeout and is
+  never retried. A notice lost to a restart or a slow handler means stale content until
+  something else invalidates it, so keep a time-based fallback (minutes, not days).
+- **Answer `/api/revalidate` fast.** Verify the signature, record what to purge, return 2xx,
+  then do the work. A handler that rebuilds pages before answering will hit the 3 s timeout.
+- **Serve stale when the CMS is unreachable.** A CMS restart or deploy should not take every
+  storefront down with it; keep the last good response and retry in the background.
+- **Keep the health endpoint cheap and local.** Coolify runs the container health check
+  continuously against `127.0.0.1:<port><healthCheckPath>`, and it should not call the CMS,
+  a database or anything remote. If it does, a CMS blip marks every theme container
+  unhealthy at once, and the proxy may stop routing to them. Return 200 from the process
+  itself, listen on IPv4 (`0.0.0.0`), and declare `build.healthCheckPath`: without it
+  Coolify has no health check, the CMS probes `/` instead, and a broken new container can be
+  swapped in for a working one.
+- **The promotion probe is short.** After a build the CMS gives the app hostname about a
+  minute and a half of retries on 404/502/503/504 and fails on any other non-2xx/3xx answer.
+  Start fast, and do not block startup on warming caches.
+- **Ship an image, not a source build.** With `registry_image` the preview and production run
+  the same digest and a rollback is a pull. With a source build, production and redeploy
+  rebuild the branch at run time unless the operator pinned a commit
+  ([`theme-artifacts.md`](./theme-artifacts.md#which-strategy-to-use)).
 
 ### Security checklist for theme authors
 
