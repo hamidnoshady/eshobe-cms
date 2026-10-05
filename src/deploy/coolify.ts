@@ -221,6 +221,21 @@ export const coolifyAppName = (domain: string, themeKey: string, variant?: null 
  */
 export const HEALTH_CHECK_HOST = '127.0.0.1'
 
+/** Coolify's `fqdn` column: `https://a.example,https://b.example` → its entries. */
+export const domainListOf = (fqdn: unknown): string[] =>
+  String(fqdn ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+/** `https://Shop.Example.ir:443/path` → `shop.example.ir`. */
+export const hostOfDomain = (domain: string): string =>
+  domain
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/[/:].*$/, '')
+    .toLowerCase()
+
 /**
  * How an immutable digest pin travels to Coolify — one pin, two wire shapes.
  *
@@ -617,6 +632,80 @@ export class CoolifyClient {
     }
 
     return this.call('PATCH', `/applications/${encodeURIComponent(appUuid)}`, patch)
+  }
+
+  /**
+   * Every application whose domains include `hostname`, with all of its domains.
+   *
+   * Coolify refuses (`Domain conflicts detected`) to give a hostname to a second
+   * application, stopped ones included, so moving a customer's domain between two
+   * theme applications starts by finding who holds it now.
+   */
+  async applicationsHoldingHost(
+    hostname: string,
+  ): Promise<CoolifyResult<{ domains: string[]; name: string; uuid: string }[]>> {
+    const host = hostname.trim().toLowerCase()
+    const result = await this.call<unknown[]>('GET', '/applications')
+    if (!result.ok) return result
+
+    const rows = Array.isArray(result.data) ? (result.data as Record<string, unknown>[]) : []
+    return {
+      data: rows
+        .map((row) => ({
+          domains: domainListOf(row.fqdn),
+          name: String(row.name ?? ''),
+          uuid: String(row.uuid ?? ''),
+        }))
+        .filter((row) => row.uuid && row.domains.some((domain) => hostOfDomain(domain) === host)),
+      ok: true,
+    }
+  }
+
+  /** One application's current domains. */
+  async applicationDomains(appUuid: string): Promise<CoolifyResult<string[]>> {
+    const result = await this.call<Record<string, unknown>>(
+      'GET',
+      `/applications/${encodeURIComponent(appUuid)}`,
+    )
+    if (!result.ok) return result
+    return { data: domainListOf(result.data?.fqdn), ok: true }
+  }
+
+  /**
+   * Replace an application's domains, and nothing else.
+   *
+   * Only the stored configuration changes: a running container keeps the routing
+   * labels it was started with until it is restarted. The domain cut-over relies on
+   * exactly that — the old theme keeps answering the customer's domain while the new
+   * one is restarted onto it.
+   */
+  async setDomains(appUuid: string, domains: string[]): Promise<CoolifyResult<unknown>> {
+    return this.call('PATCH', `/applications/${encodeURIComponent(appUuid)}`, {
+      domains: domains.join(','),
+    })
+  }
+
+  /**
+   * Recreate the application's container without rebuilding it, so it picks up its
+   * current domains. Answers with a deployment that `deploymentStatus` can follow.
+   */
+  async restart(appUuid: string): Promise<CoolifyResult<{ deploymentUuid: string }>> {
+    const result = await this.call<Record<string, unknown>>(
+      'POST',
+      `/applications/${encodeURIComponent(appUuid)}/restart`,
+    )
+    if (!result.ok) return result
+
+    const uuid = String(result.data?.deployment_uuid ?? '')
+    if (!uuid) {
+      return {
+        detail: scrubDetail(result.data),
+        message: 'Coolify شناسهٔ استقرار راه‌اندازی مجدد را برنگرداند.',
+        ok: false,
+        status: 502,
+      }
+    }
+    return { data: { deploymentUuid: uuid }, ok: true }
   }
 
   async deploy(appUuid: string): Promise<CoolifyResult<{ deploymentUuid: string }>> {

@@ -65,7 +65,9 @@ const TRANSITIONS: Record<DeploymentStatus, DeploymentStatus[]> = {
   queued: ['creating', 'failed', 'stopped'],
   removed: [],
   stopped: ['queued', 'creating', 'live', 'removed'],
-  verifying: ['live', 'failed', 'stopped'],
+  // `building` again: a healthy production build is restarted onto the customer's
+  // domain (`moveSiteDomain`) and followed through that restart before it goes live.
+  verifying: ['live', 'failed', 'stopped', 'building'],
 }
 
 export const isDeploymentStatus = (value: unknown): value is DeploymentStatus =>

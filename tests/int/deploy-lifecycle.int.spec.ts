@@ -73,7 +73,8 @@ const SHA_PIN = 'c'.repeat(40)
 type Call = { body?: Record<string, unknown>; method: string; url: string }
 
 const net = {
-  apps: [] as { name: string; uuid: string }[],
+  /** Coolify's own view of each application, `fqdn` included — the domain cut-over reads it. */
+  apps: [] as { fqdn: string; name: string; uuid: string }[],
   buildStatus: 'finished',
   calls: [] as Call[],
   counter: 0,
@@ -100,22 +101,31 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   if (url.startsWith(`${COOLIFY}/api/v1`)) {
     const path = url.slice(`${COOLIFY}/api/v1`.length)
     if (method === 'GET' && path === '/applications') return respond(net.apps)
+    const appPath = /^\/applications\/([^/]+)$/.exec(path)
+    const app = appPath ? net.apps.find((entry) => entry.uuid === appPath[1]) : undefined
+    if (method === 'GET' && appPath) return app ? respond(app) : respond({ message: 'Not found' }, 404)
     if (method === 'POST' && path === '/deploy') {
       if (!body?.uuid) return respond({ message: 'uuid is required' }, 422)
       return net.deployOmitsUuid
         ? respond({ deployments: [] })
         : respond({ deployments: [{ deployment_uuid: `build-${++net.counter}` }] })
     }
+    if (method === 'POST' && path.endsWith('/restart')) {
+      return respond({ deployment_uuid: `restart-${net.calls.length}` })
+    }
     if (method === 'POST' && path.endsWith('/stop')) {
       return net.stopFails ? respond({ message: 'coolify is down' }, 502) : respond({})
     }
     if (method === 'POST' && path.startsWith('/applications/')) {
       const uuid = `app-${++net.counter}`
-      net.apps.push({ name: String(body?.name ?? ''), uuid })
+      net.apps.push({ fqdn: String(body?.domains ?? ''), name: String(body?.name ?? ''), uuid })
       return respond({ uuid })
     }
     if (method === 'PATCH' && /^\/applications\/[^/]+\/envs\/bulk$/.test(path)) return respond({})
-    if (method === 'PATCH' && /^\/applications\/[^/]+$/.test(path)) return respond({})
+    if (method === 'PATCH' && appPath) {
+      if (app && typeof body?.domains === 'string') app.fqdn = body.domains
+      return respond({})
+    }
     if (method === 'GET' && path.startsWith('/deployments/'))
       return respond({ status: net.buildStatus })
     if (method === 'GET' && path.endsWith('/start')) return respond({})
@@ -285,9 +295,22 @@ const deployToLive = async (
     site: await site(),
   })
   if (!created.ok) throw new Error(created.message)
-  await advanceDeployment(req, created.deploymentId)
-  await advanceDeployment(req, created.deploymentId)
+  await settle(req, created.deploymentId)
   return created.deploymentId
+}
+
+/**
+ * Advance a deployment until it stops moving. A `direct` production deploy takes one
+ * lap more than the others: proven healthy on its own hostname, it is restarted onto
+ * the customer's domain and checked again before it goes live.
+ */
+const settle = async (req: PayloadRequest, deploymentId: string): Promise<string> => {
+  for (let lap = 0; lap < 8; lap += 1) {
+    const status = String((await row(deploymentId)).status)
+    if (status === 'live' || status === 'failed' || status === 'stopped') return status
+    await advanceDeployment(req, deploymentId)
+  }
+  return String((await row(deploymentId)).status)
 }
 
 const getDeployment = async () =>
@@ -340,7 +363,7 @@ beforeAll(async () => {
     limit: 10,
     overrideAccess: true,
     pagination: false,
-    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two'] } },
+    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two', 'lifecycle-theme-switch'] } },
   })
   const staleIds = stalePackages.docs.map((doc) => String(doc.id))
   if (staleIds.length) {
@@ -353,7 +376,7 @@ beforeAll(async () => {
   await payload.delete({
     collection: 'theme-packages',
     overrideAccess: true,
-    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two'] } },
+    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two', 'lifecycle-theme-switch'] } },
   })
   await payload.delete({
     collection: 'deploy-targets',
@@ -501,7 +524,7 @@ afterAll(async () => {
   await payload.delete({
     collection: 'theme-packages',
     overrideAccess: true,
-    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two'] } },
+    where: { key: { in: ['lifecycle-theme', 'lifecycle-theme-two', 'lifecycle-theme-switch'] } },
   })
   await payload.delete({
     collection: 'deploy-targets',
@@ -1428,17 +1451,20 @@ describe('suspension and archival', () => {
   it('suspending stops a live direct deployment too — its DNS never passed through Caddy', async () => {
     const liveId = await deployToLive('direct')
     const preview = String((await row(liveId)).previewDomain)
-    // Both names are routed to the application. The health check below probes the
-    // application's own hostname, so a name Coolify was never told about would be
-    // unreachable in production while this file's mocked network answers it anyway.
-    const routed = String(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains).split(',')
+    // Built on its own hostname only — the customer's domain may belong to the theme
+    // being replaced, and Coolify refuses a hostname two applications claim — then
+    // given the domain once healthy, and restarted onto it without a rebuild.
+    const created = String(callsTo('POST', /\/applications\/public$/)[0]?.body?.domains)
+    expect(created.split(',')).toEqual([`https://${preview}`])
+    const routed = String(net.apps.find((app) => app.uuid === 'app-1')?.fqdn).split(',')
     expect(routed).toEqual(
       expect.arrayContaining([`https://${String(original.domain)}`, `https://${preview}`]),
     )
+    expect(callsTo('POST', /\/applications\/app-1\/restart$/)).toHaveLength(1)
 
-    // The health check reached the application on its own hostname: the customer's
-    // domain may still point at Caddy, whose built-in renderer would answer 200.
-    expect(callsTo('GET', new RegExp(`^https://${preview}/health$`))).toHaveLength(1)
+    // The health check reached the application on its own hostname, before and after
+    // the cut-over: the customer's domain may still point elsewhere.
+    expect(callsTo('GET', new RegExp(`^https://${preview}/health$`))).toHaveLength(2)
     expect(callsTo('GET', new RegExp(`^https://${String(original.domain)}/`))).toHaveLength(0)
 
     await updateSite({ status: 'suspended' })
@@ -1564,8 +1590,7 @@ describe('a primary-domain change after a production deployment', () => {
       const req = await reqAsAdmin()
       await advanceDeployment(req, deployment)
       expect((await row(deployment)).domain).toBe(newDomain)
-      await advanceDeployment(req, deployment)
-      expect((await row(deployment)).status).toBe('live')
+      expect(await settle(req, deployment)).toBe('live')
 
       const cleared = await getDeployment()
       expect(cleared.needsRedeploy).toBe(false)
@@ -1673,5 +1698,146 @@ describe('theme-routes.caddy regeneration', () => {
     delete process.env.THEME_ROUTES_FILE
     await deployToLive('edge')
     expect(themeRoutesRegenerationPending()).toBe(false)
+  })
+})
+
+describe('changing the theme on a production domain', () => {
+  const domainOf = (uuid: string): string[] =>
+    String(net.apps.find((app) => app.uuid === uuid)?.fqdn ?? '')
+      .split(',')
+      .filter(Boolean)
+
+  /** A second theme for the same site — what an operator switches to and back from. */
+  const switchPackage = async (): Promise<string> => {
+    const { docs } = await payload.find({
+      collection: 'theme-packages',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      where: { key: { equals: 'lifecycle-theme-switch' } },
+    })
+    if (docs[0]) return String(docs[0].id)
+    const created = await payload.create({
+      collection: 'theme-packages',
+      data: {
+        buildPack: 'nixpacks',
+        contractVersion: 1,
+        defaultRef: 'main',
+        defaultTarget: targetId,
+        envSchema: [],
+        healthCheckPath: '/health',
+        key: 'lifecycle-theme-switch',
+        manifest: rawManifest({ key: 'lifecycle-theme-switch', name: 'Lifecycle Switch' }),
+        manifestSyncedAt: new Date().toISOString(),
+        name: 'پوستهٔ جایگزین',
+        port: 3000,
+        provider: 'github',
+        proxiesApi: true,
+        repository: 'hamidnoshady/lifecycle-theme-switch',
+        siteTypes: ['business', 'portfolio', 'store'],
+        status: 'published',
+        syncedCommitSha: SHA_MAIN,
+        visibility: 'public',
+      },
+      overrideAccess: true,
+    })
+    return String(created.id)
+  }
+
+  const deployDirect = async (pkg: string): Promise<string> => {
+    const created = await createDeployment({
+      domainMode: 'direct',
+      packageRef: pkg,
+      req: await reqAsAdmin(),
+      site: await site(),
+    })
+    if (!created.ok) throw new Error(created.message)
+    return created.deploymentId
+  }
+
+  const indexOf = (method: string, pattern: RegExp, from = 0): number =>
+    net.calls.findIndex((call, i) => i >= from && call.method === method && pattern.test(call.url))
+
+  it('moves the domain to the new theme only once it is healthy, then back again', async () => {
+    const domain = `https://${String(original.domain)}`
+    const firstId = await deployToLive('direct')
+    const firstApp = String((await row(firstId)).appUuid)
+    expect(domainOf(firstApp)).toContain(domain)
+
+    const secondId = await deployDirect(await switchPackage())
+    expect(await settle(await reqAsAdmin(), secondId)).toBe('live')
+    const second = await row(secondId)
+    const secondApp = String(second.appUuid)
+
+    // Created on its own hostname only: Coolify refuses a hostname two apps claim.
+    const createdWith = callsTo('POST', /\/applications\/public$/).at(-1)?.body?.domains
+    expect(String(createdWith)).toBe(`https://${String(second.previewDomain)}`)
+
+    expect(domainOf(secondApp)).toContain(domain)
+    expect(domainOf(firstApp)).not.toContain(domain)
+    // The old theme keeps its own hostname, so it can be switched back to later.
+    expect(domainOf(firstApp)).toContain(`https://${String((await row(firstId)).previewDomain)}`)
+
+    // No gap: the old app is stopped only after the new one was restarted onto the domain.
+    const released = net.calls.findIndex(
+      (call) =>
+        call.method === 'PATCH' &&
+        call.url.endsWith(`/applications/${firstApp}`) &&
+        !String(call.body?.domains ?? domain).includes(domain),
+    )
+    const restarted = indexOf('POST', new RegExp(`/applications/${secondApp}/restart$`))
+    const stopped = indexOf('POST', new RegExp(`/applications/${firstApp}/stop$`))
+    expect(released).toBeGreaterThan(-1)
+    expect(restarted).toBeGreaterThan(released)
+    expect(stopped).toBeGreaterThan(restarted)
+
+    expect((await row(firstId)).status).toBe('stopped')
+    expect((await site()).activeDeployment).toBe(secondId)
+    expect(net.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0)
+
+    // And back: the first theme's application is reused, not rebuilt from scratch.
+    const backId = await deployDirect(packageId)
+    expect(await settle(await reqAsAdmin(), backId)).toBe('live')
+    expect(String((await row(backId)).appUuid)).toBe(firstApp)
+    expect(domainOf(firstApp)).toContain(domain)
+    expect(domainOf(secondApp)).not.toContain(domain)
+    expect(callsTo('POST', /\/applications\/public$/)).toHaveLength(2)
+    expect((await row(secondId)).status).toBe('stopped')
+    expect((await site()).activeDeployment).toBe(backId)
+  })
+
+  it('gives the domain back when the new theme fails after the cut-over', async () => {
+    const domain = `https://${String(original.domain)}`
+    const firstId = await deployToLive('direct')
+    const firstApp = String((await row(firstId)).appUuid)
+
+    const req = await reqAsAdmin()
+    const secondId = await deployDirect(await switchPackage())
+    await advanceDeployment(req, secondId) // queued → building
+    await advanceDeployment(req, secondId) // healthy → domain moved → building (restart)
+    const moving = await row(secondId)
+    expect(moving.status).toBe('building')
+    expect(domainOf(String(moving.appUuid))).toContain(domain)
+
+    net.buildStatus = 'failed'
+    expect(await settle(req, secondId)).toBe('failed')
+
+    expect(domainOf(firstApp)).toContain(domain)
+    expect(domainOf(String(moving.appUuid))).not.toContain(domain)
+    expect(callsTo('POST', new RegExp(`/applications/${String(moving.appUuid)}/stop$`))).toHaveLength(1)
+    expect(callsTo('POST', new RegExp(`/applications/${firstApp}/stop$`))).toHaveLength(0)
+    expect((await row(firstId)).status).toBe('live')
+    expect((await site()).activeDeployment).toBe(firstId)
+  })
+
+  it('never takes the domain from an application that is not this site\'s', async () => {
+    const domain = `https://${String(original.domain)}`
+    net.apps.push({ fqdn: domain, name: 'someone-else', uuid: 'foreign-1' })
+
+    const id = await deployDirect(packageId)
+    expect(await settle(await reqAsAdmin(), id)).toBe('failed')
+    expect(String((await row(id)).lastError)).toContain('someone-else')
+    expect(domainOf('foreign-1')).toEqual([domain])
+    expect(callsTo('POST', /\/restart$/)).toHaveLength(0)
   })
 })

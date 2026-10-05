@@ -211,4 +211,62 @@ describe('Coolify action request contract', () => {
     expect(url).toBe('https://coolify.example.test/api/v1/applications/application-1/stop')
     expect(init).toMatchObject({ method: 'POST' })
   })
+
+  it('finds every application holding a hostname, whatever the scheme or case', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse([
+          { fqdn: 'https://Shop.Example.ir,https://a.theme.test', name: 'a', uuid: 'app-a' },
+          { fqdn: 'http://shop.example.ir:80', name: 'b', uuid: 'app-b' },
+          { fqdn: 'https://shop.example.ir.evil.test', name: 'c', uuid: 'app-c' },
+          { fqdn: null, name: 'd', uuid: 'app-d' },
+        ]),
+      ),
+    )
+    const result = await new CoolifyClient(target).applicationsHoldingHost('shop.example.ir')
+    expect(result.ok && result.data.map((app) => app.uuid)).toEqual(['app-a', 'app-b'])
+    expect(result.ok && result.data[0]!.domains).toEqual([
+      'https://Shop.Example.ir',
+      'https://a.theme.test',
+    ])
+  })
+
+  it('sets domains with a PATCH carrying nothing else', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({}),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await new CoolifyClient(target).setDomains('application-1', [
+      'https://shop.example.ir',
+      'https://a.theme.test',
+    ])
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('https://coolify.example.test/api/v1/applications/application-1')
+    expect(init?.method).toBe('PATCH')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      domains: 'https://shop.example.ir,https://a.theme.test',
+    })
+  })
+
+  it('restarts with POST and returns a pollable deployment', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ deployment_uuid: 'dep-9', message: 'Restart request queued.' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await new CoolifyClient(target).restart('application-1')
+    expect(result).toEqual({ data: { deploymentUuid: 'dep-9' }, ok: true })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('https://coolify.example.test/api/v1/applications/application-1/restart')
+    expect(init?.method).toBe('POST')
+  })
+
+  it('refuses a restart answer that cannot be polled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ message: 'queued' })),
+    )
+    const result = await new CoolifyClient(target).restart('application-1')
+    expect(result.ok).toBe(false)
+  })
 })

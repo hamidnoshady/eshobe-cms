@@ -558,6 +558,18 @@ describe('adopting a theme', () => {
     expect(previewHostname(null, site, 'bazaar')).toBeNull()
   })
 
+  it('keeps the preview hostname short enough to hold the whole theme key', () => {
+    // The full 36-character id used to push the theme key past the 50-character bound
+    // (`…-cms-arch3-the`); the 12-hex site key is the one Coolify app names use.
+    const site = { id: 'f8ce1dba-eeeb-4a74-bb97-977476e792c6' }
+    expect(previewHostname('theme.eshobe.com', site, 'cms-arch3-theme', 'preview')).toBe(
+      'f8ce1dbaeeeb-cms-arch3-theme-preview.theme.eshobe.com',
+    )
+    expect(previewHostname('theme.eshobe.com', site, 'cms-arch3-theme')).toBe(
+      'f8ce1dbaeeeb-cms-arch3-theme.theme.eshobe.com',
+    )
+  })
+
   it('refuses new edge deploys when legacy Caddy mode is disabled', async () => {
     vi.stubEnv('ESHOBE_LEGACY_CADDY_EDGE', '')
     const site: Record<string, unknown> = { ...(await siteDoc('acme')), domainVerified: true }
