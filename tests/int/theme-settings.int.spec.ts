@@ -43,6 +43,7 @@ const rawManifest = {
     { help: 'شناسهٔ گوگل آنالیتیکس', key: 'ANALYTICS_ID', labelFa: 'شناسهٔ آمار', source: 'tenant' },
     { key: 'ESHOBE_CMS_URL', source: 'platform' },
   ],
+  contentSlots: [{ key: 'home', labelFa: 'صفحهٔ خانه', type: 'page' }],
   key: 'settings-theme',
   name: 'Settings Theme',
   siteTypes: ['business', 'portfolio', 'store'],
@@ -270,6 +271,52 @@ describe('saving', () => {
     const doc = await payload.findByID({ collection: 'site-theme-settings', depth: 0, id: settingsId, overrideAccess: true })
     expect(String(doc.themePackage)).toBe(packageId)
     expect(String(doc.site)).toBe(siteId.acme)
+  })
+})
+
+describe('content bindings after a theme change', () => {
+  /**
+   * A site that moved from another theme keeps that theme's slot keys in the row. The
+   * form used to reload them and resubmit them, and every save failed with
+   * «نگاشت «homePage» نامعتبر است» — a settings page that could never be saved again.
+   */
+  it('hides a previous theme’s slots from the form and saves the current ones', async () => {
+    const { docs: pages } = await payload.find({
+      collection: 'pages',
+      limit: 1,
+      overrideAccess: true,
+      where: { site: { equals: siteId.acme } },
+    })
+    const pageId = String(pages[0]!.id)
+    const { docs } = await payload.find({
+      collection: 'site-theme-settings',
+      limit: 1,
+      overrideAccess: true,
+      where: { site: { equals: siteId.acme } },
+    })
+    await payload.update({
+      collection: 'site-theme-settings',
+      data: { contentBindings: { homePage: { id: pageId, type: 'page' } } },
+      id: docs[0]!.id,
+      overrideAccess: true,
+    })
+
+    const view = await bodyOf(
+      await themeSettingsGetEndpoint.handler!(await reqAs('acme@eshobe.test', get(siteId.acme))),
+    )
+    expect(view.json.bindings).toEqual({})
+
+    const stale = await themeSettingsSaveEndpoint.handler!(
+      await reqAs('acme@eshobe.test', post({ bindings: { homePage: pageId }, site: siteId.acme })),
+    )
+    expect(stale.status).toBe(400)
+    expect((await bodyOf(stale)).json.message).toContain('در پوستهٔ فعلی تعریف نشده است')
+
+    const saved = await themeSettingsSaveEndpoint.handler!(
+      await reqAs('acme@eshobe.test', post({ bindings: { home: pageId }, site: siteId.acme })),
+    )
+    expect(saved.status).toBe(200)
+    expect((await bodyOf(saved)).json.bindings).toEqual({ home: { id: pageId, type: 'page' } })
   })
 })
 

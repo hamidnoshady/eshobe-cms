@@ -167,7 +167,12 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
             .filter(([, checked]) => checked)
             .map(([key]) => key),
           site: siteId,
-          bindings: Object.fromEntries(Object.entries(bindings).filter(([, id]) => id)),
+          // Declared slots only: a key left over from a previous theme is refused by the save.
+          bindings: Object.fromEntries(
+            Object.entries(bindings).filter(
+              ([key, id]) => id && view.contentSlots.some((slot) => slot.key === key),
+            ),
+          ),
           runtimeSettings,
           values: submitted,
         }),

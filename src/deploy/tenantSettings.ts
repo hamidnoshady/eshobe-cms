@@ -180,11 +180,22 @@ export const themeSettingsView = async (
       ? (row.runtimeSettings as Record<string, unknown>)
       : {}
 
+  /**
+   * Only the slots the *current* manifest declares. A site that moved from another
+   * theme keeps that theme's keys in the row (`homePage`, `aboutPage`, …) until the next
+   * save; handing them to the form made it resubmit them, and the save refused every one
+   * as «نگاشت نامعتبر» — a form that could never be saved after a theme change.
+   */
+  const declaredSlots = new Set(pkg.manifest.contentSlots.map((slot) => slot.key))
+  const storedBindings =
+    row.contentBindings && typeof row.contentBindings === 'object'
+      ? (row.contentBindings as Record<string, unknown>)
+      : {}
+
   return {
-    bindings:
-      row.contentBindings && typeof row.contentBindings === 'object'
-        ? (row.contentBindings as Record<string, unknown>)
-        : {},
+    bindings: Object.fromEntries(
+      Object.entries(storedBindings).filter(([key]) => declaredSlots.has(key)),
+    ),
     canEdit: canEditThemeSettings(role),
     contentSlots: pkg.manifest.contentSlots,
     fields: pkg.variables.map((variable) => ({
@@ -254,8 +265,12 @@ export const saveThemeSettings = async (
     const slot = slots.get(key)
     const id =
       raw && typeof raw === 'object' ? idOf((raw as Record<string, unknown>).id) : idOf(raw)
-    if (!slot || !id || !isUuid(id)) {
-      errors.push(`نگاشت «${key}» نامعتبر است.`)
+    if (!slot) {
+      errors.push(`بخش «${key}» در پوستهٔ فعلی تعریف نشده است.`)
+      continue
+    }
+    if (!id || !isUuid(id)) {
+      errors.push(`نگاشت «${slot.labelFa ?? key}» نامعتبر است.`)
       continue
     }
     const collection = (
