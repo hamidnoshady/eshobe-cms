@@ -3,9 +3,27 @@
 import type { UploadFieldClientProps } from 'payload'
 
 import type { UploadInputProps } from '@payloadcms/ui'
-import { BulkUploadProvider, UploadInput, useAuth, useConfig, useDocumentForm, useField, useLocale } from '@payloadcms/ui'
+import {
+  Banner,
+  BulkUploadProvider,
+  Button,
+  CheckboxInput,
+  Drawer,
+  SelectInput,
+  TextInput,
+  UploadInput,
+  useAuth,
+  useConfig,
+  useDocumentForm,
+  useDrawerSlug,
+  useField,
+  useLocale,
+  useModal,
+} from '@payloadcms/ui'
 import { formatAdminURL } from 'payload/shared'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { formatNumber } from '@/lib/format'
 
 import './TenantMediaUploadField.scss'
 
@@ -164,7 +182,6 @@ const PickerDialog = ({
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const mediaRequestID = useRef(0)
   const folderMap = useMemo(() => new Map(folders.map((folder) => [String(folder.id), folder])), [folders])
 
@@ -245,33 +262,6 @@ const PickerDialog = ({
     }, 250)
     return () => window.clearTimeout(timer)
   }, [search])
-
-  useEffect(() => {
-    dialogRef.current?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-        return
-      }
-      if (event.key !== 'Tab') return
-
-      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-      )
-      if (!focusable?.length) return
-      const first = focusable[0]!
-      const last = focusable[focusable.length - 1]!
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
 
   useEffect(() => {
     let current = true
@@ -492,277 +482,313 @@ const PickerDialog = ({
   const selectionLimitReached = Boolean(maxRows && hasMany && selectedIDs.length >= maxRows)
   const visibleMedia = media.filter(mediaMatchesType)
 
+  const fileTypeOptions = [
+    { label: copy(isPersian, 'همهٔ تصاویر', 'All images'), value: 'all' },
+    { label: copy(isPersian, 'تصاویر معمولی', 'Raster images'), value: 'raster' },
+    { label: 'SVG', value: 'svg' },
+  ]
+
+  /**
+   * The body of a Payload `Drawer`: the drawer supplies the overlay, header, close button,
+   * focus trap and Escape handling, so this renders only content — built from Payload's
+   * own `Button`, `TextInput`, `SelectInput`, `CheckboxInput` and `Banner` so it reads
+   * like the list drawer Payload opens for «انتخاب از موجود».
+   */
   return (
-    <div
-      aria-labelledby="tenant-media-picker-title"
-      aria-modal="true"
-      className="tenant-media-picker__backdrop"
-      data-testid="tenant-media-picker"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
-    >
-      <section className="tenant-media-picker" dir={isPersian ? 'rtl' : 'ltr'}>
-        <header className="tenant-media-picker__header">
-          <div>
-            <h2 id="tenant-media-picker-title">{copy(isPersian, 'انتخاب از کتابخانهٔ رسانه', 'Choose from media library')}</h2>
-            <p>{copy(isPersian, 'فقط رسانه‌ها و پوشه‌های همین سایت نمایش داده می‌شوند.', 'Only media and folders for this site are shown.')}</p>
-          </div>
-          <button aria-label={copy(isPersian, 'بستن', 'Close')} className="tenant-media-picker__close" onClick={onClose} type="button">×</button>
-        </header>
+    <div className="tenant-media-picker" data-testid="tenant-media-picker" dir={isPersian ? 'rtl' : 'ltr'}>
+      <p className="tenant-media-picker__intro">
+        {copy(isPersian, 'فقط رسانه‌ها و پوشه‌های همین سایت نمایش داده می‌شوند.', 'Only media and folders for this site are shown.')}
+      </p>
 
-        <div className="tenant-media-picker__navigation">
-          <button
-            className="tenant-media-picker__crumb"
-            data-testid="media-folder-root"
-            onClick={() => changeFolder(null)}
-            type="button"
+      <nav aria-label={copy(isPersian, 'مسیر پوشه', 'Folder path')} className="tenant-media-picker__navigation">
+        <Button
+          buttonStyle={activeFolder ? 'subtle' : 'pill'}
+          extraButtonProps={{ 'data-testid': 'media-folder-root' }}
+          margin={false}
+          onClick={() => changeFolder(null)}
+          size="small"
+        >
+          {copy(isPersian, 'ریشه', 'Root')}
+        </Button>
+        {folderPath.map((folder, index) => (
+          <React.Fragment key={String(folder.id)}>
+            <span aria-hidden="true" className="tenant-media-picker__separator">/</span>
+            <Button
+              buttonStyle={index === folderPath.length - 1 ? 'pill' : 'subtle'}
+              margin={false}
+              onClick={() => changeFolder(String(folder.id))}
+              size="small"
+            >
+              {folder.name}
+            </Button>
+          </React.Fragment>
+        ))}
+        {activeFolder && (
+          <Button
+            buttonStyle="transparent"
+            className="tenant-media-picker__back"
+            margin={false}
+            onClick={() => changeFolder(folderPath.length > 1 ? String(folderPath.at(-2)!.id) : null)}
+            size="small"
           >
-            {copy(isPersian, 'ریشه', 'Root')}
-          </button>
-          {folderPath.map((folder) => (
-            <React.Fragment key={String(folder.id)}>
-              <span aria-hidden="true">/</span>
-              <button
-                className="tenant-media-picker__crumb"
-                onClick={() => changeFolder(String(folder.id))}
-                type="button"
-              >
-                {folder.name}
-              </button>
-            </React.Fragment>
-          ))}
-          {activeFolder && (
-            <button
-              className="tenant-media-picker__back"
-              onClick={() => changeFolder(folderPath.length > 1 ? String(folderPath.at(-2)!.id) : null)}
-              type="button"
-            >
-              {copy(isPersian, 'بازگشت به پوشهٔ بالاتر', 'Go to parent folder')}
-            </button>
-          )}
-        </div>
+            {copy(isPersian, 'بازگشت به پوشهٔ بالاتر', 'Go to parent folder')}
+          </Button>
+        )}
+      </nav>
 
-        <div className="tenant-media-picker__filters">
-          <label className="tenant-media-picker__search">
-            <span>{copy(isPersian, 'جست‌وجو در پوشه', 'Search in folder')}</span>
-            <input
-              aria-label={copy(isPersian, 'جست‌وجو در پوشه', 'Search in folder')}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={copy(isPersian, 'نام فایل یا متن جایگزین', 'Filename or alt text')}
-              type="search"
-              value={search}
-            />
-          </label>
-          <label>
-            <span>{copy(isPersian, 'نوع فایل', 'File type')}</span>
-            <select
-              aria-label={copy(isPersian, 'نوع فایل', 'File type')}
-              onChange={(event) => { setFileType(event.target.value as typeof fileType); setPage(1) }}
-              value={fileType}
-            >
-              <option value="all">{copy(isPersian, 'همهٔ تصاویر', 'All images')}</option>
-              <option value="raster">{copy(isPersian, 'تصاویر معمولی', 'Raster images')}</option>
-              <option value="svg">SVG</option>
-            </select>
-          </label>
-          <label className="tenant-media-picker__all-folders">
-            <input
-              checked={searchAllFolders}
-              onChange={(event) => { setSearchAllFolders(event.target.checked); setPage(1) }}
-              type="checkbox"
-            />
-            <span>{copy(isPersian, 'جست‌وجو در همهٔ پوشه‌ها', 'Search all folders')}</span>
-          </label>
-          <div className="tenant-media-picker__target">
-            {copy(isPersian, 'محل بارگذاری:', 'Upload destination:')}{' '}
-            {folderPath.length ? folderPath.map((folder) => folder.name).join(' / ') : copy(isPersian, 'ریشه', 'Root')}
-          </div>
-        </div>
+      <div className="tenant-media-picker__filters">
+        <TextInput
+          className="tenant-media-picker__search"
+          label={copy(isPersian, 'جست‌وجو در پوشه', 'Search in folder')}
+          onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
+          path="tenant-media-picker-search"
+          placeholder={copy(isPersian, 'نام فایل یا متن جایگزین', 'Filename or alt text')}
+          value={search}
+        />
+        <SelectInput
+          className="tenant-media-picker__type"
+          isClearable={false}
+          label={copy(isPersian, 'نوع فایل', 'File type')}
+          name="tenant-media-picker-type"
+          onChange={(option) => {
+            const value = (option as { value?: string } | null)?.value
+            setFileType((value === 'raster' || value === 'svg' ? value : 'all') as typeof fileType)
+            setPage(1)
+          }}
+          options={fileTypeOptions}
+          path="tenant-media-picker-type"
+          value={fileType}
+        />
+        <CheckboxInput
+          checked={searchAllFolders}
+          className="tenant-media-picker__all-folders"
+          id="tenant-media-picker-all-folders"
+          label={copy(isPersian, 'جست‌وجو در همهٔ پوشه‌ها', 'Search all folders')}
+          onToggle={(event) => { setSearchAllFolders(event.target.checked); setPage(1) }}
+        />
+      </div>
 
+      <div className="tenant-media-picker__toolbar">
+        <span className="tenant-media-picker__target">
+          {copy(isPersian, 'محل بارگذاری:', 'Upload destination:')}{' '}
+          <strong>{folderPath.length ? folderPath.map((folder) => folder.name).join(' / ') : copy(isPersian, 'ریشه', 'Root')}</strong>
+        </span>
         {uploadAllowed && (
-          <div className="tenant-media-picker__upload">
+          <>
             <input
               accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/svg+xml"
               aria-label={copy(isPersian, 'بارگذاری در این پوشه', 'Upload into this folder')}
+              className="tenant-media-picker__file"
               multiple={hasMany}
               onChange={(event) => void uploadFiles(event.target.files)}
               ref={fileInputRef}
               type="file"
             />
-            <button
+            <Button
+              buttonStyle="secondary"
               disabled={uploading || selectionLimitReached}
+              icon="plus"
+              iconPosition="left"
+              margin={false}
               onClick={() => fileInputRef.current?.click()}
-              type="button"
+              size="small"
             >
               {uploading
                 ? copy(isPersian, 'در حال بارگذاری…', 'Uploading…')
                 : copy(isPersian, 'بارگذاری در این پوشه', 'Upload into this folder')}
-            </button>
-          </div>
+            </Button>
+          </>
         )}
+      </div>
 
-        <div aria-live="polite" className="tenant-media-picker__status">
-          {folderLoading && copy(isPersian, 'در حال بارگذاری پوشه‌ها…', 'Loading folders…')}
-          {mediaLoading && copy(isPersian, 'در حال بارگذاری رسانه‌ها…', 'Loading media…')}
-          {error && <span role="alert">{error}</span>}
-        </div>
+      <div aria-live="polite" className="tenant-media-picker__status">
+        {folderLoading && copy(isPersian, 'در حال بارگذاری پوشه‌ها…', 'Loading folders…')}
+        {mediaLoading && copy(isPersian, 'در حال بارگذاری رسانه‌ها…', 'Loading media…')}
+      </div>
+      {error && (
+        <Banner type="error">
+          <span role="alert">{error}</span>
+        </Banner>
+      )}
 
+      {hasMany && (
         <div className="tenant-media-picker__bulk-actions">
-          {hasMany && (
-            <>
-              <button disabled={selectingAll || selectionLimitReached} onClick={() => void selectAllResults()} type="button">
-                {selectingAll
-                  ? copy(isPersian, 'در حال انتخاب…', 'Selecting…')
-                  : copy(isPersian, 'انتخاب همهٔ نتایج فیلترشده', 'Select all filtered results')}
-              </button>
-              <button disabled={!visibleMedia.length} onClick={selectCurrentPage} type="button">
-                {copy(isPersian, 'انتخاب موارد این صفحه', 'Select this page')}
-              </button>
-              <button disabled={!selectedIDs.length} onClick={() => setSelectedIDs([])} type="button">
-                {copy(isPersian, 'پاک کردن انتخاب', 'Clear selection')}
-              </button>
-            </>
-          )}
-          <span data-testid="media-selected-count">
-            {copy(isPersian, `${selectedIDs.length} مورد انتخاب شده`, `${selectedIDs.length} selected`)}
+          <Button
+            buttonStyle="subtle"
+            disabled={selectingAll || selectionLimitReached}
+            margin={false}
+            onClick={() => void selectAllResults()}
+            size="small"
+          >
+            {selectingAll
+              ? copy(isPersian, 'در حال انتخاب…', 'Selecting…')
+              : copy(isPersian, 'انتخاب همهٔ نتایج فیلترشده', 'Select all filtered results')}
+          </Button>
+          <Button buttonStyle="subtle" disabled={!visibleMedia.length} margin={false} onClick={selectCurrentPage} size="small">
+            {copy(isPersian, 'انتخاب موارد این صفحه', 'Select this page')}
+          </Button>
+          <Button buttonStyle="subtle" disabled={!selectedIDs.length} margin={false} onClick={() => setSelectedIDs([])} size="small">
+            {copy(isPersian, 'پاک کردن انتخاب', 'Clear selection')}
+          </Button>
+          <span className="tenant-media-picker__count" data-testid="media-selected-count">
+            {copy(isPersian, `${formatNumber(selectedIDs.length, 'fa')} مورد انتخاب شده`, `${selectedIDs.length} selected`)}
           </span>
         </div>
+      )}
 
-        {folderLoading ? null : (
-          <div aria-label={copy(isPersian, 'پوشه‌ها', 'Folders')} className="tenant-media-picker__folders" role="group">
-            {visibleFolders.map((folder) => (
-              <button
-                aria-label={copy(isPersian, `باز کردن پوشهٔ ${folder.name}`, `Open folder ${folder.name}`)}
-                className="tenant-media-picker__folder"
-                data-testid={`media-folder-${String(folder.id)}`}
-                key={String(folder.id)}
-                onClick={() => changeFolder(String(folder.id))}
-                type="button"
-              >
-                <span aria-hidden="true">📁</span>
-                <span>{folder.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div aria-label={copy(isPersian, 'رسانه‌ها', 'Media')} className="tenant-media-picker__grid" role="group">
-          {visibleMedia.map((doc) => {
-            const id = String(doc.id)
-            const selected = selectedIDs.includes(id)
-            const thumbnail = doc.sizes?.thumbnail?.url || doc.url || ''
-            const title = doc.alt || doc.filename || id
-            const cannotAdd = !selected && selectionLimitReached
-
-            return hasMany ? (
-              <label
-                aria-label={title}
-                className={`tenant-media-picker__card${selected ? ' is-selected' : ''}${cannotAdd ? ' is-disabled' : ''}`}
-                data-testid={`media-item-${id}`}
-                key={id}
-              >
-                <input
-                  checked={selected}
-                  disabled={cannotAdd}
-                  onChange={() => toggleMedia(doc)}
-                  type="checkbox"
-                />
-                {thumbnail ? <img alt="" loading="lazy" src={thumbnail} /> : <span aria-hidden="true">▧</span>}
-                <span className="tenant-media-picker__filename">{doc.filename || title}</span>
-                {selected && <span className="tenant-media-picker__selected-mark">✓ {copy(isPersian, 'انتخاب‌شده', 'Selected')}</span>}
-              </label>
-            ) : (
-              <button
-                aria-label={copy(isPersian, `انتخاب ${title}`, `Select ${title}`)}
-                aria-pressed={selected}
-                className={`tenant-media-picker__card${selected ? ' is-selected' : ''}`}
-                data-testid={`media-item-${id}`}
-                key={id}
-                onClick={() => onInsert([id])}
-                type="button"
-              >
-                {thumbnail ? <img alt="" loading="lazy" src={thumbnail} /> : <span aria-hidden="true">▧</span>}
-                <span className="tenant-media-picker__filename">{doc.filename || title}</span>
-              </button>
-            )
-          })}
+      {!folderLoading && visibleFolders.length > 0 && (
+        <div aria-label={copy(isPersian, 'پوشه‌ها', 'Folders')} className="tenant-media-picker__folders" role="group">
+          {visibleFolders.map((folder) => (
+            <button
+              aria-label={copy(isPersian, `باز کردن پوشهٔ ${folder.name}`, `Open folder ${folder.name}`)}
+              className="tenant-media-picker__folder"
+              data-testid={`media-folder-${String(folder.id)}`}
+              key={String(folder.id)}
+              onClick={() => changeFolder(String(folder.id))}
+              type="button"
+            >
+              <svg aria-hidden="true" className="tenant-media-picker__folder-icon" viewBox="0 0 20 20">
+                <path d="M2.5 5.5a1 1 0 0 1 1-1h4l1.5 1.75h7.5a1 1 0 0 1 1 1v7.25a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z" />
+              </svg>
+              <span>{folder.name}</span>
+            </button>
+          ))}
         </div>
+      )}
 
-        {!mediaLoading && !visibleMedia.length && !error && (
-          <p className="tenant-media-picker__empty">
-            {copy(isPersian, 'در این پوشه رسانه‌ای پیدا نشد.', 'No media found in this folder.')}
-          </p>
-        )}
+      <div aria-label={copy(isPersian, 'رسانه‌ها', 'Media')} className="tenant-media-picker__grid" role="group">
+        {visibleMedia.map((doc) => {
+          const id = String(doc.id)
+          const selected = selectedIDs.includes(id)
+          const thumbnail = doc.sizes?.thumbnail?.url || doc.url || ''
+          const title = doc.alt || doc.filename || id
+          const cannotAdd = !selected && selectionLimitReached
+          const preview = (
+            <span className="tenant-media-picker__thumb">
+              {thumbnail ? <img alt="" loading="lazy" src={thumbnail} /> : <span aria-hidden="true">▧</span>}
+            </span>
+          )
 
-        {page < totalPages && (
-          <button
-            className="tenant-media-picker__load-more"
+          return hasMany ? (
+            <label
+              aria-label={title}
+              className={`tenant-media-picker__card${selected ? ' is-selected' : ''}${cannotAdd ? ' is-disabled' : ''}`}
+              data-testid={`media-item-${id}`}
+              key={id}
+            >
+              <input
+                checked={selected}
+                className="tenant-media-picker__check"
+                disabled={cannotAdd}
+                onChange={() => toggleMedia(doc)}
+                type="checkbox"
+              />
+              {preview}
+              <span className="tenant-media-picker__filename">{doc.filename || title}</span>
+            </label>
+          ) : (
+            <button
+              aria-label={copy(isPersian, `انتخاب ${title}`, `Select ${title}`)}
+              aria-pressed={selected}
+              className={`tenant-media-picker__card${selected ? ' is-selected' : ''}`}
+              data-testid={`media-item-${id}`}
+              key={id}
+              onClick={() => onInsert([id])}
+              type="button"
+            >
+              {preview}
+              <span className="tenant-media-picker__filename">{doc.filename || title}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {!mediaLoading && !visibleMedia.length && !error && (
+        <p className="tenant-media-picker__empty">
+          {copy(isPersian, 'در این پوشه رسانه‌ای پیدا نشد.', 'No media found in this folder.')}
+        </p>
+      )}
+
+      {page < totalPages && (
+        <div className="tenant-media-picker__more">
+          <Button
+            buttonStyle="secondary"
             disabled={mediaLoading}
+            margin={false}
             onClick={() => {
               setMediaLoading(true)
               void refreshMedia(page + 1, queryWhere, true).catch(() => setError(copy(isPersian, 'رسانه‌ها بارگذاری نشدند.', 'Media could not be loaded.')))
                 .finally(() => setMediaLoading(false))
             }}
-            type="button"
+            size="small"
           >
             {copy(isPersian, 'بارگذاری موارد بیشتر', 'Load more')}
-          </button>
-        )}
+          </Button>
+        </div>
+      )}
 
+      {hasMany && selectedIDs.length > 0 && (
+        <aside aria-label={copy(isPersian, 'موارد انتخاب‌شده', 'Selected items')} className="tenant-media-picker__tray">
+          <h4>{copy(isPersian, 'ترتیب موارد انتخاب‌شده', 'Order of selected items')}</h4>
+          <ol>
+            {selectedIDs.map((id, index) => {
+              const doc = selectedDocs[id]
+              const title = doc?.filename || doc?.alt || copy(isPersian, 'رسانه', 'Media item')
+              return (
+                <li key={`${id}-${index}`}>
+                  <span className="tenant-media-picker__tray-title">{title}</span>
+                  <Button
+                    aria-label={copy(isPersian, `${title} را جلوتر ببر`, `Move ${title} earlier`)}
+                    buttonStyle="icon-label"
+                    disabled={index === 0}
+                    margin={false}
+                    onClick={() => moveSelected(index, -1)}
+                    size="xsmall"
+                  >↑</Button>
+                  <Button
+                    aria-label={copy(isPersian, `${title} را عقب‌تر ببر`, `Move ${title} later`)}
+                    buttonStyle="icon-label"
+                    disabled={index === selectedIDs.length - 1}
+                    margin={false}
+                    onClick={() => moveSelected(index, 1)}
+                    size="xsmall"
+                  >↓</Button>
+                  <Button
+                    aria-label={copy(isPersian, `${title} را بردار`, `Remove ${title}`)}
+                    buttonStyle="icon-label"
+                    icon="x"
+                    margin={false}
+                    onClick={() => setSelectedIDs((current) => current.filter((item) => item !== id))}
+                    size="xsmall"
+                  />
+                </li>
+              )
+            })}
+          </ol>
+        </aside>
+      )}
+
+      <footer className="tenant-media-picker__footer">
+        <Button buttonStyle="secondary" margin={false} onClick={onClose} size="medium">
+          {copy(isPersian, 'لغو', 'Cancel')}
+        </Button>
         {hasMany && (
-          <aside aria-label={copy(isPersian, 'موارد انتخاب‌شده', 'Selected items')} className="tenant-media-picker__tray">
-            <h3>{copy(isPersian, `انتخاب‌شده‌ها (${selectedIDs.length})`, `Selected items (${selectedIDs.length})`)}</h3>
-            {selectedIDs.length > 0 && (
-              <ol>
-                {selectedIDs.map((id, index) => {
-                  const doc = selectedDocs[id]
-                  const title = doc?.filename || doc?.alt || copy(isPersian, 'رسانه', 'Media item')
-                  return (
-                    <li key={`${id}-${index}`}>
-                      <span>{title}</span>
-                      <button
-                        aria-label={copy(isPersian, `${title} را جلوتر ببر`, `Move ${title} earlier`)}
-                        disabled={index === 0}
-                        onClick={() => moveSelected(index, -1)}
-                        type="button"
-                      >↑</button>
-                      <button
-                        aria-label={copy(isPersian, `${title} را عقب‌تر ببر`, `Move ${title} later`)}
-                        disabled={index === selectedIDs.length - 1}
-                        onClick={() => moveSelected(index, 1)}
-                        type="button"
-                      >↓</button>
-                      <button
-                        aria-label={copy(isPersian, `${title} را بردار`, `Remove ${title}`)}
-                        onClick={() => setSelectedIDs((current) => current.filter((item) => item !== id))}
-                        type="button"
-                      >×</button>
-                    </li>
-                  )
-                })}
-              </ol>
+          <Button
+            buttonStyle="primary"
+            extraButtonProps={{ 'data-testid': 'media-picker-insert' }}
+            disabled={!selectedIDs.length}
+            margin={false}
+            onClick={() => onInsert(selectedIDs)}
+            size="medium"
+          >
+            {copy(
+              isPersian,
+              `افزودن ${formatNumber(selectedIDs.length, 'fa')} رسانه`,
+              `Insert ${selectedIDs.length} media item${selectedIDs.length === 1 ? '' : 's'}`,
             )}
-          </aside>
+          </Button>
         )}
-
-        <footer className="tenant-media-picker__footer">
-          <button onClick={onClose} type="button">{copy(isPersian, 'لغو', 'Cancel')}</button>
-          {hasMany && (
-            <button
-              data-testid="media-picker-insert"
-              disabled={!selectedIDs.length}
-              onClick={() => onInsert(selectedIDs)}
-              type="button"
-            >
-              {copy(isPersian, `افزودن ${selectedIDs.length} رسانه`, `Insert ${selectedIDs.length} media item${selectedIDs.length === 1 ? '' : 's'}`)}
-            </button>
-          )}
-        </footer>
-      </section>
+      </footer>
     </div>
   )
 }
@@ -783,9 +809,21 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
   const { permissions } = useAuth()
   const documentForm = useDocumentForm()
   const siteID = relationID(documentForm.getDataByPath('site'))
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const drawerSlug = useDrawerSlug(`tenant-media-${pathFromProps}`)
+  const { closeModal, isModalOpen, openModal } = useModal()
+  const pickerOpen = isModalOpen(drawerSlug)
   const [folderContextID, setFolderContextID] = useState<string | null>(null)
-  const openButtonRef = useRef<HTMLButtonElement>(null)
+  const openButtonRef = useRef<HTMLAnchorElement | HTMLButtonElement>(null)
+  const wasOpen = useRef(false)
+
+  // Escape, the drawer's own close button and an insert all close the modal; whichever
+  // it was, focus goes back to the control that opened it.
+  useEffect(() => {
+    if (wasOpen.current && !pickerOpen) {
+      window.requestAnimationFrame(() => openButtonRef.current?.focus())
+    }
+    wasOpen.current = pickerOpen
+  }, [pickerOpen])
   const hasMany = field.hasMany === true
   const maxRows = field.maxRows
   const uploadAllowed =
@@ -807,9 +845,8 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
     const unique = [...new Set(ids)]
     const capped = maxRows && hasMany ? unique.slice(0, maxRows) : unique
     setValue(hasMany ? capped : capped[0] ?? null)
-    setPickerOpen(false)
-    window.requestAnimationFrame(() => openButtonRef.current?.focus())
-  }, [hasMany, maxRows, setValue])
+    closeModal(drawerSlug)
+  }, [closeModal, drawerSlug, hasMany, maxRows, setValue])
 
   const mediaFilterOptions =
     filterOptions && typeof filterOptions === 'object' && 'media' in filterOptions
@@ -849,17 +886,18 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
           value={inputValue}
         />
         <div className="tenant-media-upload__actions">
-          <button
-            aria-haspopup="dialog"
+          <Button
+            buttonStyle="pill"
             className="tenant-media-upload__browse"
-            data-testid="open-tenant-media-picker"
+            extraButtonProps={{ 'aria-haspopup': 'dialog', 'data-testid': 'open-tenant-media-picker' }}
             disabled={readOnly || disabled || !pickerAvailable}
-            onClick={() => setPickerOpen(true)}
+            margin={false}
+            onClick={() => openModal(drawerSlug)}
             ref={openButtonRef}
-            type="button"
+            size="small"
           >
-            {copy(isPersian, 'انتخاب رسانه از پوشه‌ها', 'Browse media by folder')}
-          </button>
+            {copy(isPersian, 'انتخاب از کتابخانهٔ رسانه', 'Choose from media library')}
+          </Button>
           {!siteID && (
             <span className="tenant-media-upload__hint">
               {copy(isPersian, 'ابتدا سایت این محتوا را انتخاب کنید.', 'Select this document’s site before choosing media.')}
@@ -871,29 +909,32 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
             </span>
           )}
         </div>
-        {pickerOpen && siteID && (
-          <PickerDialog
-            key={siteID}
-            apiRoute={apiRoute}
-            foldersField={foldersField}
-            foldersSlug={foldersSlug}
-            hasMany={hasMany}
-            initialFolderID={folderContextID}
-            initialIDs={currentIDs}
-            isPersian={isPersian}
-            locale={code}
-            mediaFilter={mediaFilterOptions}
-            onFolderChange={setFolderContextID}
-            maxRows={maxRows}
-            onClose={() => {
-              setPickerOpen(false)
-              window.requestAnimationFrame(() => openButtonRef.current?.focus())
-            }}
-            onInsert={insertSelection}
-            siteID={siteID}
-            uploadAllowed={uploadAllowed}
-          />
-        )}
+        <Drawer
+          className="tenant-media-drawer"
+          slug={drawerSlug}
+          title={copy(isPersian, 'انتخاب از کتابخانهٔ رسانه', 'Choose from media library')}
+        >
+          {pickerOpen && siteID && (
+            <PickerDialog
+              key={siteID}
+              apiRoute={apiRoute}
+              foldersField={foldersField}
+              foldersSlug={foldersSlug}
+              hasMany={hasMany}
+              initialFolderID={folderContextID}
+              initialIDs={currentIDs}
+              isPersian={isPersian}
+              locale={code}
+              mediaFilter={mediaFilterOptions}
+              onFolderChange={setFolderContextID}
+              maxRows={maxRows}
+              onClose={() => closeModal(drawerSlug)}
+              onInsert={insertSelection}
+              siteID={siteID}
+              uploadAllowed={uploadAllowed}
+            />
+          )}
+        </Drawer>
       </div>
     </BulkUploadProvider>
   )

@@ -8,16 +8,18 @@ import {
 
 export const Banner: Block = {
   slug: 'banner',
+  labels: { plural: 'اعلان‌ها', singular: 'اعلان' },
   fields: [
     {
       name: 'style',
       type: 'select',
+      label: 'حالت',
       defaultValue: 'info',
       options: [
-        { label: 'Info', value: 'info' },
-        { label: 'Warning', value: 'warning' },
-        { label: 'Error', value: 'error' },
-        { label: 'Success', value: 'success' },
+        { label: 'اطلاع', value: 'info' },
+        { label: 'هشدار', value: 'warning' },
+        { label: 'خطا', value: 'error' },
+        { label: 'موفقیت', value: 'success' },
       ],
       required: true,
     },

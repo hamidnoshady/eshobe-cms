@@ -431,7 +431,7 @@ Same access as pages. `defaultPopulate: {title, slug, categories, meta:{image,de
 | `title` | text, localized, required | |
 | `slug` | text, localized, unique per site+locale | |
 | `heroImage` | upload `media` | |
-| `content` | richText lexical, localized, required | Features: headings h1-h4, Banner/Code/MediaBlock, FixedToolbar |
+| `content` | richText lexical, localized, required | Features: headings h1-h4, MediaBlock/MediaGrid/Banner/Code, FixedToolbar |
 | `relatedPosts` | relationship `posts` hasMany | Filtered to exclude self |
 | `categories` | relationship `categories` hasMany | |
 | `meta` | group | as pages |
@@ -785,13 +785,29 @@ All blocks below map to `src/blocks/<Name>/config.ts`. Availability per site typ
 #### `content` — columns of rich text + optional link
 ```json
 { "blockType":"content", "columns":[
-  { "size":"oneThird|half|twoThirds|full", "richText":{ "root":{...lexical }}, "enableLink":false, "link":{ "type":"reference|custom", "reference":{relationTo:"pages|posts", value:id}, "url":"...", "label":"..." } }
+  { "size":"oneQuarter|oneThird|half|twoThirds|threeQuarters|full", "richText":{ "root":{...lexical }}, "enableLink":false, "link":{ "type":"reference|custom", "reference":{relationTo:"pages|posts", value:id}, "url":"...", "label":"..." } }
 ]}
 ```
 
 #### `mediaBlock`
 ```json
-{ "blockType":"mediaBlock", "media": "<mediaId | Media>" }  // depth controls which
+{ "blockType":"mediaBlock", "media": "<mediaId | Media>",  // depth controls which
+  "size": "narrow|content|wide|full",                          // optional, default "content"
+  "aspect": "auto|16/9|3/2|4/3|1/1|4/5|3/4|original",          // optional, default "auto"
+  "caption": "..." }                                           // optional, localized
+```
+
+`size` and `aspect` are presentation intent, not pixels: a renderer should size the frame
+from them (a ratio from that set, `auto` = derived from the photo's orientation, plus a
+viewport-height cap) rather than rendering the photo at its exact ratio at full width.
+Rows saved before these fields existed omit them — treat missing as the defaults.
+
+The same `mediaBlock` (unlocalized `caption`) and a `mediaGrid` block can appear as
+lexical block nodes inside rich text (`posts.content`, `content` columns):
+
+```json
+{ "type":"block", "fields":{ "blockType":"mediaGrid", "images":["<Media>", "..."],
+  "columns":"2|3|4", "aspect":"16/9|3/2|4/3|1/1|4/5|3/4", "caption":"..." } }
 ```
 
 #### `cta`
