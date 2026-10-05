@@ -32,6 +32,7 @@ import {
   verifyDeployment,
 } from '@/deploy/service'
 import { advanceDeployments } from '@/deploy/task'
+import { PLATFORM_ENV_OUTDATED_MESSAGE } from '@/deploy/environment'
 import { STALE_DOMAIN_MESSAGE } from '@/lib/deploy/status'
 import { getSiteByHost } from '@/lib/site-query'
 
@@ -1160,6 +1161,146 @@ describe('a preview is a rehearsal', () => {
     expect(after.activeDeployment).toBe(productionId)
     expect(callsTo('POST', /\/stop$/)).toHaveLength(0)
   })
+
+  it('a production promotion — a re-run of the current version included — never stops the preview', async () => {
+    const previewId = await deployToLive('preview')
+    const firstProductionId = await deployToLive('direct')
+    const previewApp = String((await row(previewId)).appUuid)
+
+    // «اجرای دوبارهٔ نسخهٔ فعلی»: the redeploy of the production lane.
+    const res = await siteDeploymentRedeployEndpoint.handler!(
+      await reqAsAdmin({ ...withParams({ id: siteId }), ...withBody({ lane: 'production' }) }),
+    )
+    expect(res.status).toBe(202)
+    const { deployment: rerunId } = await bodyOf(res)
+    expect(await settle(await reqAsAdmin(), rerunId)).toBe('live')
+
+    // Only its own lane was superseded.
+    expect((await row(firstProductionId)).status).toBe('stopped')
+    const preview = await row(previewId)
+    expect(preview.status).toBe('live')
+    expect(preview.lastError ?? null).toBeNull()
+    expect(callsTo('POST', new RegExp(`/applications/${previewApp}/stop$`))).toHaveLength(0)
+  })
+
+  it('a preview promotion supersedes the previous preview and never stops production', async () => {
+    const productionId = await deployToLive('direct')
+    const firstPreviewId = await deployToLive('preview')
+    const productionApp = String((await row(productionId)).appUuid)
+
+    const secondPreviewId = await deployToLive('preview')
+    expect((await row(secondPreviewId)).status).toBe('live')
+    expect((await row(firstPreviewId)).status).toBe('stopped')
+    expect((await row(productionId)).status).toBe('live')
+    expect(callsTo('POST', new RegExp(`/applications/${productionApp}/stop$`))).toHaveLength(0)
+    expect((await site()).activeDeployment).toBe(productionId)
+  })
+
+  it('supersedes by the domainMode mapping for a legacy row with no lane', async () => {
+    const productionId = await deployToLive('direct')
+    const previewId = await deployToLive('preview')
+    // A row written before the `lane` column: the collection hook would derive it, so
+    // clear it underneath the hook, the way old rows sit in the database.
+    await payload.db.updateOne({
+      collection: 'site-deployments',
+      data: { lane: null },
+      id: previewId,
+      req: await reqAsAdmin(),
+    })
+    expect((await row(previewId)).lane ?? null).toBeNull()
+
+    const rerunId = await deployToLive('direct')
+    expect((await row(rerunId)).status).toBe('live')
+    expect((await row(productionId)).status).toBe('stopped')
+    expect((await row(previewId)).status).toBe('live')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Platform env drift and the binding's hostname
+// ---------------------------------------------------------------------------
+
+describe('a running application whose platform env has moved on', () => {
+  it('reports needsRedeploy when DEPLOY_CMS_URL changes, and a redeploy writes the new value', async () => {
+    const previous = process.env.DEPLOY_CMS_URL
+    try {
+      delete process.env.DEPLOY_CMS_URL
+      const liveId = await deployToLive('direct')
+      expect((await row(liveId)).platformEnvFingerprint).toBeTruthy()
+
+      let state = await getDeployment()
+      expect(state.current).toMatchObject({ envOutdated: false, needsRedeploy: false, attention: null })
+      expect(state.needsRedeploy).toBe(false)
+
+      process.env.DEPLOY_CMS_URL = 'http://eshobe-cms-web:3000'
+      state = await getDeployment()
+      expect(state.current).toMatchObject({
+        attention: PLATFORM_ENV_OUTDATED_MESSAGE,
+        envOutdated: true,
+        needsRedeploy: true,
+      })
+      expect(state.needsRedeploy).toBe(true)
+      // Display only: a stale env never drops the row from routing or blocks promotion.
+      expect((await row(liveId)).status).toBe('live')
+
+      net.calls = []
+      const res = await siteDeploymentRedeployEndpoint.handler!(
+        await reqAsAdmin({ ...withParams({ id: siteId }), ...withBody({ lane: 'production' }) }),
+      )
+      const { deployment: rerunId } = await bodyOf(res)
+      expect(await settle(await reqAsAdmin(), rerunId)).toBe('live')
+
+      const env = callsTo('PATCH', /\/envs\/bulk$/)[0]
+      const written = (env?.body?.data as { key: string; value: string }[]) ?? []
+      expect(written.find((variable) => variable.key === 'ESHOBE_CMS_URL')?.value).toBe(
+        'http://eshobe-cms-web:3000',
+      )
+      state = await getDeployment()
+      expect(state.current).toMatchObject({ envOutdated: false, needsRedeploy: false })
+    } finally {
+      if (previous === undefined) delete process.env.DEPLOY_CMS_URL
+      else process.env.DEPLOY_CMS_URL = previous
+    }
+  })
+
+  it('reports a live row built before fingerprints existed, but not a stopped one', async () => {
+    const liveId = await deployToLive('direct')
+    await payload.db.updateOne({
+      collection: 'site-deployments',
+      data: { platformEnvFingerprint: null },
+      id: liveId,
+      req: await reqAsAdmin(),
+    })
+    expect((await getDeployment()).current).toMatchObject({ envOutdated: true, needsRedeploy: true })
+
+    await stopDeployment(await reqAsAdmin(), liveId, 'test')
+    const stopped = (await getDeployment()).deployments as unknown as JsonRecord[]
+    expect(stopped.find((entry) => entry.id === liveId)).toMatchObject({ envOutdated: false })
+  })
+
+  it('keeps the binding hostname in step with the hostname actually deployed', async () => {
+    const firstId = await deployToLive('preview')
+    const deployedHost = String((await row(firstId)).previewDomain)
+    const bindingId = String((await row(firstId)).themeBinding)
+
+    // The drift seen in production: the binding kept an older hostname format.
+    await payload.update({
+      collection: 'theme-bindings',
+      data: { applicationHostname: `${siteId}-cms-a-preview.${WILDCARD}` },
+      id: bindingId,
+      overrideAccess: true,
+    })
+
+    const secondId = await deployToLive('preview')
+    expect(String((await row(secondId)).themeBinding)).toBe(bindingId)
+    const binding = await payload.findByID({
+      collection: 'theme-bindings',
+      depth: 0,
+      id: bindingId,
+      overrideAccess: true,
+    })
+    expect(binding.applicationHostname).toBe(deployedHost)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1242,6 +1383,31 @@ describe('a registry-image deployment', () => {
     expect(build.body?.docker_registry_image_tag).toBe('')
     expect(build.body?.health_check_host).toBe('127.0.0.1')
     expect((await row(created.deploymentId)).status).toBe('building')
+  })
+
+  it('is created complete on the production lane too, with no database trigger to fill it', async () => {
+    await asRegistryPackage()
+    const artifact = await readyArtifact(SHA_MAIN, DIGEST_MAIN)
+    const req = await reqAsAdmin()
+
+    const created = await createDeployment({
+      lane: 'production',
+      packageRef: packageId,
+      req,
+      site: await site(),
+    })
+    if (!created.ok) throw new Error(created.message)
+
+    const queued = await row(created.deploymentId)
+    expect(queued.status).toBe('queued')
+    expect(queued.artifactSource).toBe('registry_image')
+    expect(String(queued.themeArtifact)).toBe(String((artifact as { id: string }).id))
+    expect(queued.imageRepository).toBe('ghcr.io/owner/lifecycle-theme')
+    expect(queued.imageTag).toBe(`sha-${SHA_MAIN.slice(0, 8)}`)
+    expect(queued.imageDigest).toBe(DIGEST_MAIN)
+    expect(String(queued.previewDomain)).toMatch(/\.sites\.lifecycle\.invalid$/)
+    expect(String(queued.previewDomain)).not.toContain('-preview.')
+    expect(queued.domain).toBe(String(original.domain))
   })
 
   it('repairs a bare queued row — artifact link, ref, preview hostname — before planning', async () => {

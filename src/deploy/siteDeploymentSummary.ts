@@ -1,5 +1,6 @@
 import type { PayloadRequest } from 'payload'
 
+import { platformEnvOutdated } from '@/deploy/environment'
 import { updateInfoFor, latestPackageCommit } from '@/deploy/service'
 import { readyArtifactForCommit } from '@/deploy/artifacts'
 import { idOf } from '@/lib/ids'
@@ -55,6 +56,8 @@ export type SiteDeploymentSummary = {
   activeStatus: null | string
   domainMode: null | string
   needsRedeploy: boolean
+  /** A live row's application env differs from what a deploy would write now. */
+  platformEnvOutdated: boolean
   previewCommit: null | string
   previewOpenUrl: null | string
   previewStatus: null | string
@@ -139,6 +142,7 @@ export const siteDeploymentSummaryFor = async (
     activeStatus: productionLive ? String(productionLive.status ?? '') : null,
     domainMode: productionLive ? String(productionLive.domainMode ?? '') : null,
     needsRedeploy: productionLive ? needsRedeploy(productionLive, site) : false,
+    platformEnvOutdated: [productionLive, previewLive].some((row) => row && platformEnvOutdated(row, site)),
     previewCommit: previewLive?.commitSha ? String(previewLive.commitSha) : null,
     previewOpenUrl: previewHttpsUrl(previewHost),
     previewStatus: previewLive ? String(previewLive.status ?? '') : null,

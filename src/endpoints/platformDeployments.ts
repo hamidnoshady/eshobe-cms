@@ -2,6 +2,7 @@ import type { Endpoint, PayloadRequest } from 'payload'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 import { loadThemeReadiness } from '@/deploy/readinessLoader'
+import { PLATFORM_ENV_OUTDATED_MESSAGE, platformEnvOutdated } from '@/deploy/environment'
 import { recentDeployments, redeploySource } from '@/deploy/siteDeploymentSummary'
 import { syncThemePackage } from '@/deploy/themePackageSync'
 import { previewHttpsUrl } from '@/lib/deploy/previewUrl'
@@ -87,7 +88,11 @@ const deploymentRow = (
   imageRepository: doc.imageRepository ?? null,
   imageTag: doc.imageTag ?? null,
   imageDigest: doc.imageDigest ?? null,
-  attention: needsRedeploy(doc, site) ? STALE_DOMAIN_MESSAGE : null,
+  attention: needsRedeploy(doc, site)
+    ? STALE_DOMAIN_MESSAGE
+    : platformEnvOutdated(doc, site)
+      ? PLATFORM_ENV_OUTDATED_MESSAGE
+      : null,
   commitSha: doc.commitSha ?? null,
   createdAt: doc.createdAt ?? null,
   deployedAt: doc.deployedAt ?? null,
@@ -98,7 +103,8 @@ const deploymentRow = (
   id: String(doc.id),
   lastError: doc.lastError ?? null,
   logTail: doc.logTail ?? null,
-  needsRedeploy: needsRedeploy(doc, site),
+  envOutdated: platformEnvOutdated(doc, site),
+  needsRedeploy: needsRedeploy(doc, site) || platformEnvOutdated(doc, site),
   packageName: names.packages.get(String(idOf(doc.themePackage))) ?? null,
   previewDomain: doc.previewDomain ?? null,
   previewOpenUrl: previewHttpsUrl(applicationHostOf(doc)),

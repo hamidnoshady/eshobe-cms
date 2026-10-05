@@ -169,6 +169,12 @@ export const SiteOverviewView: React.FC<DocumentViewServerProps> = async ({ doc,
           دامنهٔ سایت پس از استقرار فعلی تغییر کرده است. پوسته را از تب «استقرار پوسته» مجدداً مستقر کنید.
         </div>
       ) : null}
+      {report.deployment.platformEnvOutdated ? (
+        <div className="banner banner--type-warning" role="alert">
+          متغیرهای محیطی سکو (مانند نشانی CMS) پس از استقرار فعلی تغییر کرده‌اند. پوسته را از تب «استقرار
+          پوسته» مجدداً مستقر کنید.
+        </div>
+      ) : null}
 
       <Section title="وضعیت تجاری">
         <Stat label="مرجع" value="پلتفرم اشوب" note="طرح و قیمت اینجا ویرایش نمی‌شود." />

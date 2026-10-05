@@ -266,6 +266,19 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
             },
           ],
         },
+        {
+          name: 'platformEnvFingerprint',
+          type: 'text',
+          label: 'اثر انگشت متغیرهای سکو',
+          // Written by the deploy job only (overrideAccess); compared on read with what a
+          // deploy would write now (`platformEnvOutdated`).
+          access: { create: () => false, update: () => false },
+          admin: {
+            readOnly: true,
+            description:
+              'خلاصهٔ غیرمحرمانهٔ متغیرهایی که سکو هنگام این استقرار به اپلیکیشن داد (مانند نشانی CMS).',
+          },
+        },
       ],
     },
     {
