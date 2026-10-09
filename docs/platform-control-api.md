@@ -46,6 +46,8 @@ decision `POST /api/payments/self-test` records.
 | `GET /api/platform/events?since=&limit=` | The deployment's own tail: site changes, unverified domains, orders, gateway self-tests, keys issued. Newest first, one stable `id` per record, and a `cursor` to poll from. |
 | `GET /api/platform/sites/:id/snapshot?collections=` | That site's content, out. |
 | `POST /api/platform/sites/:id/snapshot` | Content, in. `{ snapshot, collections?, dryRun?, force? }`. |
+| `POST /api/platform/sites/:id/publish` | `{ collection: 'posts'\|'pages'\|'products', id }` — publish one document (the POS's «انتشار» button; the owner bridge). |
+| `POST /api/platform/sites/:id/embed-session` | `{ collection: 'posts'\|'pages', id?, canPublish }` → `{ url, expiresInSeconds }`. See «Embedded editing» below. |
 
 Three staff endpoints that already existed now accept a platform key too, so the
 console can run them: `GET /api/payments/status`, `POST /api/payments/self-test`,
@@ -412,3 +414,46 @@ Deployment create accepts optional `artifact`; redeploy accepts optional `artifa
 commit, so a source-built (`coolify_build`) package rebuilds the commit that is live rather
 than `defaultRef` HEAD; pass `upgrade: true` to take the package's latest. Registry rollback always takes the source deployment's stored artifact.
 `GET /api/platform/sites/:id/deployment` reports source and artifact update state separately.
+
+## Embedded editing (the POS's «ویرایش» modal)
+
+The POS shows one admin document — a post or a page, existing or `create` — in a modal
+iframe, with no sidebar and no second sign-in.
+
+1. The POS server calls `POST /api/platform/sites/:id/embed-session` with its platform
+   key. `canPublish` says whether the *POS user* holds `cms.publish`. The response is a
+   URL on the control-plane origin, `…/api/embed/enter?code=…`. The code is 256 random
+   bits, stored only as a hash in `payload.kv`, valid 60 seconds, spent by the first
+   request. The URL is the secret for that minute; it is never logged.
+2. The browser loads it in the iframe. `GET /api/embed/enter` spends the code, signs in
+   a **per-site service user** (`embed-editor+<siteId>@embed.invalid`, or `embed-owner+…`
+   when `canPublish`), sets `payload-token`, `payload-tenant` and an `eshobe-embed`
+   marker cookie, and redirects to `/admin/collections/<posts|pages>/<id|create>`. The
+   landing path is built from the stored grant, never from the request.
+3. `src/admin/EmbedChrome.tsx` (`admin.components.header`) reads the marker cookie and
+   emits the stylesheet that hides the sidebar and app header. Server-rendered, so there
+   is no flash. It is presentation, not a boundary.
+
+Rules that are easy to break:
+
+- **The service user is the permission.** One `tenants` row, role `editor` or `owner`.
+  `writeUnlessPublishing` therefore hides Publish from the editor and refuses it over
+  REST; nothing about publishing is decided in the embed code. The row is healed on every
+  mint (a site owner can edit or delete users on their own site), and the password is an
+  HMAC of the server secret — never stored, never rotated, reset once if the secret
+  changes. Edits in version history are attributed to this user, not to the person.
+- **Platform key only**, same boundary as `/publish`. A site key and an anonymous caller
+  get 403. A document id must belong to the named site (404 otherwise).
+- **`ADMIN_EMBED_ORIGINS`** (build-time, like `SITE_PREVIEW_ORIGINS`) is the
+  `frame-ancestors` list for `/admin/*`. Empty means `'self'` only, which also closes the
+  admin to clickjacking from any other origin. It is a Docker build arg and a
+  `publish.yml` build-arg: set the repository variable to the POS origin.
+- **Cookies.** In production they are `Secure; SameSite=None; Partitioned`, so the frame
+  keeps its session when the POS is a different site (Chromium, Firefox). Safari blocks
+  third-party cookies outright: serve the POS and the CMS from one registrable domain
+  (`pos.example.com` / `cms.example.com`) and it works everywhere. They overwrite
+  `payload-token` on the CMS host, so a staff member logged into `/admin` in the same
+  browser can be switched to the embed user; use a separate browser profile for the
+  operator console while testing.
+- **No Caddy carve-out.** Both routes are called on the control plane's own `Host`.
+
