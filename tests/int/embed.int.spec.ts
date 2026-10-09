@@ -235,7 +235,7 @@ describe('GET /embed/enter', () => {
       res.headers.getSetCookie().find((c) => c.startsWith('payload-token='))!.split(';')[0]!.split('=')[1]!,
     )
     const { user } = await payload.auth({ headers: new Headers({ cookie: `payload-token=${token}` }) })
-    expect(user?.email).toBe(embedUserEmail(siteId.acme, 'editor'))
+    expect((user as null | User)?.email).toBe(embedUserEmail(siteId.acme, 'editor'))
   })
 
   it('refuses an unknown, malformed or expired code', async () => {
