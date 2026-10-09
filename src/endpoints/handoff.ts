@@ -76,7 +76,10 @@ const handler: Endpoint['handler'] = async (req: PayloadRequest) => {
     return Response.json({ error: 'token required' }, { status: 400, headers: { 'cache-control': 'no-store' } })
   }
 
-  const target = redirectTo && redirectTo.startsWith('/') ? redirectTo : '/admin'
+  const target =
+    redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//') && !redirectTo.startsWith('/\\')
+      ? redirectTo
+      : '/admin'
 
   const tokenCookie = `${payload.config.cookiePrefix}-token`
 
