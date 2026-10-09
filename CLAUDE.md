@@ -74,6 +74,15 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 - Anything that enumerates a document's locales (hreflang, sitemap) must read with `fallbackLocale: false`. With the fallback on, an untranslated page reports the _Persian_ slug for `en`, and `where: { slug }` does not fall back — so the URL it advertises 404s.
 - The home page is `/`, never `/home`. `HOME_SLUG` and `pagePath()` in `src/lib/slug.ts` are the only code that knows the reserved slug — links, revalidation and the route resolver all go through them, or the front page grows a second URL. Rich-text internal links go through `CMSLink` (via the `link` JSX converter override in `src/components/RichText`), not a hand-built `/${slug}` — the default converter gives the home page `/home` and drops the locale segment.
 
+## Embedded editing (the POS modal)
+
+`POST /api/platform/sites/:id/embed-session` + `GET /api/embed/enter` + `src/admin/EmbedChrome.tsx`; contract in the last section of [`docs/platform-control-api.md`](./docs/platform-control-api.md).
+
+- **The embed principal is a real tenant user, and its role is the whole permission.** `embed-editor+<siteId>@embed.invalid` / `embed-owner+…`, one `tenants` row each. Do not add an "is embed" branch to access functions; if embedded editing needs less power, give the user less role. Never create it with a role other than `user` — `Users.beforeChange` promotes the first account in a database with no platform admin.
+- **A code is spent before it is judged** (`kv.delete` precedes the expiry check), and the landing path comes from the stored grant. Do not take a `redirect` from the request.
+- **`/admin/*` sends `frame-ancestors 'self' $ADMIN_EMBED_ORIGINS`.** Adding a second place that frames the admin means extending that list, not removing the header.
+- The marker cookie only changes chrome. Do not read it in an access function.
+
 ## Payment gateways (Wave 10)
 
 ZarinPal, Digipay, Snapp!Pay, Torob Pay. Design decisions in `WAVE-10.md`, operator and headless documentation in `docs/payment-gateways.md`. The rules that are easy to break:

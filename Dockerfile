@@ -94,6 +94,9 @@ COPY . .
 # through `build.args`.
 ARG NEXT_PUBLIC_SERVER_URL
 ENV NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL
+# Origins allowed to frame the admin (the POS's edit modal) — read by next.config headers().
+ARG ADMIN_EMBED_ORIGINS=""
+ENV ADMIN_EMBED_ORIGINS=$ADMIN_EMBED_ORIGINS
 # `next build` loads payload.config.ts, which needs these to exist. No page is
 # prerendered from the database, so dummy values are safe at build time.
 ENV DATABASE_URL="postgres://build:build@localhost:5432/build"

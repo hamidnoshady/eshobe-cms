@@ -32,7 +32,7 @@ const readBody = async (
   }
 }
 
-const docBelongsToSite = (doc: Record<string, unknown>, siteId: string): boolean =>
+export const docBelongsToSite = (doc: Record<string, unknown>, siteId: string): boolean =>
   idOf(doc.site) === siteId
 
 /** `POST /api/platform/sites/:id/publish` — platform key publishes one document. */

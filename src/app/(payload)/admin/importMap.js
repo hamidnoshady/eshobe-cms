@@ -43,6 +43,7 @@ import { LinkToDoc as LinkToDoc_aead06e4cbf6b2620c5c51c9ab283634 } from '@payloa
 import { ReindexButton as ReindexButton_aead06e4cbf6b2620c5c51c9ab283634 } from '@payloadcms/plugin-search/client'
 import { FolderTypeField as FolderTypeField_2b8867833a34864a02ddf429b0728a40 } from '@payloadcms/next/client'
 import { default as default_22eef7f7882e0eff0c1e8aed1cac1e95 } from '@/admin/nav/EshobeNav'
+import { default as default_6813b6cd216a5b94a68da8af12e6b1a6 } from '@/admin/EmbedChrome'
 import { GlobalViewRedirect as GlobalViewRedirect_d6d5f193a167989e2ee7d14202901e62 } from '@payloadcms/plugin-multi-tenant/rsc'
 import { default as default_c6d9e808317ab09ae060f9ba45ccf430 } from '@/admin/OperatorDashboard'
 import { default as default_a06d29854f9ab0931acb16399be52d64 } from '@/admin/CustomerDashboard'
@@ -98,6 +99,7 @@ export const importMap = {
   "@payloadcms/plugin-search/client#ReindexButton": ReindexButton_aead06e4cbf6b2620c5c51c9ab283634,
   "@payloadcms/next/client#FolderTypeField": FolderTypeField_2b8867833a34864a02ddf429b0728a40,
   "@/admin/nav/EshobeNav#default": default_22eef7f7882e0eff0c1e8aed1cac1e95,
+  "@/admin/EmbedChrome#default": default_6813b6cd216a5b94a68da8af12e6b1a6,
   "@payloadcms/plugin-multi-tenant/rsc#GlobalViewRedirect": GlobalViewRedirect_d6d5f193a167989e2ee7d14202901e62,
   "@/admin/OperatorDashboard#default": default_c6d9e808317ab09ae060f9ba45ccf430,
   "@/admin/CustomerDashboard#default": default_a06d29854f9ab0931acb16399be52d64,

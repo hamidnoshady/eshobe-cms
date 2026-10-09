@@ -75,6 +75,7 @@ import { provisionSiteEndpoint } from './endpoints/provisionSite'
 import { paymentGatewayEndpoints } from './endpoints/paymentGateways'
 import { platformControlEndpoints } from './endpoints/platformControl'
 import { platformDemoPackEndpoints } from './endpoints/platformDemoPacks'
+import { platformEmbedEndpoints } from './endpoints/platformEmbed'
 import { platformOwnerBridgeEndpoints } from './endpoints/platformOwnerBridge'
 import { platformDeploymentEndpoints } from './endpoints/platformDeployments'
 import { platformBillingEndpoints } from './endpoints/platformBilling'
@@ -158,6 +159,10 @@ export default buildConfig({
     // endpoint on `DeployTargets`, because a path whose first segment is a
     // collection slug never reaches this array.
     ...platformOwnerBridgeEndpoints,
+    // Embed sessions for the POS's edit modal: `/platform/sites/:id/embed-session` is
+    // a literal sibling of the bare `/platform/sites/:id` below, so it sits before it;
+    // `/embed/enter` is a top-level path whose first segment is not a collection slug.
+    ...platformEmbedEndpoints,
     ...platformDeploymentEndpoints,
     ...platformDemoPackEndpoints,
     ...platformControlEndpoints,
@@ -194,6 +199,8 @@ export default buildConfig({
       // is an access boundary — both re-check the role and run tenant-scoped.
       beforeDashboard: ['@/admin/OperatorDashboard', '@/admin/CustomerDashboard'],
       beforeLogin: ['@/components/BeforeLogin'],
+      // Drops the sidebar and app header for the POS's edit modal (cookie-keyed, SSR).
+      header: ['@/admin/EmbedChrome'],
       /**
        * The audience-aware sidebar. Payload's stock nav groups by each entity's
        * static `admin.group`, which cannot give a shared collection (`sites`,
