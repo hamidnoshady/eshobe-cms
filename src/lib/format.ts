@@ -19,6 +19,10 @@ const intlLocale = (locale: string) => (locale === 'fa' ? 'fa-IR' : locale)
 // host a customer outside Iran.
 const PLATFORM_TIME_ZONE = 'Asia/Tehran'
 
+// ⚡ Bolt: Cache Intl formatters to avoid expensive instantiation on every call.
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
+const numberFormatCache = new Map<string, Intl.NumberFormat>()
+
 export const formatDate = (
   date: Date | string | number | null | undefined,
   locale: string,
@@ -26,19 +30,40 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  return new Intl.DateTimeFormat(intlLocale(locale), {
+  const mappedLocale = intlLocale(locale)
+  const resolvedOptions = {
     // 'persian' *is* the Jalali calendar — Intl ships it, so no date library.
     calendar: locale === 'fa' ? 'persian' : undefined,
     timeZone: PLATFORM_TIME_ZONE,
     ...options,
-  }).format(new Date(date))
+  }
+  const cacheKey = `${mappedLocale}-${JSON.stringify(resolvedOptions)}`
+
+  let formatter = dateTimeFormatCache.get(cacheKey)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(mappedLocale, resolvedOptions)
+    dateTimeFormatCache.set(cacheKey, formatter)
+  }
+
+  return formatter.format(new Date(date))
 }
 
 export const formatNumber = (
   value: number,
   locale: string,
   options?: Intl.NumberFormatOptions,
-): string => new Intl.NumberFormat(intlLocale(locale), options).format(value)
+): string => {
+  const mappedLocale = intlLocale(locale)
+  const cacheKey = options ? `${mappedLocale}-${JSON.stringify(options)}` : mappedLocale
+
+  let formatter = numberFormatCache.get(cacheKey)
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(mappedLocale, options)
+    numberFormatCache.set(cacheKey, formatter)
+  }
+
+  return formatter.format(value)
+}
 
 /**
  * Digit substitution for strings that only look numeric — phone numbers, postal
