@@ -11,6 +11,8 @@ import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
 import { fields } from './fields'
 import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
 import { getClientSideURL } from '@/utilities/getURL'
+import { uiString } from '@/lib/ui-strings'
+import { useLocale } from '@/providers/Locale'
 
 export type FormBlockType = {
   blockName?: string
@@ -46,6 +48,7 @@ export const FormBlock: React.FC<
   const [hasSubmitted, setHasSubmitted] = useState<boolean>()
   const [error, setError] = useState<{ message: string } | undefined>()
   const router = useRouter()
+  const locale = useLocale()
 
   const onSubmit = useCallback(
     (data: FormFieldBlock[]) => {
@@ -176,8 +179,8 @@ export const FormBlock: React.FC<
                   })}
               </div>
 
-              <Button form={formID} type="submit" variant="default">
-                {submitButtonLabel}
+              <Button disabled={isLoading} form={formID} type="submit" variant="default">
+                {isLoading ? uiString('submitting', locale) : submitButtonLabel}
               </Button>
             </form>
           )}
