@@ -37,83 +37,66 @@ export const FormBlock: React.FC<
   })
   const {
     control,
-    formState: { errors },
+    formState: { errors, isSubmitting },
     handleSubmit,
     register,
   } = formMethods
 
-  const [isLoading, setIsLoading] = useState(false)
   const [hasSubmitted, setHasSubmitted] = useState<boolean>()
   const [error, setError] = useState<{ message: string } | undefined>()
   const router = useRouter()
 
   const onSubmit = useCallback(
-    (data: FormFieldBlock[]) => {
-      let loadingTimerID: ReturnType<typeof setTimeout>
-      const submitForm = async () => {
-        setError(undefined)
+    async (data: FormFieldBlock[]) => {
+      setError(undefined)
 
-        const dataToSend = Object.entries(data)
-          // Keep the internal trap out of honest submissions even if the browser or
-          // an autofill extension populates it. The server still validates it for
-          // direct/bot requests that bypass this client.
-          .filter(([name]) => name !== PUBLIC_FORM_HONEYPOT_FIELD)
-          .map(([name, value]) => ({
-            field: name,
-            value,
-          }))
+      const dataToSend = Object.entries(data)
+        // Keep the internal trap out of honest submissions even if the browser or
+        // an autofill extension populates it. The server still validates it for
+        // direct/bot requests that bypass this client.
+        .filter(([name]) => name !== PUBLIC_FORM_HONEYPOT_FIELD)
+        .map(([name, value]) => ({
+          field: name,
+          value,
+        }))
 
-        // delay loading indicator by 1s
-        loadingTimerID = setTimeout(() => {
-          setIsLoading(true)
-        }, 1000)
+      try {
+        const req = await fetch(`${getClientSideURL()}/api/form-submissions`, {
+          body: JSON.stringify({
+            form: formID,
+            submissionData: dataToSend,
+          }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+        })
 
-        try {
-          const req = await fetch(`${getClientSideURL()}/api/form-submissions`, {
-            body: JSON.stringify({
-              form: formID,
-              submissionData: dataToSend,
-            }),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            method: 'POST',
-          })
+        const res = await req.json()
 
-          const res = await req.json()
-
-          clearTimeout(loadingTimerID)
-
-          if (req.status >= 400) {
-            setIsLoading(false)
-
-            setError({
-              message: res.errors?.[0]?.message || 'ارسال پیام ناموفق بود. دوباره تلاش کنید.',
-            })
-
-            return
-          }
-
-          setIsLoading(false)
-          setHasSubmitted(true)
-
-          if (confirmationType === 'redirect' && redirect) {
-            const { url } = redirect
-
-            const redirectUrl = url
-
-            if (redirectUrl) router.push(redirectUrl)
-          }
-        } catch (err) {
-          console.warn(err)
-          setIsLoading(false)
+        if (req.status >= 400) {
           setError({
-            message: 'ارتباط با سرور برقرار نشد. اتصال خود را بررسی کنید.',
+            message: res.errors?.[0]?.message || 'ارسال پیام ناموفق بود. دوباره تلاش کنید.',
           })
-        }
-      }
 
-      void submitForm()
+          return
+        }
+
+        setHasSubmitted(true)
+
+        if (confirmationType === 'redirect' && redirect) {
+          const { url } = redirect
+
+          const redirectUrl = url
+
+          if (redirectUrl) router.push(redirectUrl)
+        }
+      } catch (err) {
+        console.warn(err)
+        setError({
+          message: 'ارتباط با سرور برقرار نشد. اتصال خود را بررسی کنید.',
+        })
+      }
     },
     [router, formID, redirect, confirmationType],
   )
@@ -125,10 +108,9 @@ export const FormBlock: React.FC<
       )}
       <div className="p-4 lg:p-6 border border-border rounded-[0.8rem]">
         <FormProvider {...formMethods}>
-          {!isLoading && hasSubmitted && confirmationType === 'message' && (
+          {!isSubmitting && hasSubmitted && confirmationType === 'message' && (
             <RichText data={confirmationMessage} />
           )}
-          {isLoading && !hasSubmitted && <p>در حال ارسال…</p>}
           {error && (
             /**
              * `role="alert"` so a screen reader announces a failed submission — the
@@ -176,8 +158,8 @@ export const FormBlock: React.FC<
                   })}
               </div>
 
-              <Button form={formID} type="submit" variant="default">
-                {submitButtonLabel}
+              <Button disabled={isSubmitting} form={formID} type="submit" variant="default">
+                {isSubmitting ? 'در حال ارسال…' : submitButtonLabel}
               </Button>
             </form>
           )}
