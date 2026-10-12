@@ -37,7 +37,7 @@ export const FormBlock: React.FC<
   })
   const {
     control,
-    formState: { errors },
+    formState: { errors, isSubmitting },
     handleSubmit,
     register,
   } = formMethods
@@ -113,7 +113,7 @@ export const FormBlock: React.FC<
         }
       }
 
-      void submitForm()
+      return submitForm()
     },
     [router, formID, redirect, confirmationType],
   )
@@ -176,8 +176,8 @@ export const FormBlock: React.FC<
                   })}
               </div>
 
-              <Button form={formID} type="submit" variant="default">
-                {submitButtonLabel}
+              <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
+                {isLoading || isSubmitting ? 'در حال ارسال…' : submitButtonLabel}
               </Button>
             </form>
           )}
