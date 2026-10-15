@@ -4,16 +4,26 @@
  * and `Intl` cannot parse one back.
  */
 
+// ⚡ Bolt: Cache Intl formatter because instantiation is very slow.
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
+
 /** Gregorian → Jalali, via `Intl` (`calendar: 'persian'`) so it agrees with `formatDate`. */
 export function toJalali(date: Date, timeZone: string): [number, number, number] {
   // Parsing, not display: Latin digits and a fixed calendar are the point, so `formatDate` cannot do this.
-  // eslint-disable-next-line no-restricted-syntax
-  const parts = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', {
-    day: 'numeric',
-    month: 'numeric',
-    timeZone,
-    year: 'numeric',
-  }).formatToParts(date)
+  let formatter = dateTimeFormatCache.get(timeZone)
+
+  if (!formatter) {
+    // eslint-disable-next-line no-restricted-syntax
+    formatter = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', {
+      day: 'numeric',
+      month: 'numeric',
+      timeZone,
+      year: 'numeric',
+    })
+    dateTimeFormatCache.set(timeZone, formatter)
+  }
+
+  const parts = formatter.formatToParts(date)
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
   return [get('year'), get('month'), get('day')]
 }

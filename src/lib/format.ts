@@ -19,6 +19,15 @@ const intlLocale = (locale: string) => (locale === 'fa' ? 'fa-IR' : locale)
 // host a customer outside Iran.
 const PLATFORM_TIME_ZONE = 'Asia/Tehran'
 
+// ⚡ Bolt: Cache Intl formatters because instantiation is very slow.
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
+const numberFormatCache = new Map<string, Intl.NumberFormat>()
+
+const getCacheKey = (locale: string, options: Record<string, unknown> | undefined) => {
+  if (!options) return locale;
+  return `${locale}-${JSON.stringify(options, Object.keys(options).sort())}`
+}
+
 export const formatDate = (
   date: Date | string | number | null | undefined,
   locale: string,
@@ -26,19 +35,41 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  return new Intl.DateTimeFormat(intlLocale(locale), {
+  const resolvedLocale = intlLocale(locale)
+  const resolvedOptions = {
     // 'persian' *is* the Jalali calendar — Intl ships it, so no date library.
     calendar: locale === 'fa' ? 'persian' : undefined,
     timeZone: PLATFORM_TIME_ZONE,
     ...options,
-  }).format(new Date(date))
+  }
+
+  const cacheKey = getCacheKey(resolvedLocale, resolvedOptions)
+  let formatter = dateTimeFormatCache.get(cacheKey)
+
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(resolvedLocale, resolvedOptions)
+    dateTimeFormatCache.set(cacheKey, formatter)
+  }
+
+  return formatter.format(new Date(date))
 }
 
 export const formatNumber = (
   value: number,
   locale: string,
   options?: Intl.NumberFormatOptions,
-): string => new Intl.NumberFormat(intlLocale(locale), options).format(value)
+): string => {
+  const resolvedLocale = intlLocale(locale)
+  const cacheKey = getCacheKey(resolvedLocale, options as Record<string, unknown>)
+  let formatter = numberFormatCache.get(cacheKey)
+
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(resolvedLocale, options)
+    numberFormatCache.set(cacheKey, formatter)
+  }
+
+  return formatter.format(value)
+}
 
 /**
  * Digit substitution for strings that only look numeric — phone numbers, postal
