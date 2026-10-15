@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 import { isPlatformAdmin } from '@/access/platformAdmin'
 
@@ -19,8 +19,8 @@ export const mayRunPayloadJobs = ({
   if (isPlatformAdmin(user)) return true
   if (!cronSecret || !authorization) return false
 
-  const expected = Buffer.from(`Bearer ${cronSecret}`)
-  const supplied = Buffer.from(authorization)
+  const expectedHash = createHash('sha256').update(`Bearer ${cronSecret}`).digest()
+  const suppliedHash = createHash('sha256').update(authorization).digest()
 
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+  return timingSafeEqual(suppliedHash, expectedHash)
 }
