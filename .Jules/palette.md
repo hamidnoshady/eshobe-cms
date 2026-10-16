@@ -1,3 +1,3 @@
-## 2024-10-02 - Icon-Only Button Accessibility
-**Learning:** Found a missing `aria-label` on the mobile hamburger close button (`NavHamburgerButton` in `src/admin/nav/EshobeNav.client.tsx`). Adding `aria-label` provides critical context for screen readers when an icon is used alone.
-**Action:** When finding or creating icon-only buttons (like `Hamburger` icons, `X` close buttons), ensure to add an `aria-label` in the appropriate local language (e.g., Persian `بستن منو` for Close menu in this project).
+## 2024-10-16 - Returning Promises in react-hook-form
+**Learning:** In `react-hook-form`, if the `onSubmit` handler is asynchronous, returning a Promise (e.g., `return submitForm()` instead of `void submitForm()`) allows the form state to automatically track `isSubmitting`. This simplifies tracking disabled or loading states by avoiding the need for manual state variables.
+**Action:** When working with `react-hook-form` in async contexts, always explicitly return the Promise from the submit handler so that native form states (like `isSubmitting`) are accurate and can be used directly for UX feedback like disabling buttons.
