@@ -19,6 +19,15 @@ const intlLocale = (locale: string) => (locale === 'fa' ? 'fa-IR' : locale)
 // host a customer outside Iran.
 const PLATFORM_TIME_ZONE = 'Asia/Tehran'
 
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
+const numberFormatCache = new Map<string, Intl.NumberFormat>()
+
+const getCacheKey = (locale: string, options?: Record<string, unknown>) => {
+  if (!options) return locale
+  // Deterministic stringification to avoid cache misses due to property order
+  return `${locale}-${JSON.stringify(options, Object.keys(options).sort())}`
+}
+
 export const formatDate = (
   date: Date | string | number | null | undefined,
   locale: string,
@@ -26,19 +35,41 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  return new Intl.DateTimeFormat(intlLocale(locale), {
+  const finalOptions: Intl.DateTimeFormatOptions = {
     // 'persian' *is* the Jalali calendar — Intl ships it, so no date library.
     calendar: locale === 'fa' ? 'persian' : undefined,
     timeZone: PLATFORM_TIME_ZONE,
     ...options,
-  }).format(new Date(date))
+  }
+
+  const cacheKey = getCacheKey(locale, finalOptions as Record<string, unknown>)
+  let formatter = dateTimeFormatCache.get(cacheKey)
+
+  if (!formatter) {
+    // Optimization: Cache Intl formatters to avoid re-instantiation overhead
+    formatter = new Intl.DateTimeFormat(intlLocale(locale), finalOptions)
+    dateTimeFormatCache.set(cacheKey, formatter)
+  }
+
+  return formatter.format(new Date(date))
 }
 
 export const formatNumber = (
   value: number,
   locale: string,
   options?: Intl.NumberFormatOptions,
-): string => new Intl.NumberFormat(intlLocale(locale), options).format(value)
+): string => {
+  const cacheKey = getCacheKey(locale, options as Record<string, unknown>)
+  let formatter = numberFormatCache.get(cacheKey)
+
+  if (!formatter) {
+    // Optimization: Cache Intl formatters to avoid re-instantiation overhead
+    formatter = new Intl.NumberFormat(intlLocale(locale), options)
+    numberFormatCache.set(cacheKey, formatter)
+  }
+
+  return formatter.format(value)
+}
 
 /**
  * Digit substitution for strings that only look numeric — phone numbers, postal
