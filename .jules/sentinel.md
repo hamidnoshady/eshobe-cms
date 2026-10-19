@@ -1,4 +1,5 @@
-## 2025-03-01 - Timing Attack Vulnerability in Secret Comparison
-**Vulnerability:** A simple string equality operator (`!==`) was used to compare the expected secret with the user-provided secret in `src/endpoints/handoff.ts`.
-**Learning:** String comparison operators short-circuit, leading to measurable timing differences. This could be exploited by an attacker to guess the secret character by character or determine its length.
-**Prevention:** Always use `crypto.timingSafeEqual()` when comparing sensitive strings or tokens. Furthermore, when the lengths of the strings can vary, hash both strings first (e.g., using SHA-256) to ensure the buffers passed to `timingSafeEqual()` are exactly the same length, preventing length-based timing leaks or runtime exceptions.
+## 2024-05-18 - Prevent Length-Based Timing Leaks
+
+**Vulnerability:** Comparing secrets of varying lengths using `expected.length === actual.length && timingSafeEqual(expected, actual)` introduces a timing attack vulnerability. The early return leaks the length of the expected secret.
+**Learning:** `timingSafeEqual` throws if the lengths of the buffers differ. To work around this, developers often add a length check. However, if the expected length is a secret (like an API key or password), returning early based on length allows an attacker to measure the time taken and guess the secret length, which significantly reduces the search space for a brute-force attack.
+**Prevention:** When comparing tokens or secrets where the length itself is a secret and can vary, hash both the expected and provided strings (e.g., using SHA-256) *before* comparing them with `timingSafeEqual`. This ensures the buffers passed to `timingSafeEqual` are always exactly the same length (32 bytes for SHA-256) and removes the need for an early return based on length.
