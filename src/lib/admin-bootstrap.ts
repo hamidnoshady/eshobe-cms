@@ -1,12 +1,12 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 export const bootstrapTokenMatches = (configured: string | undefined, supplied: string | undefined): boolean => {
   if (!configured || !supplied) return false
 
-  const expected = Buffer.from(configured)
-  const actual = Buffer.from(supplied)
+  const expected = createHash('sha256').update(configured).digest()
+  const actual = createHash('sha256').update(supplied).digest()
 
-  return expected.length === actual.length && timingSafeEqual(expected, actual)
+  return timingSafeEqual(expected, actual)
 }
 
 /**
