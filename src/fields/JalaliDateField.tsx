@@ -136,7 +136,7 @@ const JalaliPicker: React.FC<DateFieldClientProps> = (props) => {
       <div className="field-type__wrap" id={`field-${path.replace(/\./g, '__')}`}>
         <FieldError path={path} showError={showError} />
         <div className="jdp__control">
-          <button className="jdp__input" disabled={locked} onClick={toggle} type="button">
+          <button aria-expanded={open} aria-haspopup="dialog" className="jdp__input" disabled={locked} onClick={toggle} type="button">
             {value ? formatDate(value, 'fa', withTime ? { dateStyle: 'long', timeStyle: 'short' } : { dateStyle: 'long' }) : <span className="jdp__placeholder">انتخاب تاریخ</span>}
           </button>
           {value && !locked && !required && (
@@ -153,7 +153,7 @@ const JalaliPicker: React.FC<DateFieldClientProps> = (props) => {
                 <Chevron />
               </button>
               <button
-                className="jdp__title"
+                aria-label="تغییر نمای تقویم" className="jdp__title"
                 onClick={() => setView(view === 'days' ? 'months' : view === 'months' ? 'years' : 'days')}
                 type="button"
               >
