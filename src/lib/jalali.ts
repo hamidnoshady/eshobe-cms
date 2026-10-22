@@ -4,16 +4,22 @@
  * and `Intl` cannot parse one back.
  */
 
+const jalaliCaches = new Map<string, Intl.DateTimeFormat>()
+
 /** Gregorian → Jalali, via `Intl` (`calendar: 'persian'`) so it agrees with `formatDate`. */
 export function toJalali(date: Date, timeZone: string): [number, number, number] {
   // Parsing, not display: Latin digits and a fixed calendar are the point, so `formatDate` cannot do this.
-  // eslint-disable-next-line no-restricted-syntax
-  const parts = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', {
-    day: 'numeric',
-    month: 'numeric',
-    timeZone,
-    year: 'numeric',
-  }).formatToParts(date)
+  if (!jalaliCaches.has(timeZone)) {
+    // eslint-disable-next-line no-restricted-syntax
+    jalaliCaches.set(timeZone, new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', {
+      day: 'numeric',
+      month: 'numeric',
+      timeZone,
+      year: 'numeric',
+    }))
+  }
+
+  const parts = jalaliCaches.get(timeZone)!.formatToParts(date)
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
   return [get('year'), get('month'), get('day')]
 }
