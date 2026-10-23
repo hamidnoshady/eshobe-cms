@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 
 /**
  * Secrets held by the control plane itself — webhook signing keys, plugin
@@ -89,8 +89,7 @@ export const signWebhookPayload = (secret: string, timestamp: string, body: stri
 
 /** Constant-time compare, for a receiver implemented inside this codebase (tests, the self-test route). */
 export const verifyWebhookSignature = (expected: string, received: string): boolean => {
-  const a = Buffer.from(expected)
-  const b = Buffer.from(received)
-  if (a.length !== b.length) return false
+  const a = createHash('sha256').update(expected).digest()
+  const b = createHash('sha256').update(received).digest()
   return timingSafeEqual(a, b)
 }
