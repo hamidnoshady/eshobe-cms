@@ -47,7 +47,12 @@ decision `POST /api/payments/self-test` records.
 | `GET /api/platform/sites/:id/snapshot?collections=` | That site's content, out. |
 | `POST /api/platform/sites/:id/snapshot` | Content, in. `{ snapshot, collections?, dryRun?, force? }`. |
 | `POST /api/platform/sites/:id/publish` | `{ collection: 'posts'\|'pages'\|'products', id }` — publish one document (the POS's «انتشار» button; the owner bridge). |
-| `POST /api/platform/sites/:id/embed-session` | `{ collection: 'posts'\|'pages', id?, canPublish }` → `{ url, expiresInSeconds }`. See «Embedded editing» below. |
+| `POST /api/platform/sites/:id/embed-session` | `{ view?: 'edit'\|'list'\|'dashboard', collection?, id?, canPublish }` → `{ url, expiresInSeconds }`. See «Embedded editing» below. |
+
+`deploy-targets` (the collection's REST route, `/api/deploy-targets`) accepts a platform
+key as well as a platform-admin session, so the console's «زیرساخت» page can list and
+edit Coolify servers. The token is write-only for a key: field read access and the mask
+hook never return it.
 
 Three staff endpoints that already existed now accept a platform key too, so the
 console can run them: `GET /api/payments/status`, `POST /api/payments/self-test`,
@@ -428,11 +433,23 @@ iframe, with no sidebar and no second sign-in.
 2. The browser loads it in the iframe. `GET /api/embed/enter` spends the code, signs in
    a **per-site service user** (`embed-editor+<siteId>@embed.invalid`, or `embed-owner+…`
    when `canPublish`), sets `payload-token`, `payload-tenant` and an `eshobe-embed`
-   marker cookie, and redirects to `/admin/collections/<posts|pages>/<id|create>`. The
-   landing path is built from the stored grant, never from the request.
+   marker cookie, and redirects to the landing path the grant names:
+   `view: 'edit'` → `/admin/collections/<collection>/<id|create>`, `view: 'list'` →
+   `/admin/collections/<collection>`, `view: 'dashboard'` → `/admin`. `collection` is one
+   of `EMBED_COLLECTIONS` (`posts`, `pages`, `categories`, `media`, `forms`,
+   `form-submissions`, and the per-site singletons `header`, `footer`, `site-branding`,
+   which the multi-tenant plugin redirects from their list to the site's own document).
+   The landing path is built from the stored grant, never from the request.
 3. `src/admin/EmbedChrome.tsx` (`admin.components.header`) reads the marker cookie and
-   emits the stylesheet that hides the sidebar and app header. Server-rendered, so there
-   is no flash. It is presentation, not a boundary.
+   emits the stylesheet that hides the sidebar and app header — marker `1`, every view
+   but `dashboard`. The dashboard sets `full` and keeps the admin's own sidebar: it is the
+   site's management panel, shown inside the POS. Server-rendered, so there is no flash.
+   It is presentation, not a boundary.
+
+Every refusal carries a `code` beside the Persian `message` (`site_not_found`,
+`document_not_found`, `bad_view`, `bad_collection`, `bad_document_id`, `bad_site_id`),
+so a caller can tell "this site is not on this CMS" from a CMS that has no such route —
+Payload's own 404 for an unknown path has no `code`.
 
 Rules that are easy to break:
 

@@ -4,15 +4,18 @@ import { docBelongsToSite } from '@/endpoints/platformOwnerBridge'
 import {
   EMBED_CODE_TTL_MS,
   EMBED_MARKER_COOKIE,
+  embedChromeFor,
   embedCodeKey,
   embedTargetPath,
   embedUserEmail,
   embedUserPassword,
   isEmbedCollection,
+  isEmbedView,
   newEmbedCode,
   serializeEmbedCookie,
   type EmbedAccess,
-  type EmbedCollection,
+  type EmbedChromeMode,
+  type EmbedView,
 } from '@/lib/embed'
 import { idOf, isUuid } from '@/lib/ids'
 import { getServerSideURL } from '@/utilities/getURL'
@@ -20,7 +23,14 @@ import { getServerSideURL } from '@/utilities/getURL'
 import { json, param, readJsonBody, requireOperator, siteById } from './platformShared'
 
 /** What the one-time code stands for. Stored under the hash of the code, never under it. */
-type EmbedGrant = { email: string; expiresAt: number; siteId: string; target: string }
+type EmbedGrant = {
+  /** Absent on a grant minted before views existed: those were all single documents. */
+  chrome?: EmbedChromeMode
+  email: string
+  expiresAt: number
+  siteId: string
+  target: string
+}
 
 const KV_PREFIX = 'embed:'
 
@@ -110,7 +120,13 @@ const pruneExpired = async (payload: Payload): Promise<void> => {
 
 /**
  * `POST /api/platform/sites/:id/embed-session` — platform key mints a one-time entry
- * URL that opens one admin document for one site.
+ * URL that opens one site's admin: a document, a collection list, or (`view:
+ * "dashboard"`) the whole panel with its own sidebar.
+ *
+ * Every refusal carries a machine `code` beside the Persian `message`, so the caller can
+ * tell "this site is not on this CMS" from "this CMS has no such route" — a bare 404
+ * reads as the second one, and the console used to tell owners to upgrade a server that
+ * was already current.
  *
  * `canPublish` is the caller's claim about its own user and is trusted exactly as far
  * as the platform key is: that key can already publish any document through
@@ -124,21 +140,33 @@ export const platformSiteEmbedSessionEndpoint: Endpoint = {
     if (denied) return denied
 
     const siteId = param(req, 'id')
-    if (!isUuid(siteId)) return json({ message: 'شناسهٔ سایت نامعتبر است.', ok: false }, 400)
-    if (!(await siteById(req, siteId))) return json({ message: 'سایت پیدا نشد.', ok: false }, 404)
+    if (!isUuid(siteId)) {
+      return json({ code: 'bad_site_id', message: 'شناسهٔ سایت نامعتبر است.', ok: false }, 400)
+    }
+    if (!(await siteById(req, siteId))) {
+      return json({ code: 'site_not_found', message: 'سایت پیدا نشد.', ok: false }, 404)
+    }
 
     const { body, error } = await readJsonBody(req)
     if (error) return error
 
-    const collection = body?.collection
-    if (!isEmbedCollection(collection)) {
-      return json({ message: 'مجموعهٔ ویرایش نامعتبر است.', ok: false }, 400)
+    const rawView = body?.view ?? 'edit'
+    if (!isEmbedView(rawView)) {
+      return json({ code: 'bad_view', message: 'نمای ویرایش نامعتبر است.', ok: false }, 400)
+    }
+    const view: EmbedView = rawView
+
+    const collection = view === 'dashboard' ? null : body?.collection
+    if (collection !== null && !isEmbedCollection(collection)) {
+      return json({ code: 'bad_collection', message: 'مجموعهٔ ویرایش نامعتبر است.', ok: false }, 400)
     }
 
-    const rawId = body?.id
+    const rawId = view === 'edit' ? body?.id : undefined
     let docId: string | undefined
-    if (rawId !== undefined && rawId !== null && rawId !== '') {
-      if (!isUuid(rawId)) return json({ message: 'شناسهٔ سند نامعتبر است.', ok: false }, 400)
+    if (collection && rawId !== undefined && rawId !== null && rawId !== '') {
+      if (!isUuid(rawId)) {
+        return json({ code: 'bad_document_id', message: 'شناسهٔ سند نامعتبر است.', ok: false }, 400)
+      }
       docId = rawId
       const existing = (await req.payload.findByID({
         collection,
@@ -149,7 +177,7 @@ export const platformSiteEmbedSessionEndpoint: Endpoint = {
         req,
       })) as unknown as null | Record<string, unknown>
       if (!existing || !docBelongsToSite(existing, siteId)) {
-        return json({ message: 'سند متعلق به این سایت نیست.', ok: false }, 404)
+        return json({ code: 'document_not_found', message: 'سند متعلق به این سایت نیست.', ok: false }, 404)
       }
     }
 
@@ -159,15 +187,16 @@ export const platformSiteEmbedSessionEndpoint: Endpoint = {
     await pruneExpired(req.payload)
     const code = newEmbedCode()
     const grant: EmbedGrant = {
+      chrome: embedChromeFor(view),
       email,
       expiresAt: Date.now() + EMBED_CODE_TTL_MS,
       siteId,
-      target: embedTargetPath(collection as EmbedCollection, docId),
+      target: embedTargetPath(collection, docId, view),
     }
     await req.payload.kv.set(embedCodeKey(code), grant)
 
     // The URL is the secret for 60 seconds: it is returned once and never logged.
-    req.payload.logger.info({ access, collection, msg: 'embed session minted', siteId })
+    req.payload.logger.info({ access, collection, msg: 'embed session minted', siteId, view })
 
     const url = new URL('/api/embed/enter', getServerSideURL())
     url.searchParams.set('code', code)
@@ -280,7 +309,10 @@ export const embedEnterEndpoint: Endpoint = {
     )
     headers.append(
       'set-cookie',
-      serializeEmbedCookie({ httpOnly: true, maxAge, name: EMBED_MARKER_COOKIE, value: '1' }, secure),
+      serializeEmbedCookie(
+        { httpOnly: true, maxAge, name: EMBED_MARKER_COOKIE, value: grant.chrome ?? '1' },
+        secure,
+      ),
     )
 
     return new Response(null, { headers, status: 302 })
