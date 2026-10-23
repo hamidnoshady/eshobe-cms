@@ -16,7 +16,9 @@ import {
   embedTargetPath,
   embedUserEmail,
   embedUserPassword,
+  embedChromeFor,
   isEmbedCollection,
+  isEmbedView,
   serializeEmbedCookie,
 } from '@/lib/embed'
 import type { User } from '@/payload-types'
@@ -136,6 +138,17 @@ describe('pure helpers', () => {
     expect(isEmbedCollection('../users')).toBe(false)
     expect(embedTargetPath('posts')).toBe('/admin/collections/posts/create')
     expect(embedTargetPath('pages', 'abc')).toBe('/admin/collections/pages/abc')
+    expect(isEmbedCollection('header')).toBe(true)
+    expect(isEmbedCollection('api-keys')).toBe(false)
+    expect(embedTargetPath('header', undefined, 'list')).toBe('/admin/collections/header')
+    expect(embedTargetPath('pages', 'abc', 'list')).toBe('/admin/collections/pages')
+    expect(embedTargetPath(null, undefined, 'dashboard')).toBe('/admin')
+    expect(isEmbedView('dashboard')).toBe(true)
+    expect(isEmbedView('../admin')).toBe(false)
+    // Only the whole panel keeps its sidebar.
+    expect(embedChromeFor('dashboard')).toBe('full')
+    expect(embedChromeFor('edit')).toBe('1')
+    expect(embedChromeFor('list')).toBe('1')
   })
 
   it('stores only a hash of the code and derives, not stores, the password', () => {
@@ -176,6 +189,18 @@ describe('POST /platform/sites/:id/embed-session', () => {
   it("refuses a document that belongs to another site", async () => {
     const res = await mint(platformKey, siteId.acme, { collection: 'posts', id: shopPostId })
     expect(res.status).toBe(404)
+    expect((await bodyOf(res)).code).toBe('document_not_found')
+  })
+
+  it('names a missing site, so the caller cannot mistake it for a missing route', async () => {
+    const res = await mint(platformKey, '00000000-0000-4000-8000-000000000000', { collection: 'posts' })
+    expect((await bodyOf(res)).code).toBe('site_not_found')
+  })
+
+  it('rejects an unknown view', async () => {
+    const res = await mint(platformKey, siteId.acme, { collection: 'posts', view: 'settings' })
+    expect(res.status).toBe(400)
+    expect((await bodyOf(res)).code).toBe('bad_view')
   })
 
   it('mints a url, keeping only the hash of the code, and a user with one tenant', async () => {
@@ -236,6 +261,21 @@ describe('GET /embed/enter', () => {
     )
     const { user } = await payload.auth({ headers: new Headers({ cookie: `payload-token=${token}` }) })
     expect((user as null | User)?.email).toBe(embedUserEmail(siteId.acme, 'editor'))
+  })
+
+  it('a dashboard view lands on the panel and keeps its chrome; a list view drops it', async () => {
+    const dash = await enter(await fresh({ view: 'dashboard' }))
+    expect(dash.status).toBe(302)
+    expect(dash.headers.get('location')).toBe('/admin')
+    expect(dash.headers.getSetCookie().some((c) => c.startsWith(`${EMBED_MARKER_COOKIE}=full`))).toBe(true)
+
+    // A collection named alongside the dashboard view is ignored, not followed.
+    const ignored = await enter(await fresh({ collection: 'pages', view: 'dashboard' }))
+    expect(ignored.headers.get('location')).toBe('/admin')
+
+    const list = await enter(await fresh({ collection: 'header', view: 'list' }))
+    expect(list.headers.get('location')).toBe('/admin/collections/header')
+    expect(list.headers.getSetCookie().some((c) => c.startsWith(`${EMBED_MARKER_COOKIE}=1`))).toBe(true)
   })
 
   it('refuses an unknown, malformed or expired code', async () => {

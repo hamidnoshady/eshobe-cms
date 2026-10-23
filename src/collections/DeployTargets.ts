@@ -1,6 +1,7 @@
 import type { CollectionConfig, FieldAccess, Validate } from 'payload'
 
-import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
+import { isPlatformAdmin, platformAdmin } from '@/access/platformAdmin'
+import { isPlatformAdminOrPlatformKey, platformApiKeyAware } from '@/access/siteApiKey'
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { deployTargetEndpoints } from '@/endpoints/deployTargets'
 import { normalizeBaseUrl } from '@/deploy/coolify'
@@ -42,6 +43,13 @@ import {
 const tokenReadAccess: FieldAccess = ({ req }) =>
   isPlatformAdmin(req.user) || req.context[DEPLOY_SECRET_READ_CONTEXT_KEY] === true
 
+/**
+ * Writing the token is open to the same two callers as the row itself. Reading it is
+ * not: `tokenReadAccess` above never admits a key, and the mask hook blanks it for
+ * everyone but the deploy job, so a platform key can set a token it can never read back.
+ */
+const tokenWriteAccess: FieldAccess = ({ req }) => isPlatformAdminOrPlatformKey(req, isPlatformAdmin(req.user))
+
 const validateBaseUrl: Validate = (value) => {
   if (value === null || value === undefined || value === '') return true
   return normalizeBaseUrl(value)
@@ -62,11 +70,15 @@ const validateWildcard: Validate = (value) => {
 
 export const DeployTargets: CollectionConfig<'deploy-targets'> = {
   slug: 'deploy-targets',
+  // A platform key as well as a platform-admin session: the operator's console lives in
+  // the sibling POS («سایت‌ساز ← زیرساخت») and holds exactly that key. Without it the
+  // console's server list answered 403 to the one caller it exists for. The key could
+  // already deploy, stop and roll back every site on these servers.
   access: {
-    create: platformAdmin,
-    delete: platformAdmin,
-    read: platformAdmin,
-    update: platformAdmin,
+    create: platformApiKeyAware(platformAdmin),
+    delete: platformApiKeyAware(platformAdmin),
+    read: platformApiKeyAware(platformAdmin),
+    update: platformApiKeyAware(platformAdmin),
   },
   admin: {
     defaultColumns: ['name', 'provider', 'active', 'baseUrl', 'tokenSummary', 'lastSelfTestOk'],
@@ -152,9 +164,9 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
       type: 'text',
       label: 'توکن API',
       access: {
-        create: platformAdminFieldAccess,
+        create: tokenWriteAccess,
         read: tokenReadAccess,
-        update: platformAdminFieldAccess,
+        update: tokenWriteAccess,
       },
       hooks: { afterRead: [maskDeploySecret()] },
       admin: {

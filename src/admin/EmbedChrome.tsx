@@ -8,7 +8,8 @@ import { EMBED_MARKER_COOKIE } from '@/lib/embed'
  *
  * Inside the POS's edit modal the marker cookie (set by `/api/embed/enter`) makes it
  * emit a stylesheet that removes the sidebar, its toggle and the app header, so the
- * frame shows the document and nothing else. Server-rendered from the cookie, so the
+ * frame shows the document and nothing else. The `full` marker (the dashboard view) keeps
+ * the admin's own chrome. Server-rendered from the cookie, so the
  * sidebar never flashes. This is chrome, not a boundary: the embed user's access is
  * the tenant role it holds.
  */
