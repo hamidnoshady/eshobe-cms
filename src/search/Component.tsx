@@ -46,7 +46,7 @@ export const Search: React.FC = () => {
           placeholder={uiString('search', locale)}
         />
         <button type="submit" className="sr-only">
-          submit
+          {uiString('submit', locale)}
         </button>
       </form>
     </div>
