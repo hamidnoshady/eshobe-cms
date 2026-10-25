@@ -461,16 +461,21 @@ Rules that are easy to break:
   changes. Edits in version history are attributed to this user, not to the person.
 - **Platform key only**, same boundary as `/publish`. A site key and an anonymous caller
   get 403. A document id must belong to the named site (404 otherwise).
-- **`ADMIN_EMBED_ORIGINS`** (build-time, like `SITE_PREVIEW_ORIGINS`) is the
-  `frame-ancestors` list for `/admin/*`. Empty means `'self'` only, which also closes the
-  admin to clickjacking from any other origin. It is a Docker build arg and a
-  `publish.yml` build-arg: set the repository variable to the POS origin.
+- **`ADMIN_EMBED_ORIGINS`** is the `frame-ancestors` list for `/admin/*`, set per request
+  by `src/proxy.ts` from the **runtime** environment (`docker-compose.srv1.yml` passes it
+  to `web`). Empty means `'self'` only, which also closes the admin to clickjacking from
+  any other origin — and leaves the POS modal showing a broken frame. The `publish.yml`
+  build arg of the same name still works and is unioned with the runtime value.
 - **Cookies.** In production they are `Secure; SameSite=None; Partitioned`, so the frame
   keeps its session when the POS is a different site (Chromium, Firefox). Safari blocks
   third-party cookies outright: serve the POS and the CMS from one registrable domain
-  (`pos.example.com` / `cms.example.com`) and it works everywhere. They overwrite
-  `payload-token` on the CMS host, so a staff member logged into `/admin` in the same
-  browser can be switched to the embed user; use a separate browser profile for the
-  operator console while testing.
+  (`pos.example.com` / `cms.example.com`) and it works everywhere. When the POS and
+  the CMS share a registrable domain, the partition key of the frame's cookies is the
+  same one a top-level visit to the CMS uses, so the embed session used to reach `/admin`
+  opened in a tab — the operator landed on one customer's dashboard with no sidebar and
+  no logout. A top-level navigation (`Sec-Fetch-Dest: document`) that carries the embed
+  marker is now never treated as an embed: `src/proxy.ts` clears the partitioned embed
+  cookies and redirects, and `EmbedChrome` keeps the sidebar (`src/lib/adminFrame.ts`).
+  An embed open in another tab then asks to be reopened.
 - **No Caddy carve-out.** Both routes are called on the control plane's own `Host`.
 
