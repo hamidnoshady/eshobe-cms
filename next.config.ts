@@ -31,17 +31,20 @@ const SITE_PREVIEW_ORIGINS = (process.env.SITE_PREVIEW_ORIGINS ?? '')
 
 /**
  * Origins allowed to frame the *admin* — the POS's edit modal shows one document of
- * this admin in an iframe (`/api/embed/enter`). Baked in at build time. Separate from
- * `SITE_PREVIEW_ORIGINS` on purpose: framing a public site and framing an
- * authenticated panel are different trusts. Empty means `'self'` only — which is also
- * what closes the admin to clickjacking from any other origin.
+ * this admin in an iframe (`/api/embed/enter`). Separate from `SITE_PREVIEW_ORIGINS`
+ * on purpose: framing a public site and framing an authenticated panel are different
+ * trusts. Empty means `'self'` only — which is also what closes the admin to
+ * clickjacking from any other origin.
+ *
+ * The header itself is set by `src/proxy.ts` from the *runtime* `ADMIN_EMBED_ORIGINS`;
+ * the build-time value (the Docker build arg) is inlined here as
+ * `ADMIN_EMBED_ORIGINS_BUILD` and unioned with it, so an image built with the
+ * repository variable keeps working unchanged.
  */
-const ADMIN_EMBED_ORIGINS = (process.env.ADMIN_EMBED_ORIGINS ?? '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean)
+const ADMIN_EMBED_ORIGINS_BUILD = process.env.ADMIN_EMBED_ORIGINS ?? ''
 
 const nextConfig: NextConfig = {
+  env: { ADMIN_EMBED_ORIGINS_BUILD },
   // The production Dockerfile copies `.next/standalone` and runs `node server.js`;
   // without this the image build fails at that COPY step.
   output: 'standalone',
@@ -90,15 +93,9 @@ const nextConfig: NextConfig = {
         headers: [{ key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' }],
         source: '/api/media/file/:path*',
       },
-      {
-        headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: `frame-ancestors 'self' ${ADMIN_EMBED_ORIGINS.join(' ')}`.trim(),
-          },
-        ],
-        source: '/admin/:path*',
-      },
+      // `/admin/*` gets its `frame-ancestors` from `src/proxy.ts`, per request, so the
+      // origin list is runtime configuration (`src/lib/adminFrame.ts`). Two CSP headers
+      // would intersect, so it must not be set here as well.
       {
         headers: [
           {

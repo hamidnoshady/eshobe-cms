@@ -1,6 +1,7 @@
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import React from 'react'
 
+import { isTopLevelNavigation } from '@/lib/adminFrame'
 import { EMBED_MARKER_COOKIE } from '@/lib/embed'
 
 /**
@@ -16,6 +17,11 @@ import { EMBED_MARKER_COOKIE } from '@/lib/embed'
 const EmbedChrome = async (): Promise<React.ReactNode> => {
   const jar = await cookies()
   if (jar.get(EMBED_MARKER_COOKIE)?.value !== '1') return null
+  // A top-level page is never the modal, whatever cookies it carries: on a shared
+  // registrable domain the frame's partitioned marker reaches `/admin` opened in a tab,
+  // and hiding the sidebar there left the operator with no navigation and no logout.
+  // `src/proxy.ts` clears the leaked cookies; this keeps the chrome if that could not.
+  if (isTopLevelNavigation(await headers())) return null
 
   return (
     <style

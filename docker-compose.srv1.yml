@@ -58,6 +58,10 @@ services:
       PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
       NEXT_PUBLIC_SERVER_URL: https://${CONTROL_PLANE_HOST}
       JOBS_AUTORUN: ${JOBS_AUTORUN:-true}
+      # Origins allowed to frame /admin (the POS's «ویرایش» modal), comma-separated,
+      # e.g. https://admin.app.eshobe.com. Read per request by src/proxy.ts; empty
+      # means 'self' only and the modal shows a broken frame.
+      ADMIN_EMBED_ORIGINS: ${ADMIN_EMBED_ORIGINS:-}
       # Deployable themes (docs/theme-deployments.md §11b). Optional: blank keeps
       # the feature it gates off (503 on the CI callback / GitHub webhook, no
       # private-repo sync) and DEPLOY_SECRET_KEY falls back to PAYLOAD_SECRET.

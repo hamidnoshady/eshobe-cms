@@ -106,7 +106,9 @@ try:
     # Deployable themes read these from web's own environment; a variable missing
     # from this allowlist silently disables the feature it gates (503 on CI callbacks).
     for key in ('ESHOBE_THEME_ARTIFACT_SECRET', 'GITHUB_THEME_TOKEN',
-                'GITHUB_THEME_WEBHOOK_SECRET', 'DEPLOY_SECRET_KEY'):
+                'GITHUB_THEME_WEBHOOK_SECRET', 'DEPLOY_SECRET_KEY',
+                # Read per request by src/proxy.ts for /admin's frame-ancestors.
+                'ADMIN_EMBED_ORIGINS'):
         assert key in web['environment'], f'web: {key} missing from allowlist'
         assert key not in migrate['environment'], f'migrate: {key} must not reach the one-shot'
     assert len(web['ports']) == 1

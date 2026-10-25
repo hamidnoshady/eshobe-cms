@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
+import {
+  adminFrameAncestors,
+  EMBED_EXIT_COOKIE,
+  embedExitCookies,
+  isTopLevelNavigation,
+} from '@/lib/adminFrame'
+import { EMBED_MARKER_COOKIE } from '@/lib/embed'
 import { defaultLocale, isLocale } from '@/lib/locales'
 
 /**
@@ -63,8 +70,40 @@ const adminLanguage = (req: NextRequest): NextResponse => {
   return res
 }
 
+/** Same rule as `isSecureRequest` in `platformEmbed.ts`, which decided how the cookies were set. */
+const isSecure = (req: NextRequest): boolean => {
+  if (process.env.NODE_ENV === 'production') return true
+  const proto = req.headers.get('x-forwarded-proto')
+  if (proto) return proto.split(',')[0]?.trim() === 'https'
+  return req.nextUrl.protocol === 'https:'
+}
+
+/**
+ * `/admin`: drop a leaked embed session on a top-level visit (see `embedExitCookies`),
+ * then the language cookie, then `frame-ancestors` from the runtime environment.
+ */
+const admin = (req: NextRequest): NextResponse => {
+  if (
+    req.cookies.has(EMBED_MARKER_COOKIE) &&
+    !req.cookies.has(EMBED_EXIT_COOKIE) &&
+    isTopLevelNavigation(req.headers)
+  ) {
+    const res = NextResponse.redirect(req.nextUrl, 307)
+    // `payload` is the default `cookiePrefix`, which this config does not change.
+    for (const cookie of embedExitCookies('payload-token', isSecure(req))) {
+      res.headers.append('set-cookie', cookie)
+    }
+    res.headers.set('cache-control', 'no-store')
+    return res
+  }
+
+  const res = adminLanguage(req)
+  res.headers.set('Content-Security-Policy', adminFrameAncestors())
+  return res
+}
+
 export function proxy(req: NextRequest): NextResponse {
-  if (req.nextUrl.pathname.startsWith('/admin')) return adminLanguage(req)
+  if (req.nextUrl.pathname.startsWith('/admin')) return admin(req)
 
   // `Host` carries the port in dev; `sites.domain` never does.
   const host = (req.headers.get('host') ?? '').split(':')[0]!.toLowerCase()
