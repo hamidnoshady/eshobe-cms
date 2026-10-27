@@ -1,10 +1,20 @@
 'use client'
 
+import Link from 'next/link'
 import React, { useEffect, useState } from 'react'
 
-import { Banner, Button, CheckboxInput, SelectInput, TextInput, toast } from '@payloadcms/ui'
+import {
+  Banner,
+  Button,
+  CheckboxInput,
+  SelectInput,
+  TextInput,
+  toast,
+  useTranslation,
+} from '@payloadcms/ui'
 
 import type { ThemeSettingsView } from '@/deploy/tenantSettings'
+import type { RuntimeSettingGroup } from '@/lib/deploy/manifest'
 import { formatNumber } from '@/lib/format'
 import {
   contentSlotCollectionSlug,
@@ -17,6 +27,12 @@ import {
  * The form behind «تنظیمات پوسته»: what the site's theme asks the customer for,
  * generated from its synced manifest, in three groups — deployment variables, display
  * options, and which of the site's documents fill the theme's sections.
+ *
+ * It renders in two places, split by each runtime setting's manifest `group`:
+ * `group="design"` is embedded in «طراحی سایت» (the `theme` document) and shows only
+ * the look-and-feel options; `group="general"` is the top-level «تنظیمات پوسته» page
+ * and shows everything else. Each place saves only what it shows — the save merges
+ * over the stored values, so one page never resets the other's options.
  *
  * Built from Payload's own inputs (select, text, checkbox, banner, toast) so it reads
  * like every other edit screen. Each content slot has its own searchable select: the
@@ -35,6 +51,13 @@ import {
 const LOCALE_NAMES: Record<string, string> = { en: 'انگلیسی', fa: 'فارسی' }
 
 export type ThemeSettingsFormProps = {
+  /**
+   * Inside another document's edit form (`theme`): render a `<div>` and a plain button,
+   * since a `<form>` cannot nest in Payload's own.
+   */
+  embedded?: boolean
+  /** Which runtime settings to show. Omitted shows every one. */
+  group?: RuntimeSettingGroup
   initial: ThemeSettingsView
   siteId: string
   /** The languages the site serves; every bound page needs each of them. */
@@ -43,11 +66,17 @@ export type ThemeSettingsFormProps = {
 }
 
 export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
+  embedded = false,
+  group,
   initial,
   siteId,
   siteLocales,
   siteName,
 }) => {
+  const { i18n } = useTranslation()
+  const english = i18n?.language === 'en'
+  const t = (fa: string, en: string) => (english ? en : fa)
+  const designOnly = group === 'design'
   const [view, setView] = useState<ThemeSettingsView>(initial)
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -125,6 +154,18 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
     return () => controller.abort()
   }, [slotTypeKey])
 
+  const runtimeSchema = view.runtimeSchema.filter(
+    (setting) => !group || (setting.group ?? 'general') === group,
+  )
+  const designSettingCount = view.runtimeSchema.filter(
+    (setting) => setting.group === 'design',
+  ).length
+  const fields = designOnly ? [] : view.fields
+  const contentSlots = designOnly ? [] : view.contentSlots
+
+  // In «طراحی سایت» a theme with nothing to design adds nothing to the page.
+  if (designOnly && (!view.package || runtimeSchema.length === 0)) return null
+
   if (!view.package) {
     return (
       <div className="theme-console">
@@ -137,11 +178,7 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
     )
   }
 
-  if (
-    view.fields.length === 0 &&
-    view.runtimeSchema.length === 0 &&
-    view.contentSlots.length === 0
-  ) {
+  if (fields.length === 0 && runtimeSchema.length === 0 && contentSlots.length === 0) {
     return (
       <div className="theme-console">
         <h1>تنظیمات پوسته — {siteName}</h1>
@@ -150,8 +187,8 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
     )
   }
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault()
+  const submit = async (event?: React.SyntheticEvent) => {
+    event?.preventDefault()
     if (!view.canEdit) return
 
     setPending(true)
@@ -163,18 +200,27 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
     try {
       const response = await fetch('/api/site-theme-settings/current', {
         body: JSON.stringify({
-          clear: Object.entries(clear)
-            .filter(([, checked]) => checked)
-            .map(([key]) => key),
           site: siteId,
-          // Declared slots only: a key left over from a previous theme is refused by the save.
-          bindings: Object.fromEntries(
-            Object.entries(bindings).filter(
-              ([key, id]) => id && view.contentSlots.some((slot) => slot.key === key),
+          // Only this page's options; the save keeps the other page's stored values.
+          runtimeSettings: Object.fromEntries(
+            Object.entries(runtimeSettings).filter(([key]) =>
+              runtimeSchema.some((setting) => setting.key === key),
             ),
           ),
-          runtimeSettings,
-          values: submitted,
+          ...(designOnly
+            ? {}
+            : {
+                clear: Object.entries(clear)
+                  .filter(([, checked]) => checked)
+                  .map(([key]) => key),
+                // Declared slots only: a key left over from a previous theme is refused by the save.
+                bindings: Object.fromEntries(
+                  Object.entries(bindings).filter(
+                    ([key, id]) => id && view.contentSlots.some((slot) => slot.key === key),
+                  ),
+                ),
+                values: submitted,
+              }),
         }),
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -204,22 +250,50 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
   }
 
   const optionLabel = (setting: { labelEn?: null | string; labelFa?: null | string; key: string }) =>
-    setting.labelFa ?? setting.labelEn ?? setting.key
+    (english ? (setting.labelEn ?? setting.labelFa) : (setting.labelFa ?? setting.labelEn)) ??
+    setting.key
   const siteLanguages = siteLocales.map((code) => LOCALE_NAMES[code] ?? code)
 
+  const Root = embedded ? 'div' : 'form'
+
   return (
-    <form className="theme-console theme-form" onSubmit={submit}>
-      <div className="theme-console__intro">
-        <h1>تنظیمات پوسته — {siteName}</h1>
-        <p className="theme-console__muted">
-          پوستهٔ فعال: «{view.package.name}». گزینه‌های نمایش و نگاشت محتوا بلافاصله پس از ذخیره
-          روی سایت اعمال می‌شوند؛ متغیرهای استقرار در استقرار بعدی.
-        </p>
-      </div>
+    <Root className="theme-console theme-form" {...(embedded ? {} : { onSubmit: submit })}>
+      {designOnly ? (
+        <div className="theme-console__intro">
+          <h2>{t('گزینه‌های طراحی پوسته', 'Theme design options')}</h2>
+          <p className="theme-console__muted">
+            {t(
+              `اندازهٔ متن، چیدمان و حرکت‌هایی که پوستهٔ «${view.package.name}» در اختیار شما گذاشته است. این بخش دکمهٔ ذخیرهٔ خودش را دارد و بلافاصله روی سایت اعمال می‌شود.`,
+              `Text sizes, layout and motion offered by the “${view.package.name}” theme. This section has its own save button and applies to the site immediately.`,
+            )}
+          </p>
+        </div>
+      ) : (
+        <div className="theme-console__intro">
+          <h1>
+            {t('تنظیمات پوسته', 'Theme settings')} — {siteName}
+          </h1>
+          <p className="theme-console__muted">
+            پوستهٔ فعال: «{view.package.name}». گزینه‌های نمایش و نگاشت محتوا بلافاصله پس از ذخیره
+            روی سایت اعمال می‌شوند؛ متغیرهای استقرار در استقرار بعدی.
+          </p>
+        </div>
+      )}
+
+      {!designOnly && group && designSettingCount > 0 && (
+        <Banner type="info">
+          {t(
+            'گزینه‌های ظاهری پوسته (اندازهٔ متن، چیدمان، انیمیشن) در ',
+            'The theme’s look-and-feel options (text sizes, layout, motion) are in ',
+          )}
+          <Link href="/admin/collections/theme">{t('طراحی سایت', 'Site design')}</Link>
+          {t(' هستند.', '.')}
+        </Banner>
+      )}
 
       {!view.canEdit && <Banner type="info">فقط مالک سایت می‌تواند این مقادیر را تغییر دهد.</Banner>}
 
-      {view.fields.length > 0 && (
+      {fields.length > 0 && (
         <section className="theme-card">
           <div className="theme-card__head">
             <h2 className="theme-card__title">متغیرهای استقرار</h2>
@@ -229,7 +303,7 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
             فعلی» در صفحهٔ استقرار اعمال می‌شود.
           </p>
           <div className="theme-form__fields">
-            {view.fields.map((field) =>
+            {fields.map((field) =>
               field.secret ? (
                 <div className="theme-form__fields" key={field.key}>
                   <TextInput
@@ -284,13 +358,15 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
         </section>
       )}
 
-      {view.runtimeSchema.length > 0 && (
+      {runtimeSchema.length > 0 && (
         <section className="theme-card">
-          <div className="theme-card__head">
-            <h2 className="theme-card__title">گزینه‌های نمایش</h2>
-          </div>
+          {!designOnly && (
+            <div className="theme-card__head">
+              <h2 className="theme-card__title">گزینه‌های نمایش</h2>
+            </div>
+          )}
           <div className="theme-form__fields">
-            {view.runtimeSchema.map((setting) => {
+            {runtimeSchema.map((setting) => {
               const label = optionLabel(setting)
               const set = (value: boolean | number | string | undefined) =>
                 setRuntimeSettings((previous) => {
@@ -373,7 +449,7 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
         </section>
       )}
 
-      {view.contentSlots.length > 0 && (
+      {contentSlots.length > 0 && (
         <section className="theme-card">
           <div className="theme-card__head">
             <h2 className="theme-card__title">نگاشت محتوای پوسته</h2>
@@ -391,7 +467,7 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
             )}
           </p>
           <div className="theme-form__fields">
-            {view.contentSlots.map((slot) => {
+            {contentSlots.map((slot) => {
               const type = slot.type as ContentSlotType
               const bound = bindings[slot.key]
               const options = contentOptions[type] ?? []
@@ -443,12 +519,20 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
 
       {view.canEdit && (
         <div className="theme-form__footer">
-          <Button buttonStyle="primary" disabled={pending} type="submit">
-            {pending ? 'در حال ذخیره…' : 'ذخیرهٔ تنظیمات'}
+          <Button
+            buttonStyle={designOnly ? 'secondary' : 'primary'}
+            disabled={pending}
+            {...(embedded ? { onClick: () => void submit(), type: 'button' } : { type: 'submit' })}
+          >
+            {pending
+              ? t('در حال ذخیره…', 'Saving…')
+              : designOnly
+                ? t('ذخیرهٔ گزینه‌های طراحی پوسته', 'Save theme design options')
+                : t('ذخیرهٔ تنظیمات', 'Save settings')}
           </Button>
         </div>
       )}
-    </form>
+    </Root>
   )
 }
 

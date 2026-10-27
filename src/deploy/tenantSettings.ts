@@ -214,6 +214,23 @@ export const themeSettingsView = async (
   }
 }
 
+/** The site's one `site-theme-settings` row (`isGlobal` in the multi-tenant plugin), if any. */
+const settingsRowFor = async (
+  req: PayloadRequest,
+  siteId: string,
+): Promise<null | Record<string, unknown>> => {
+  const { docs } = await req.payload.find({
+    collection: 'site-theme-settings',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    where: { site: { equals: siteId } },
+  })
+  return (docs[0] as unknown as Record<string, unknown> | undefined) ?? null
+}
+
 export type ThemeSettingsInput = {
   bindings?: unknown
   clear?: unknown
@@ -251,7 +268,25 @@ export const saveThemeSettings = async (
     !Array.isArray(input.runtimeSettings)
       ? (input.runtimeSettings as Record<string, unknown>)
       : {}
+  /**
+   * A save names only the options it shows: «طراحی سایت» sends the `design` group and
+   * «تنظیمات پوسته» the `general` one. Each starts from what is stored (still-declared
+   * keys only, so a previous theme's leftovers cannot fail the save), or saving one page
+   * would put every option on the other back to its default.
+   */
+  const existing = await settingsRowFor(req, siteId)
+  const storedRuntime = existing?.runtimeSettings
+  const declaredRuntime = new Set(pkg.manifest.settings.map((setting) => setting.key))
+  const keptRuntime =
+    storedRuntime && typeof storedRuntime === 'object' && !Array.isArray(storedRuntime)
+      ? Object.fromEntries(
+          Object.entries(storedRuntime as Record<string, unknown>).filter(([key]) =>
+            declaredRuntime.has(key),
+          ),
+        )
+      : {}
   const runtime = validateRuntimeSettings(pkg.manifest, runtimeInput)
+  const mergedRuntime = validateRuntimeSettings(pkg.manifest, { ...keptRuntime, ...runtimeInput })
   if (hasRuntimeInput) errors.push(...runtime.errors)
 
   const hasBindingsInput = input.bindings !== undefined
@@ -359,7 +394,7 @@ export const saveThemeSettings = async (
 
   const data = {
     ...(hasBindingsInput ? { contentBindings: bindings } : {}),
-    ...(hasRuntimeInput ? { runtimeSettings: runtime.values } : {}),
+    ...(hasRuntimeInput ? { runtimeSettings: mergedRuntime.values } : {}),
     secretValues: Object.keys(secrets).length ? JSON.stringify(secrets) : null,
     themePackage: pkg.id,
     values: plain,
@@ -374,22 +409,12 @@ export const saveThemeSettings = async (
    * the raw collection would let a customer name any package and write any key, and
    * this function is the validation that makes the write safe.
    */
-  const { docs } = await req.payload.find({
-    collection: 'site-theme-settings',
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-    pagination: false,
-    req,
-    where: { site: { equals: siteId } },
-  })
-
-  if (docs[0]) {
+  if (existing) {
     await req.payload.update({
       collection: 'site-theme-settings',
       data,
       depth: 0,
-      id: String((docs[0] as { id: unknown }).id),
+      id: String(existing.id),
       overrideAccess: true,
       req,
     })

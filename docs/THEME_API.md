@@ -1739,6 +1739,7 @@ can change without rebuilding the container and are returned under `GET /api/sit
 | `default` | boolean/number/string | no | Must match `type`; for `select`, must be one of the option values. |
 | `min`, `max` | number | no | Enforced for `number` values. |
 | `options` | array | required for `select` | 1–50 options, each `{ value, labelFa?, labelEn? }`, value <= 100 chars. |
+| `group` | `design`/`general` | no | `general` | Where the customer edits it. `design` (typography, layout, motion, colours) appears inside **طراحی سایت** beside the design tokens; `general` (map provider, coordinates, anything that is not how the site looks) appears on the top-level **تنظیمات پوسته** page. |
 | `labelFa`, `labelEn` | string/null | no | Form labels. |
 | `help` | string/null | no | Help text. |
 

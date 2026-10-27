@@ -61,11 +61,10 @@ describe('the theme settings document view on sites', () => {
     expect(editViews?.themeSettings?.tab?.href).toBe('/theme-settings')
   })
 
-  it('is offered to the site’s own staff as well as to operators — the view and the route check membership', () => {
+  it('is no longer a document tab — the top-level «تنظیمات پوسته» route replaces it', () => {
     const condition = editViews?.themeSettings?.tab?.condition as ((args: unknown) => boolean) | undefined
-    expect(condition?.({ req: { user: { role: 'user' } } })).toBe(true)
-    expect(condition?.({ req: { user: { role: 'platformAdmin' } } })).toBe(true)
-    expect(condition?.({ req: {} })).toBe(false)
+    expect(condition?.({ req: { user: { role: 'user' } } })).toBe(false)
+    expect(condition?.({ req: { user: { role: 'platformAdmin' } } })).toBe(false)
   })
 })
 

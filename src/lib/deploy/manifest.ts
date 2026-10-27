@@ -98,8 +98,20 @@ export type ManifestEnvVar = {
 
 export const RUNTIME_SETTING_TYPES = ['boolean', 'text', 'number', 'select'] as const
 export type RuntimeSettingType = (typeof RUNTIME_SETTING_TYPES)[number]
+
+/**
+ * Where a runtime setting is edited in the customer panel. `design` (typography,
+ * layout, motion, colours) renders inside «طراحی سایت» next to the site's design
+ * tokens; `general` (a map provider, office coordinates, anything that is not how the
+ * site looks) renders on the top-level «تنظیمات پوسته» page. A setting without a group
+ * is `general`, so a manifest written before the field existed keeps working.
+ */
+export const RUNTIME_SETTING_GROUPS = ['design', 'general'] as const
+export type RuntimeSettingGroup = (typeof RUNTIME_SETTING_GROUPS)[number]
+
 export type ManifestRuntimeSetting = {
   default?: boolean | number | string
+  group: RuntimeSettingGroup
   help?: null | string
   key: string
   labelEn?: null | string
@@ -226,6 +238,11 @@ const parseRuntimeSettingRow = (
     errors.push(`نوع settings.${key} باید یکی از ${RUNTIME_SETTING_TYPES.join('، ')} باشد.`)
     return null
   }
+  const group = row.group === undefined || row.group === null ? 'general' : str(row.group)
+  if (!group || !(RUNTIME_SETTING_GROUPS as readonly string[]).includes(group)) {
+    errors.push(`settings.${key}.group باید یکی از ${RUNTIME_SETTING_GROUPS.join('، ')} باشد.`)
+    return null
+  }
   let options: ManifestRuntimeSetting['options']
   if (type === 'select') {
     if (!Array.isArray(row.options) || !row.options.length || row.options.length > 50) {
@@ -262,6 +279,7 @@ const parseRuntimeSettingRow = (
   }
   return {
     default: defaultValue as boolean | number | string | undefined,
+    group: group as RuntimeSettingGroup,
     help: str(row.help),
     key,
     labelEn: str(row.labelEn),

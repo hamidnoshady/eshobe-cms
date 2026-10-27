@@ -260,7 +260,9 @@ export const Sites: CollectionConfig = {
             meta: { title: 'تنظیمات پوسته' },
             path: '/theme-settings',
             tab: {
-              condition: ({ req }) => Boolean(req?.user),
+              // Superseded by the top-level «تنظیمات پوسته» route; the URL stays so old
+              // links work, but a setting must not hide behind a document tab.
+              condition: () => false,
               href: '/theme-settings',
               label: 'تنظیمات پوسته',
             },

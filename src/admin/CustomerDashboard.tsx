@@ -126,7 +126,7 @@ const CustomerDashboard: React.FC<Props> = async ({ payload, permissions, user }
   // Tenant-scoped reads; a failure leaves the section out rather than blanking the page.
   let theme: { name: string; rows: ThemeSlotRow[] } | null = null
   const themeSettingsHref = site
-    ? `${adminBase(adminRoute)}/collections/sites/${encodeURIComponent(String(site.id))}/theme-settings`
+    ? `${adminBase(adminRoute)}/theme-settings`
     : null
   if (site && themeSettingsHref) {
     try {
