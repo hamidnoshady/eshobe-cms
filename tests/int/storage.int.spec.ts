@@ -7,7 +7,7 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3'
 import type { Payload } from 'payload'
-import { getPayload } from 'payload'
+import { createLocalReq, getPayload } from 'payload'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import config from '@/payload.config'
@@ -22,6 +22,7 @@ import { normaliseStorageError } from '@/storage/errors'
 import { normalizeStorageEndpoint } from '@/storage/endpoint'
 import { runFullStorageTest, runQuickStorageTest } from '@/storage/health'
 import { sitePrefix } from '@/hooks/mediaPrefix'
+import { s3ObjectStorageAdapter } from '@/storage/adapter'
 import type { StorageConnection } from '@/storage/types'
 
 const sendMock = vi.fn()
@@ -192,5 +193,70 @@ describe('tenant media prefixes', () => {
   it('namespaces by site id', () => {
     expect(sitePrefix('abc')).toBe('sites/abc/media')
     expect(sitePrefix('x')).not.toBe(sitePrefix('y'))
+  })
+})
+
+describe('serving a file from object storage', () => {
+  it('streams the key of the document the file route already authorised, without a second lookup', async () => {
+    // Payload's `/api/media/file/*` finds the row while checking read access and hands it
+    // to the handler as `doc`. Ignoring it re-ran the same media query on every image.
+    const row = await payload.create({
+      collection: 'storage-connections',
+      data: {
+        accessKeyId: 'A',
+        authenticationOk: true,
+        bucket: 'serve-test',
+        bucketAccessible: true,
+        deleteAccessOk: true,
+        enabled: true,
+        endpoint: 'https://s3.ir-thr-at1.arvanstorage.ir',
+        healthStatus: 'healthy',
+        name: `serve-${Date.now()}`,
+        provider: 'arvancloud',
+        readAccessOk: true,
+        secretAccessKey: 'secret',
+        storageMode: 'object_storage',
+        writeAccessOk: true,
+      },
+      overrideAccess: true,
+    })
+    clearStorageConnectionCache()
+
+    sendMock.mockImplementation((command: unknown) => {
+      if (command instanceof HeadObjectCommand) {
+        return Promise.resolve({ ContentLength: 3, ContentType: 'image/png', ETag: '"e"' })
+      }
+      if (command instanceof GetObjectCommand) {
+        return Promise.resolve({ Body: new Blob(['png']).stream() })
+      }
+      return Promise.reject(new Error('unexpected command'))
+    })
+    const find = vi.spyOn(payload, 'find')
+
+    try {
+      const req = await createLocalReq({ req: { headers: new Headers() } as Partial<PayloadRequest> }, payload)
+      const adapter = s3ObjectStorageAdapter({ collection: payload.collections.media.config, prefix: '' })
+      const response = await adapter.staticHandler(req, {
+        doc: { id: 'm1', prefix: sitePrefix('abc') } as never,
+        headers: new Headers(),
+        params: { collection: 'media', filename: 'photo.png' },
+      })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('png')
+      const head = sendMock.mock.calls.map(([c]) => c).find((c) => c instanceof HeadObjectCommand) as HeadObjectCommand
+      expect(head.input.Key).toBe('sites/abc/media/photo.png')
+      expect(find.mock.calls.filter(([args]) => (args as { collection?: string }).collection === 'media')).toHaveLength(0)
+    } finally {
+      find.mockRestore()
+      await payload.update({
+        collection: 'storage-connections',
+        data: { enabled: false, healthStatus: 'disabled' },
+        id: row.id,
+        overrideAccess: true,
+      })
+      await payload.delete({ collection: 'storage-connections', id: row.id, overrideAccess: true })
+      clearStorageConnectionCache()
+    }
   })
 })

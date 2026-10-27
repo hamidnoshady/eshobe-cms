@@ -8,11 +8,12 @@ import { randomUUID } from 'node:crypto'
 import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import type { User } from '@/payload-types'
 import config from '@/payload.config'
 import { cmsTypedUser } from './cmsUser'
+import { requestApiKey } from '@/access/siteApiKey'
 import { issueApiKeyEndpoint, listApiKeysEndpoint, revokeApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { updateSiteDomain } from '@/endpoints/updateSiteDomain'
 import { idOf } from '@/lib/ids'
@@ -334,6 +335,55 @@ describe('a site key', () => {
     } finally {
       await payload.update({ id: page.id, collection: 'pages', data: { _status: 'published' }, overrideAccess: true })
     }
+  })
+})
+
+describe('recording when a key was last used', () => {
+  // A deployed theme proxies every image on a page through the CMS with its site key, so
+  // one page view is a burst of parallel keyed requests. Each used to fire an un-awaited
+  // `payload.update` on the key's row *with the visitor's own `req`*: the update opened
+  // its transaction on that request, so the file lookup that followed ran inside it, and
+  // every parallel image request queued on the same row lock while holding a pooled
+  // connection. Ten images exhausted the pool and the rest timed out — broken images
+  // "sometimes".
+  it('never opens a transaction on the request it is resolving', async () => {
+    const issued = await issueKey({ name: 'tx test', role: 'site', siteId: siteId.acme })
+    const req = await reqWithKey(issued.key, 'acme.localhost')
+
+    let sawTransaction = false
+    const watch = setInterval(() => {
+      if (req.transactionID) sawTransaction = true
+    }, 1)
+    try {
+      expect((await requestApiKey(req))?.siteId).toBe(siteId.acme)
+      for (let i = 0; i < 50; i++) {
+        if (req.transactionID) sawTransaction = true
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    } finally {
+      clearInterval(watch)
+    }
+
+    expect(sawTransaction).toBe(false)
+  })
+
+  it('writes lastUsedAt once for a burst of parallel requests, not once per request', async () => {
+    const issued = await issueKey({ name: 'burst test', role: 'site', siteId: siteId.acme })
+    const update = vi.spyOn(payload, 'update')
+    try {
+      const reqs = await Promise.all(Array.from({ length: 20 }, () => reqWithKey(issued.key, 'acme.localhost')))
+      const resolved = await Promise.all(reqs.map((req) => requestApiKey(req)))
+      expect(resolved.every((key) => key?.siteId === siteId.acme)).toBe(true)
+
+      const writes = update.mock.calls.filter(([args]) => (args as { collection?: string }).collection === 'api-keys')
+      expect(writes).toHaveLength(1)
+    } finally {
+      update.mockRestore()
+    }
+
+    await expect
+      .poll(async () => (await payload.findByID({ id: issued.id, collection: 'api-keys', depth: 0, overrideAccess: true })).lastUsedAt)
+      .toBeTruthy()
   })
 })
 
