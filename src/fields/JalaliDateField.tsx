@@ -174,6 +174,7 @@ const JalaliPicker: React.FC<DateFieldClientProps> = (props) => {
                     <span key={`e${i}`} />
                   ) : (
                     <button
+                      aria-label={`انتخاب ${num(d)} ${monthName(cursor.m)} ${num(cursor.y)}`}
                       className={[
                         'jdp__cell',
                         selected && selected.y === cursor.y && selected.m === cursor.m && selected.d === d && 'is-selected',
@@ -194,6 +195,7 @@ const JalaliPicker: React.FC<DateFieldClientProps> = (props) => {
               <div className="jdp__grid jdp__grid--pick">
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                   <button
+                    aria-label={`انتخاب ماه ${monthName(m)}`}
                     className={['jdp__cell', selected && selected.y === cursor.y && selected.m === m && 'is-selected'].filter(Boolean).join(' ')}
                     key={m}
                     onClick={() => { setCursor({ ...cursor, m }); setView('days') }}
@@ -209,6 +211,7 @@ const JalaliPicker: React.FC<DateFieldClientProps> = (props) => {
               <div className="jdp__grid jdp__grid--pick">
                 {Array.from({ length: YEAR_PAGE }, (_, i) => yearFrom + i).map((y) => (
                   <button
+                    aria-label={`انتخاب سال ${num(y)}`}
                     className={['jdp__cell', selected?.y === y && 'is-selected'].filter(Boolean).join(' ')}
                     key={y}
                     onClick={() => { setCursor({ ...cursor, y }); setView('months') }}
