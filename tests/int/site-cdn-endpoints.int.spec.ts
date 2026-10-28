@@ -89,8 +89,9 @@ describe('site-scoped CDN endpoints', () => {
       zoneName: 'acme.ir',
     })
     expect(body.records).toEqual([
-      { content: '185.10.0.1', name: 'acme.ir', proxied: true, type: 'A' },
+      { content: '185.10.0.1', editable: false, name: 'acme.ir', proxied: true, type: 'A' },
     ])
+    expect(body.managedBy).toBe('platform')
     // Three layers protect the token elsewhere; this endpoint must not be the
     // hole that makes them moot.
     expect(JSON.stringify(body)).not.toContain('should-never-appear')
@@ -102,12 +103,21 @@ describe('site-scoped CDN endpoints', () => {
     expect(response.status).toBe(409)
   })
 
-  it('keeps zone creation and DNS/WAF writes off the tenant surface entirely', () => {
-    // Purge is the only CDN write a tenant gets: it drops cached copies of that
-    // site's own pages and touches nothing at the provider's DNS or firewall.
+  it('keeps TLS, cache and WAF writes off the tenant surface entirely', () => {
+    // The tenant surface is: read, purge, and self-service on the platform's shared
+    // account (create a zone for its own hostname, its own DNS-only records, a
+    // re-check, detach). Nothing here takes TLS, cache, security rules or a zone id —
+    // `tests/int/cdn-self-service.int.spec.ts` pins each of those routes.
     const tenantPaths = cdnEndpoints
       .filter((candidate) => candidate.path.startsWith('/site/'))
       .map((candidate) => `${candidate.method} ${candidate.path}`)
-    expect(tenantPaths.sort()).toEqual(['get /site/cdn', 'post /site/cdn/purge'])
+    expect(tenantPaths.sort()).toEqual([
+      'delete /site/cdn/zone',
+      'get /site/cdn',
+      'post /site/cdn/purge',
+      'post /site/cdn/sync',
+      'post /site/cdn/zone',
+      'put /site/cdn/records',
+    ])
   })
 })

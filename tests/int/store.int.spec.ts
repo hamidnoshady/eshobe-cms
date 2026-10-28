@@ -379,6 +379,10 @@ describe('store', () => {
         // tenant's derived quote.
         'cdn-events',
         'domain-reseller-products',
+        // The platform's own Cloudflare/Arvan account that tenant zones may name
+        // (`src/collections/CdnAccounts.ts`). The *zones* stay tenant-scoped; the
+        // account is the operator's credential, shared like `storage-connections`.
+        'cdn-accounts',
         // The object-storage connection every site's media writes through, configured once
         // by a superadmin. Same shape as `users`/`api-keys`: shared credential material,
         // not a site's own content (see src/collections/StorageConnections.ts).

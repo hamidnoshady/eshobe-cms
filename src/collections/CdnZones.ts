@@ -87,6 +87,52 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
       ],
     },
     {
+      name: 'account',
+      type: 'relationship',
+      relationTo: 'cdn-accounts',
+      label: 'حساب CDN سراسری',
+      access: fieldAccess,
+      filterOptions: ({ data }) =>
+        data?.provider ? { provider: { equals: data.provider } } : true,
+      admin: {
+        description:
+          'به‌جای وارد کردن توکن جداگانه برای هر zone، از حساب مشترک پلتفرم استفاده کنید. اگر توکن خود zone پر باشد، همان اولویت دارد.',
+      },
+    },
+    {
+      name: 'managedBy',
+      type: 'select',
+      label: 'ایجادکننده',
+      defaultValue: 'platform',
+      options: [
+        { label: 'پلتفرم', value: 'platform' },
+        { label: 'مشتری (سلف‌سرویس)', value: 'tenant' },
+      ],
+      access: { create: () => false, update: () => false },
+      admin: {
+        readOnly: true,
+        description:
+          'zoneی که مشتری از طریق حساب سراسری ساخته است. مشتری فقط رکوردهای غیرپراکسی خودش را در آن تغییر می‌دهد.',
+      },
+    },
+    {
+      // Set by a tenant write, cleared by the `cdnZoneSync` task after it has
+      // reconciled exactly that request. Never a form field.
+      name: 'syncRequestedAt',
+      type: 'date',
+      access: { create: () => false, update: () => false },
+      admin: { hidden: true },
+    },
+    {
+      // Provider record ids of tenant rows the tenant removed. Sync never deletes a
+      // remote record on its own, so the only deletes it makes are these.
+      name: 'pendingRecordDeletes',
+      type: 'array',
+      access: { create: () => false, update: () => false },
+      admin: { hidden: true },
+      fields: [{ name: 'providerRecordId', type: 'text' }],
+    },
+    {
       name: 'providerZoneKey',
       type: 'text',
       unique: true,
@@ -264,6 +310,20 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
               },
             },
           ],
+        },
+        {
+          name: 'source',
+          type: 'select',
+          label: 'مالک رکورد',
+          defaultValue: 'platform',
+          options: [
+            { label: 'پلتفرم', value: 'platform' },
+            { label: 'مشتری', value: 'tenant' },
+          ],
+          admin: {
+            description:
+              'رکوردهای «مشتری» را مشتری از API سایت خود تغییر می‌دهد؛ رکوردهای پلتفرم را نه.',
+          },
         },
         {
           name: 'providerRecordId',

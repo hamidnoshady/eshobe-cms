@@ -108,6 +108,7 @@ describe('admin nav visibility (config-level)', () => {
       'api-keys',
       'storage-connections',
       'cdn-zones',
+      'cdn-accounts',
       'cdn-events',
     ]) {
       expect(visible.collections, slug).not.toContain(slug)
@@ -284,6 +285,7 @@ describe('admin nav resolution against the real config', () => {
       'api-keys',
       'storage-connections',
       'cdn-zones',
+      'cdn-accounts',
     ]
     for (const slug of controlPlane) {
       const entry = cfg.collections.find((c) => c.slug === slug)

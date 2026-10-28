@@ -66,6 +66,7 @@ const PLATFORM_TARGET = [
       'domain-reseller-products',
       'domain-reseller',
       'cdn-zones',
+      'cdn-accounts',
       'storage-connections',
       'deploy-targets',
       'payments',

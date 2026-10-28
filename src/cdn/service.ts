@@ -745,6 +745,43 @@ export const purgeCdnZone = async (
   return { actions }
 }
 
+/**
+ * Delete exactly the remote records named by id. Sync never deletes on its own;
+ * this is called only for records a tenant removed from its own zone, whose ids
+ * the CMS itself recorded when it created them. A record already gone (404) is
+ * the outcome being asked for, not a failure.
+ */
+export const deleteCdnRecords = async (
+  zone: CdnZoneInput,
+  providerRecordIds: string[],
+): Promise<CdnAction[]> => {
+  const actions: CdnAction[] = []
+  if (!providerRecordIds.length) return actions
+  const token = decryptCdnSecret(zone.credentials?.apiToken)
+  if (!token) throw new CdnConfigurationError('API token قابل استفاده نیست.')
+  const http = new ProviderHttp(zone.provider, token)
+
+  const base =
+    zone.provider === 'cloudflare'
+      ? await (async () => {
+          const resolved = await cloudflareZone(http, zone, false)
+          if (!resolved.id) throw new CdnProviderError('Cloudflare zone has no id')
+          return `/zones/${resolved.id}/dns_records`
+        })()
+      : `/domains/${encodeURIComponent(zone.zoneName)}/dns-records`
+
+  for (const id of providerRecordIds) {
+    try {
+      await http.request(`${base}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      action(actions, `dns-delete:${id}`, 'applied')
+    } catch (error) {
+      if (!(error instanceof CdnProviderError) || error.status !== 404) throw error
+      action(actions, `dns-delete:${id}`, 'skipped', 'already absent')
+    }
+  }
+  return actions
+}
+
 /** Used only by staff-only endpoint code, immediately before a provider call. */
 export const cdnZoneInput = (value: unknown): CdnZoneInput => value as CdnZoneInput
 

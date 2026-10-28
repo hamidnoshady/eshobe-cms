@@ -18,6 +18,7 @@ import { CentralEntitlementProjections } from './collections/CentralEntitlementP
 import { ApiKeys } from './collections/ApiKeys'
 import { AuditLog } from './collections/AuditLog'
 import { Categories } from './collections/Categories'
+import { CdnAccounts } from './collections/CdnAccounts'
 import { CdnEvents } from './collections/CdnEvents'
 import { CdnZones } from './collections/CdnZones'
 import { DeployTargets } from './collections/DeployTargets'
@@ -63,6 +64,7 @@ import { defaultLocale, locales } from './lib/locales'
 import { billingIntegrationTask } from './billing/task'
 import { advanceDeploymentsTask } from './deploy/task'
 import { storageHealthCheckTask } from './storage/task'
+import { cdnZoneSyncTask } from './cdn/task'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
@@ -301,6 +303,7 @@ export default buildConfig({
     // shared by every tenant, and here that would mean one customer's merchant
     // credentials editable from another customer's admin.
     PaymentGateways,
+    CdnAccounts,
     CdnZones,
     CdnEvents,
     DomainResellerProducts,
@@ -533,7 +536,13 @@ export default buildConfig({
      * is still the reason `JOBS_AUTORUN=false` plus a `payload jobs:run` container
      * is the upgrade path.
      */
-    tasks: [advanceDeploymentsTask, storageHealthCheckTask, billingIntegrationTask],
+    tasks: [
+      advanceDeploymentsTask,
+      storageHealthCheckTask,
+      billingIntegrationTask,
+      // Tenant CDN self-service: provider calls run here, never in the request.
+      cdnZoneSyncTask,
+    ],
   },
   /**
    * Last line of defence for the values that only bite in production. Deliberately

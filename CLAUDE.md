@@ -234,6 +234,17 @@ plugin glue in `src/plugins/storage.ts`.
 - Rotating `OBJECT_STORAGE_KEY` or `PAYLOAD_SECRET` invalidates the stored secret key with
   no re-encryption job; re-enter it in the admin UI.
 
+## Shared CDN account and tenant self-service
+
+`cdn-accounts` (platform-wide, platform-admin only) holds the operator's ArvanCloud/Cloudflare token once; a `cdn-zones` row names it instead of carrying its own. Tenant routes `POST|DELETE /api/site/cdn/zone`, `PUT /api/site/cdn/records`, `POST /api/site/cdn/sync` (site key only). Operator guide: `docs/domains.md`.
+
+- **Credentials resolve in one place**, `withCdnCredentials` in `src/cdn/resolve.ts`: the zone's own token, else its account — enabled and the *same provider*, or refused. Never read `cdn-accounts.credentials` anywhere else.
+- **A tenant route never takes a zone id.** It finds the zone by the key's site. A Cloudflare account token reaches every tenant's zone, so this lookup is the whole boundary.
+- **A tenant never chooses an origin.** Proxied records are the platform template (the site's own hostnames → `originTarget`); tenant rows are forced DNS-only and cannot reuse a platform record's name. Otherwise any customer could route a third-party origin through the operator's CDN bill.
+- **Zone ownership is checked against every other site**: a zone is one of the site's hostnames or its immediate parent, and refused if another site holds a hostname inside it.
+- **Provider calls run in the `cdnZoneSync` task**, never in the request; the task writes onto the *current* row and clears `syncRequestedAt` only if it is unchanged, so a save made during a sync is not lost. A failure is recorded and not retried until asked.
+- Detaching a tenant zone changes nothing at the provider, and sync never deletes a remote record except the ones in `pendingRecordDeletes` that the CMS itself created.
+
 ## srv1 / Komodo deployment invariants
 
 - Deploy only `docker-compose.srv1.yml`, never the generic `docker-compose.prod.yml`/Caddy stack on this shared host. OpenLiteSpeed owns 80/443; web publishes **127.0.0.1:3001 only**.

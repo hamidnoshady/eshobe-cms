@@ -14,8 +14,17 @@ import {
   writeCdnOperationalState,
 } from '@/cdn/service'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
+import { findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
+import {
+  assertZoneBelongsToSite,
+  mergeTenantRecords,
+  parseTenantRecords,
+  templateRecords,
+  TenantCdnRefusal,
+  type ZoneRecord,
+} from '@/cdn/tenant'
+import { normalizeDomain } from '@/lib/domains'
 import { siteForDomainKey } from './updateSiteDomain'
-
 
 const noStore = { 'cache-control': 'no-store' }
 const response = (payload: Record<string, unknown>, status = 200): Response =>
@@ -124,7 +133,7 @@ export const cdnSync: Endpoint['handler'] = async (req) => {
   const zone = cdnZoneInput(raw)
 
   try {
-    const result = await syncCdnZone(zone)
+    const result = await syncCdnZone(await withCdnCredentials(req, raw))
     const detail = formatCdnActions(result.actions)
     await writeCdnOperationalState(req.payload, req, zone, result, true, detail)
     await audit(req, zone, 'sync', true, detail)
@@ -173,7 +182,7 @@ export const cdnPurge: Endpoint['handler'] = async (req) => {
   if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
   const zone = cdnZoneInput(raw)
   try {
-    const result = await purgeCdnZone(zone, urls)
+    const result = await purgeCdnZone(await withCdnCredentials(req, raw), urls)
     await req.payload.update({
       id: zone.id,
       collection: 'cdn-zones',
@@ -237,7 +246,6 @@ export const cdnStatus: Endpoint['handler'] = async (req) => {
   return response({ ok: true, zones: found.docs })
 }
 
-
 /* ------------------------------------------------------------------ */
 /* Site-scoped — what a tenant may see and do about its own zone        */
 /* ------------------------------------------------------------------ */
@@ -280,10 +288,12 @@ export const siteCdnStatus: Endpoint['handler'] = async (req) => {
       lastSyncAt: true,
       lastSyncDetail: true,
       lastSyncOk: true,
+      managedBy: true,
       provider: true,
       providerNameservers: true,
       providerStatus: true,
       site: true,
+      syncRequestedAt: true,
       zoneName: true,
     },
     where: { site: { equals: site.id } },
@@ -298,11 +308,14 @@ export const siteCdnStatus: Endpoint['handler'] = async (req) => {
       lastSyncAt: null,
       lastSyncDetail: null,
       lastSyncOk: null,
+      managedBy: null,
       nameservers: [],
       ok: true,
       provider: null,
       providerStatus: null,
       records: [],
+      selfService: await selfServiceProviders(req),
+      syncPending: false,
       zoneName: null,
     })
   }
@@ -311,13 +324,23 @@ export const siteCdnStatus: Endpoint['handler'] = async (req) => {
     .map((entry) => (typeof entry?.hostname === 'string' ? entry.hostname : ''))
     .filter(Boolean)
 
-  // Only the shape of a record — never a provider id, never a credential.
-  const records = (zone.dnsRecords ?? []).map((record) => ({
-    content: String(record.content ?? ''),
-    name: String(record.name ?? ''),
-    proxied: record.proxied ?? null,
-    type: String(record.type ?? ''),
-  }))
+  // Only the shape of a record — never a provider id, never a credential. A
+  // tenant's own row also carries its row `id`, which is what `PUT
+  // /api/site/cdn/records` matches on to update rather than duplicate it.
+  const managedBy = zone.managedBy === 'tenant' ? 'tenant' : 'platform'
+  const records = (zone.dnsRecords ?? []).map((record) => {
+    const editable = managedBy === 'tenant' && record.source === 'tenant'
+    return {
+      content: String(record.content ?? ''),
+      editable,
+      ...(editable
+        ? { id: record.id ?? null, priority: record.priority ?? null, ttl: record.ttl ?? null }
+        : {}),
+      name: String(record.name ?? ''),
+      proxied: record.proxied ?? null,
+      type: String(record.type ?? ''),
+    }
+  })
 
   return response({
     active: zone.active === true,
@@ -326,11 +349,13 @@ export const siteCdnStatus: Endpoint['handler'] = async (req) => {
     lastSyncAt: zone.lastSyncAt ?? null,
     lastSyncDetail: zone.lastSyncDetail ?? null,
     lastSyncOk: zone.lastSyncOk ?? null,
+    managedBy,
     nameservers,
     ok: true,
     provider: zone.provider ?? null,
     providerStatus: zone.providerStatus ?? null,
     records,
+    syncPending: Boolean(zone.syncRequestedAt),
     zoneName: zone.zoneName ?? null,
   })
 }
@@ -360,22 +385,7 @@ export const siteCdnPurge: Endpoint['handler'] = async (req) => {
     return response({ message: 'urls must be an array of strings', ok: false }, 400)
   }
 
-  req.context[CDN_SECRET_READ_CONTEXT_KEY] = true
-  let raw
-  try {
-    const found = await req.payload.find({
-      collection: 'cdn-zones',
-      depth: 0,
-      limit: 1,
-      overrideAccess: true,
-      pagination: false,
-      req,
-      where: { site: { equals: site.id } },
-    })
-    raw = found.docs[0]
-  } finally {
-    delete req.context[CDN_SECRET_READ_CONTEXT_KEY]
-  }
+  const raw = await findCdnZoneWithSecret(req, { site: { equals: site.id } })
 
   if (!raw) return response({ message: 'برای این سایت CDN تنظیم نشده است.', ok: false }, 404)
   // A zone the platform has not switched on manages nothing at the provider
@@ -386,7 +396,7 @@ export const siteCdnPurge: Endpoint['handler'] = async (req) => {
 
   const zone = cdnZoneInput(raw)
   try {
-    const result = await purgeCdnZone(zone, urls)
+    const result = await purgeCdnZone(await withCdnCredentials(req, raw), urls)
     await req.payload.update({
       id: zone.id,
       collection: 'cdn-zones',
@@ -398,7 +408,13 @@ export const siteCdnPurge: Endpoint['handler'] = async (req) => {
     await audit(req, zone, 'purge', true, formatCdnActions(result.actions))
     return response({ ok: true, scope: urls?.length ? 'urls' : 'everything', zone: zone.zoneName })
   } catch (error) {
-    await audit(req, zone, 'purge', false, error instanceof Error ? error.message : 'CDN purge failed')
+    await audit(
+      req,
+      zone,
+      'purge',
+      false,
+      error instanceof Error ? error.message : 'CDN purge failed',
+    )
     req.payload.logger.warn({
       err: error as Error,
       msg: `CDN purge failed for ${zone.provider}:${zone.zoneName}`,
@@ -409,10 +425,291 @@ export const siteCdnPurge: Endpoint['handler'] = async (req) => {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Tenant self-service on the platform's shared CDN account             */
+/* ------------------------------------------------------------------ */
+
+const forbiddenForSite = () =>
+  response({ message: 'این عملیات فقط با کلید API همان سایت ممکن است.', ok: false }, 403)
+
+const refusal = (error: unknown): null | Response =>
+  error instanceof TenantCdnRefusal
+    ? response({ message: error.message, ok: false }, error.status)
+    : null
+
+/** Which providers a tenant may self-serve on. Provider names only — the account
+ * row, its id and its token never leave this module. */
+const selfServiceProviders = async (req: PayloadRequest): Promise<string[]> => {
+  const found = await req.payload.find({
+    collection: 'cdn-accounts',
+    depth: 0,
+    limit: 10,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    select: { provider: true },
+    where: { and: [{ tenantSelfService: { equals: true } }, { enabled: { equals: true } }] },
+  })
+  return [...new Set(found.docs.map((doc) => String(doc.provider)))].sort()
+}
+
+/** The caller's own zone, located by the key's site and nothing else — no request
+ * ever names a zone id, so there is no id to swap for another tenant's. */
+const ownZone = async (req: PayloadRequest, siteId: string) => {
+  const found = await req.payload.find({
+    collection: 'cdn-zones',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    select: {
+      dnsRecords: true,
+      lastSyncAt: true,
+      managedBy: true,
+      pendingRecordDeletes: true,
+      syncRequestedAt: true,
+      zoneName: true,
+    },
+    where: { site: { equals: siteId } },
+  })
+  return found.docs[0] ?? null
+}
+
+const notSelfServed = () =>
+  response(
+    { message: 'CDN این سایت توسط پشتیبانی مدیریت می‌شود و از اینجا قابل تغییر نیست.', ok: false },
+    409,
+  )
+
+/** Hostnames of every *other* site that could fall inside `zoneName`. `contains`
+ * over-selects (`acme.ir` matches `notacme.ir`); `assertZoneBelongsToSite` does the
+ * exact suffix test. */
+const otherSitesHostnames = async (
+  req: PayloadRequest,
+  siteId: string,
+  zoneName: string,
+): Promise<string[]> => {
+  const found = await req.payload.find({
+    collection: 'sites',
+    depth: 0,
+    limit: 100,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    select: { domain: true, domains: true },
+    where: {
+      and: [
+        { id: { not_equals: siteId } },
+        {
+          or: [{ domain: { contains: zoneName } }, { 'domains.hostname': { contains: zoneName } }],
+        },
+      ],
+    },
+  })
+  return found.docs.flatMap((doc) => [
+    String(doc.domain ?? ''),
+    ...((doc.domains ?? []) as Array<{ hostname?: null | string }>).map((row) =>
+      String(row?.hostname ?? ''),
+    ),
+  ])
+}
+
+/**
+ * `POST /api/site/cdn/zone { zoneName, provider? }` — put one of this site's own
+ * hostnames behind the platform's shared CDN account.
+ *
+ * Site key only. The zone name must be a hostname of this site (or its immediate
+ * parent) and no other site may hold a hostname inside it. The records written are
+ * the platform's template — this site's hostnames, proxied, pointing at the
+ * operator's origin — and TLS/cache/WAF take the collection's safe defaults. The
+ * provider work happens in the `cdnZoneSync` task, so this answers `202` at once;
+ * `GET /api/site/cdn` shows the nameservers to set at the registrar once it ran.
+ */
+export const siteCdnCreateZone: Endpoint['handler'] = async (req) => {
+  const site = await siteForDomainKey(req)
+  if (!site) return forbiddenForSite()
+
+  const data = await body(req)
+  const requested = typeof data.provider === 'string' ? data.provider : null
+  const accounts = await req.payload.find({
+    collection: 'cdn-accounts',
+    depth: 0,
+    limit: 10,
+    overrideAccess: true,
+    pagination: false,
+    req,
+    select: { originTarget: true, provider: true },
+    where: { and: [{ tenantSelfService: { equals: true } }, { enabled: { equals: true } }] },
+  })
+  const candidates = accounts.docs.filter((doc) => !requested || doc.provider === requested)
+  if (!candidates.length)
+    return response(
+      { message: 'افزودن دامنه به CDN برای این ارائه‌دهنده فعال نیست.', ok: false },
+      409,
+    )
+  if (candidates.length > 1)
+    return response({ message: 'ارائه‌دهنده (provider) را مشخص کنید.', ok: false }, 400)
+  const account = candidates[0]!
+
+  if (await ownZone(req, String(site.id)))
+    return response({ message: 'این سایت از قبل یک zone CDN دارد.', ok: false }, 409)
+
+  let zoneName: string
+  let dnsRecords: ZoneRecord[]
+  try {
+    const candidate = typeof data.zoneName === 'string' ? normalizeDomain(data.zoneName) : ''
+    zoneName = assertZoneBelongsToSite(
+      site,
+      candidate,
+      candidate ? await otherSitesHostnames(req, String(site.id), candidate) : [],
+    )
+    dnsRecords = templateRecords(site, zoneName, String(account.originTarget ?? ''))
+  } catch (error) {
+    const refused = refusal(error)
+    if (refused) return refused
+    throw error
+  }
+
+  try {
+    await req.payload.create({
+      collection: 'cdn-zones',
+      data: {
+        account: account.id,
+        active: true,
+        dnsRecords,
+        managedBy: 'tenant',
+        provider: account.provider,
+        provisionIfMissing: true,
+        site: site.id,
+        syncRequestedAt: new Date().toISOString(),
+        zoneName,
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+  } catch (error) {
+    // Unique zone name / provider-zone key: the domain is already some site's zone.
+    // Which site is not the caller's business.
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `tenant CDN zone create refused for ${zoneName}`,
+    })
+    return response({ message: 'این دامنه از قبل در CDN ثبت شده است.', ok: false }, 409)
+  }
+
+  return response({ ok: true, provider: account.provider, state: 'queued', zoneName }, 202)
+}
+
+/**
+ * `PUT /api/site/cdn/records { records: [...] }` — replace this site's *own* DNS
+ * records in its self-served zone. The full desired list: a row omitted is
+ * deleted at the provider on the next sync (only if the CMS created it). Every
+ * row is DNS-only; platform rows are untouched and cannot be shadowed.
+ */
+export const siteCdnPutRecords: Endpoint['handler'] = async (req) => {
+  const site = await siteForDomainKey(req)
+  if (!site) return forbiddenForSite()
+  const zone = await ownZone(req, String(site.id))
+  if (!zone) return response({ message: 'برای این سایت CDN تنظیم نشده است.', ok: false }, 404)
+  if (zone.managedBy !== 'tenant') return notSelfServed()
+
+  const data = await body(req)
+  const stored = (zone.dnsRecords ?? []) as ZoneRecord[]
+  let merged
+  try {
+    const tenant = parseTenantRecords(
+      data.records,
+      String(zone.zoneName),
+      stored.filter((record) => record.source !== 'tenant'),
+    )
+    merged = mergeTenantRecords(stored, tenant)
+  } catch (error) {
+    const refused = refusal(error)
+    if (refused) return refused
+    throw error
+  }
+
+  const pending = [
+    ...((zone.pendingRecordDeletes ?? []) as Array<{ providerRecordId?: null | string }>)
+      .map((row) => row.providerRecordId)
+      .filter((id): id is string => typeof id === 'string' && Boolean(id)),
+    ...merged.removedProviderRecordIds,
+  ]
+  await req.payload.update({
+    id: zone.id,
+    collection: 'cdn-zones',
+    data: {
+      dnsRecords: merged.dnsRecords,
+      pendingRecordDeletes: [...new Set(pending)].map((providerRecordId) => ({ providerRecordId })),
+      syncRequestedAt: new Date().toISOString(),
+    } as never,
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  return response({ ok: true, records: merged.dnsRecords.length, state: 'queued' }, 202)
+}
+
+/** A re-check costs several provider calls, so one per minute per zone. */
+const RESYNC_INTERVAL_MS = 60_000
+
+/** `POST /api/site/cdn/sync` — ask for a re-check of a self-served zone (has the
+ * registrar picked up the nameservers yet?). Queued, idempotent, rate-limited. */
+export const siteCdnRequestSync: Endpoint['handler'] = async (req) => {
+  const site = await siteForDomainKey(req)
+  if (!site) return forbiddenForSite()
+  const zone = await ownZone(req, String(site.id))
+  if (!zone) return response({ message: 'برای این سایت CDN تنظیم نشده است.', ok: false }, 404)
+  if (zone.managedBy !== 'tenant') return notSelfServed()
+  if (zone.syncRequestedAt) return response({ ok: true, state: 'queued' }, 202)
+  const last = zone.lastSyncAt ? Date.parse(String(zone.lastSyncAt)) : 0
+  if (Date.now() - last < RESYNC_INTERVAL_MS)
+    return response({ message: 'کمی بعد دوباره تلاش کنید.', ok: false }, 429)
+
+  await req.payload.update({
+    id: zone.id,
+    collection: 'cdn-zones',
+    data: { syncRequestedAt: new Date().toISOString() } as never,
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  return response({ ok: true, state: 'queued' }, 202)
+}
+
+/**
+ * `DELETE /api/site/cdn/zone` — detach this site's self-served zone. Deliberately
+ * changes nothing at the provider: the domain's nameservers still point there, and
+ * deleting the remote zone would take the site offline. The operator cleans up the
+ * account side; the tenant moves its nameservers back first.
+ */
+export const siteCdnDeleteZone: Endpoint['handler'] = async (req) => {
+  const site = await siteForDomainKey(req)
+  if (!site) return forbiddenForSite()
+  const zone = await ownZone(req, String(site.id))
+  if (!zone) return response({ message: 'برای این سایت CDN تنظیم نشده است.', ok: false }, 404)
+  if (zone.managedBy !== 'tenant') return notSelfServed()
+
+  await req.payload.delete({
+    id: zone.id,
+    collection: 'cdn-zones',
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  return response({ ok: true, removed: zone.zoneName })
+}
+
 export const cdnEndpoints: Endpoint[] = [
   { handler: cdnStatus, method: 'get', path: '/cdn/status' },
   { handler: cdnSync, method: 'post', path: '/cdn/sync' },
   { handler: cdnPurge, method: 'post', path: '/cdn/purge' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
+  { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },
+  { handler: siteCdnDeleteZone, method: 'delete', path: '/site/cdn/zone' },
+  { handler: siteCdnPutRecords, method: 'put', path: '/site/cdn/records' },
+  { handler: siteCdnRequestSync, method: 'post', path: '/site/cdn/sync' },
 ]

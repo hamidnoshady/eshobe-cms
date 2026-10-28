@@ -191,6 +191,7 @@ export const PLATFORM_NAV: NavGroupDef[] = [
       collection('domain-reseller-products', 'کاتالوگ TLD'),
       global('domain-reseller'),
       collection('cdn-zones', 'CDN — زون‌ها'),
+      collection('cdn-accounts', 'CDN — حساب‌ها'),
       collection('storage-connections', 'ذخیره‌سازی اشیا', '/infrastructure/storage'),
       collection('deploy-targets', 'سرورهای انتشار'),
       // Platform payment policy — which gateway adapters are globally allowed —
