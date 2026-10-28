@@ -229,6 +229,7 @@ describe('admin visibility', () => {
     'api-keys',
     'storage-connections',
     'cdn-zones',
+    'cdn-accounts',
   ]
 
   const SITE_CONTENT = [

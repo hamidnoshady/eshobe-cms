@@ -140,6 +140,28 @@ Cloudflare API tokens should be scoped to the one zone and only the permissions 
 
 Finally, CDN proxy mode does **not** itself prevent direct requests to the origin IP. At the network firewall/load-balancer layer, allow only Cloudflare or ArvanCloud published edge ranges (plus required health-check/administration paths) to reach ports 80/443. Keep that list maintained from the provider's official IP ranges; do not trust a client-supplied `X-Forwarded-For` header.
 
+### The shared CDN account (one connection for every zone)
+
+A superadmin enters the platform's ArvanCloud or Cloudflare account once, in **زیرساخت → CDN — حساب‌ها** (`cdn-accounts`). The token gets the same treatment as a zone token (AES-256-GCM with `CDN_INTEGRATIONS_KEY`, write-only, masked on every read, blank on save means unchanged) and the collection is platform-admin only on every operation. A zone then picks that account in its **حساب CDN سراسری** field instead of carrying a token of its own; a zone's own token, if set, still wins. Disabling the account stops every zone that uses it from syncing or purging. An account cannot be deleted while a zone names it, and its provider cannot change after creation.
+
+For Cloudflare this is an **account-level** token (Zone:Edit, DNS:Edit, Zone Settings:Edit, Cache Purge) because it must reach zones that do not exist yet. That is a wider blast radius than one token per zone, and the boundary that contains it is in code: every tenant route finds the zone from the site key, never from a request value.
+
+### Tenant self-service
+
+Turn on **سلف‌سرویس مشتری** on the account (at most one per provider). It is refused until the account has a working token, an **origin target** (the platform's IP; Cloudflare also accepts a hostname, Arvan does not because the apex cannot be a CNAME there) and, for Cloudflare, the Account ID. Then a site key may:
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/site/cdn` | Status, nameservers to set at the registrar, records. With no zone, `selfService` lists the providers on offer. |
+| `POST /api/site/cdn/zone` `{ zoneName, provider? }` | Creates the site's zone on the shared account. `zoneName` must be one of the site's own hostnames or its immediate parent (`www.acme.ir` → `acme.ir`), and no other site may hold a hostname inside it. One zone per site. |
+| `PUT /api/site/cdn/records` `{ records: [...] }` | Replaces the tenant's **own** records (A/AAAA/CNAME/MX/TXT/CAA). Always DNS-only, at most 50, and never the name of a platform record. A removed row is deleted at the provider if the CMS created it. |
+| `POST /api/site/cdn/sync` | Re-check (did the registrar pick up the nameservers?). Once a minute. |
+| `DELETE /api/site/cdn/zone` | Detaches the zone. Nothing changes at the provider; move the nameservers back first. |
+
+What the tenant cannot do: choose the origin (the platform writes proxied records for the site's hostnames, pointing at the origin target only), proxy a record of its own, or change TLS, cache, HSTS, WAF or security rules — a tenant-created zone takes the collection's defaults (Full strict, respect origin cache) and the operator can still edit it. Operator-created zones stay read-only to the tenant apart from purge.
+
+Writes answer `202`: provider calls run in the `cdnZoneSync` job (every minute, five zones per tick), not in the request. A failed sync is recorded on the zone (`lastSyncOk: false`) and in **رویدادهای CDN**, and is not retried until the tenant asks again. These routes are site-key routes used by the POS builder over the control plane's own `Host`, so like the existing `/api/site/cdn` they have no Caddy carve-out.
+
 ## Deployable themes and DNS
 
 **تأیید DNS** and **انتشار پوسته روی دامنه** are separate steps:

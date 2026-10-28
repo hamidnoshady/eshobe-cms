@@ -14,6 +14,7 @@ export const CDN_SECRET_READ_CONTEXT_KEY = 'eshobeCdnSecretRead'
 
 type CredentialData = { apiToken?: unknown }
 type CdnData = {
+  account?: unknown
   clearCredentials?: unknown
   credentials?: CredentialData
   credentialsSummary?: unknown
@@ -59,9 +60,12 @@ export const encryptCdnCredentials: CollectionBeforeChangeHook = async (args) =>
   const plaintext = decryptCdnSecret(apiToken)
   data.credentials = { apiToken }
   data.clearCredentials = false
+  const account = data.account !== undefined ? data.account : args.originalDoc?.account
   data.credentialsSummary = plaintext
     ? `API token configured · ${fingerprintCdnSecret(plaintext)}`
-    : 'No API token configured.'
+    : account
+      ? 'Uses the shared CDN account.'
+      : 'No API token configured.'
 
   const provider = data.provider ?? args.originalDoc?.provider
   const zoneName =

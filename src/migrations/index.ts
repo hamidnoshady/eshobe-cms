@@ -29,6 +29,7 @@ import * as migration_20261004_130000_payload_390_columns from './20261004_13000
 import * as migration_20261005_120000_page_builder_media from './20261005_120000_page_builder_media';
 import * as migration_20261005_180000_deploy_flow_fixes from './20261005_180000_deploy_flow_fixes';
 import * as migration_20261005_190000_project_metadata_localized from './20261005_190000_project_metadata_localized';
+import * as migration_20261028_090000_cdn_shared_accounts from './20261028_090000_cdn_shared_accounts';
 
 export const migrations = [
   {
@@ -185,5 +186,10 @@ export const migrations = [
     up: migration_20261005_190000_project_metadata_localized.up,
     down: migration_20261005_190000_project_metadata_localized.down,
     name: '20261005_190000_project_metadata_localized'
+  },
+  {
+    up: migration_20261028_090000_cdn_shared_accounts.up,
+    down: migration_20261028_090000_cdn_shared_accounts.down,
+    name: '20261028_090000_cdn_shared_accounts'
   },
 ];

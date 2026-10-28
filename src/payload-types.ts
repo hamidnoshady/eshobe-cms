@@ -84,6 +84,7 @@ export interface Config {
     orders: Order;
     store: Store;
     'payment-gateways': PaymentGateway;
+    'cdn-accounts': CdnAccount;
     'cdn-zones': CdnZone;
     'cdn-events': CdnEvent;
     'domain-reseller-products': DomainResellerProduct;
@@ -146,6 +147,7 @@ export interface Config {
     orders: OrdersSelect<false> | OrdersSelect<true>;
     store: StoreSelect<false> | StoreSelect<true>;
     'payment-gateways': PaymentGatewaysSelect<false> | PaymentGatewaysSelect<true>;
+    'cdn-accounts': CdnAccountsSelect<false> | CdnAccountsSelect<true>;
     'cdn-zones': CdnZonesSelect<false> | CdnZonesSelect<true>;
     'cdn-events': CdnEventsSelect<false> | CdnEventsSelect<true>;
     'domain-reseller-products': DomainResellerProductsSelect<false> | DomainResellerProductsSelect<true>;
@@ -212,6 +214,7 @@ export interface Config {
       advanceDeployments: TaskAdvanceDeployments;
       storageHealthCheck: TaskStorageHealthCheck;
       billingIntegration: TaskBillingIntegration;
+      cdnZoneSync: TaskCdnZoneSync;
       schedulePublish: TaskSchedulePublish;
       inline: {
         input: unknown;
@@ -2033,6 +2036,54 @@ export interface PaymentGateway {
   createdAt: string;
 }
 /**
+ * حساب CDN سراسری پلتفرم. zoneها می‌توانند به‌جای توکن جداگانه از این حساب استفاده کنند و با «سلف‌سرویس مشتری» سایت‌ها می‌توانند دامنهٔ خودشان را از طریق آن به CDN اضافه کنند. توکن هرگز به مشتری یا API برنمی‌گردد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-accounts".
+ */
+export interface CdnAccount {
+  id: string;
+  /**
+   * برای خودتان؛ مثلاً «آروان — تولید».
+   */
+  name: string;
+  /**
+   * پس از ساخت قابل تغییر نیست؛ توکن هر ارائه‌دهنده فقط برای همان معتبر است.
+   */
+  provider: 'arvancloud' | 'cloudflare';
+  /**
+   * خاموش کردن، همهٔ zoneهای وابسته را از همگام‌سازی و purge بازمی‌دارد.
+   */
+  enabled?: boolean | null;
+  /**
+   * مشتری با کلید API سایت خود می‌تواند دامنهٔ همان سایت را از طریق این حساب به CDN اضافه کند. برای هر ارائه‌دهنده فقط یک حساب.
+   */
+  tenantSelfService?: boolean | null;
+  /**
+   * Cloudflare: توکن سطح حساب با Zone:Edit، DNS:Edit، Zone Settings:Edit و Cache Purge. Arvan: API Key حساب. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود و دوباره خوانده نمی‌شود.
+   */
+  credentials?: {
+    /**
+     * خالی گذاشتن در ویرایش یعنی نگه داشتن توکن قبلی؛ برای حذف، تیک پاک‌سازی را بزنید.
+     */
+    apiToken?: string | null;
+  };
+  clearCredentials?: boolean | null;
+  credentialsSummary?: string | null;
+  /**
+   * برای ساخت zone جدید (از جمله سلف‌سرویس مشتری) لازم است.
+   */
+  cloudflareAccountId?: string | null;
+  arvanDomainMode?: ('full' | 'partial') | null;
+  arvanPlanLevel?: string | null;
+  /**
+   * IP سرور پلتفرم (یا برای Cloudflare یک hostname). رکوردهای پراکسی‌شدهٔ دامنهٔ مشتری فقط به همین مقصد اشاره می‌کنند و مشتری نمی‌تواند آن را عوض کند.
+   */
+  originTarget?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * کنترل داخلی DNS، پراکسی CDN، TLS، کش و امنیت دامنه‌ها. هر zone فقط با یک CDN فعال می‌شود؛ توکن هرگز از API یا فرم دوباره خوانده نمی‌شود.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -2046,6 +2097,21 @@ export interface CdnZone {
    * ریشهٔ zone نزد ارائه‌دهنده، مثل example.com. برای زیردامنهٔ سایت نیز همین zone را وارد کنید؛ رکوردها پایین‌تر تعریف می‌شوند.
    */
   zoneName: string;
+  /**
+   * به‌جای وارد کردن توکن جداگانه برای هر zone، از حساب مشترک پلتفرم استفاده کنید. اگر توکن خود zone پر باشد، همان اولویت دارد.
+   */
+  account?: (string | null) | CdnAccount;
+  /**
+   * zoneی که مشتری از طریق حساب سراسری ساخته است. مشتری فقط رکوردهای غیرپراکسی خودش را در آن تغییر می‌دهد.
+   */
+  managedBy?: ('platform' | 'tenant') | null;
+  syncRequestedAt?: string | null;
+  pendingRecordDeletes?:
+    | {
+        providerRecordId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
   providerZoneKey?: string | null;
   /**
    * تا وقتی خاموش است، «همگام‌سازی» فقط اتصال/zone را بررسی می‌کند و DNS، کش، TLS یا قوانین امنیتی را تغییر نمی‌دهد.
@@ -2098,6 +2164,10 @@ export interface CdnZone {
          * فقط A/AAAA/CNAME مربوط به HTTP/HTTPS را پراکسی کنید. MX/TXT/CAA هرگز نباید پراکسی شوند.
          */
         proxied?: boolean | null;
+        /**
+         * رکوردهای «مشتری» را مشتری از API سایت خود تغییر می‌دهد؛ رکوردهای پلتفرم را نه.
+         */
+        source?: ('platform' | 'tenant') | null;
         providerRecordId?: string | null;
         id?: string | null;
       }[]
@@ -3496,7 +3566,13 @@ export interface PayloadJob {
     | {
         executedAt: string;
         completedAt: string;
-        taskSlug: 'inline' | 'advanceDeployments' | 'storageHealthCheck' | 'billingIntegration' | 'schedulePublish';
+        taskSlug:
+          | 'inline'
+          | 'advanceDeployments'
+          | 'storageHealthCheck'
+          | 'billingIntegration'
+          | 'cdnZoneSync'
+          | 'schedulePublish';
         taskID: string;
         input?:
           | {
@@ -3529,7 +3605,16 @@ export interface PayloadJob {
         id?: string | null;
       }[]
     | null;
-  taskSlug?: ('inline' | 'advanceDeployments' | 'storageHealthCheck' | 'billingIntegration' | 'schedulePublish') | null;
+  taskSlug?:
+    | (
+        | 'inline'
+        | 'advanceDeployments'
+        | 'storageHealthCheck'
+        | 'billingIntegration'
+        | 'cdnZoneSync'
+        | 'schedulePublish'
+      )
+    | null;
   queue?: string | null;
   waitUntil?: string | null;
   processing?: boolean | null;
@@ -3615,6 +3700,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'payment-gateways';
         value: string | PaymentGateway;
+      } | null)
+    | ({
+        relationTo: 'cdn-accounts';
+        value: string | CdnAccount;
       } | null)
     | ({
         relationTo: 'cdn-zones';
@@ -4587,12 +4676,44 @@ export interface PaymentGatewaysSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "cdn-accounts_select".
+ */
+export interface CdnAccountsSelect<T extends boolean = true> {
+  name?: T;
+  provider?: T;
+  enabled?: T;
+  tenantSelfService?: T;
+  credentials?:
+    | T
+    | {
+        apiToken?: T;
+      };
+  clearCredentials?: T;
+  credentialsSummary?: T;
+  cloudflareAccountId?: T;
+  arvanDomainMode?: T;
+  arvanPlanLevel?: T;
+  originTarget?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "cdn-zones_select".
  */
 export interface CdnZonesSelect<T extends boolean = true> {
   site?: T;
   provider?: T;
   zoneName?: T;
+  account?: T;
+  managedBy?: T;
+  syncRequestedAt?: T;
+  pendingRecordDeletes?:
+    | T
+    | {
+        providerRecordId?: T;
+        id?: T;
+      };
   providerZoneKey?: T;
   active?: T;
   provisionIfMissing?: T;
@@ -4615,6 +4736,7 @@ export interface CdnZonesSelect<T extends boolean = true> {
         ttl?: T;
         priority?: T;
         proxied?: T;
+        source?: T;
         providerRecordId?: T;
         id?: T;
       };
@@ -5918,6 +6040,16 @@ export interface TaskBillingIntegration {
   input?: unknown;
   output: {
     published?: number | null;
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskCdnZoneSync".
+ */
+export interface TaskCdnZoneSync {
+  input?: unknown;
+  output: {
+    synced?: number | null;
   };
 }
 /**
