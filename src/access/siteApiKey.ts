@@ -31,11 +31,35 @@ export interface ResolvedApiKey {
 
 const API_KEY_CONTEXT_KEY = 'eshobeRequestApiKey'
 
-/** Best-effort telemetry — never on the hot path of the access decision it rides in on. */
+/**
+ * How often one key's `lastUsedAt` is written, per process. The column answers "is this
+ * key still in use?", which needs minutes, not milliseconds.
+ */
+const LAST_USED_WRITE_INTERVAL_MS = 5 * 60_000
+
+const lastUsedWrites = new Map<string, number>()
+
+/**
+ * Best-effort telemetry — never on the hot path of the access decision it rides in on.
+ *
+ * Two things here are load-bearing. **No `req`:** a Local API write given the caller's
+ * request opens its transaction *on that request*, so every read the request makes
+ * afterwards (the file lookup of `/api/media/file/*`, a page query) runs inside this
+ * un-awaited update and waits on its row lock. **Throttled:** a deployed theme proxies
+ * every image with its site key, so a page view is a burst of parallel keyed requests
+ * on one row; a write per request serialised them all and exhausted the connection
+ * pool, which is how images loaded "sometimes".
+ */
 const touchLastUsed = (req: PayloadRequest, id: string): void => {
-  req.payload
-    .update({ id, collection: 'api-keys', data: { lastUsedAt: new Date().toISOString() }, depth: 0, overrideAccess: true, req })
-    .catch((error) => req.payload.logger.error(error))
+  const now = Date.now()
+  const last = lastUsedWrites.get(id)
+  if (last !== undefined && now - last < LAST_USED_WRITE_INTERVAL_MS) return
+  lastUsedWrites.set(id, now)
+
+  const { payload } = req
+  payload
+    .update({ id, collection: 'api-keys', data: { lastUsedAt: new Date(now).toISOString() }, depth: 0, overrideAccess: true })
+    .catch((error) => payload.logger.error(error))
 }
 
 /**

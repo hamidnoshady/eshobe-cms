@@ -74,15 +74,18 @@ export const s3ObjectStorageAdapter: Adapter = ({ collection, prefix = '' }) => 
     )
   },
 
-  staticHandler: (async (req, { headers, params }) => {
+  staticHandler: (async (req, { doc, headers, params }) => {
     const connection = await getActiveConnection(req)
     if (!shouldUseObjectStorage(connection)) return undefined as unknown as Response
 
     const { filename, prefix: prefixQueryParam, clientUploadContext } = params
     const client = storageClient(connection!)
+    // `doc` is the row Payload's file route already found while checking read access;
+    // passing it skips a second lookup of the same file on every image request.
     const docPrefix = await getFilePrefix({
       clientUploadContext,
       collection,
+      doc,
       filename,
       prefixQueryParam,
       req,
