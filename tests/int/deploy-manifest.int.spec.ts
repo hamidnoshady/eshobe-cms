@@ -284,6 +284,21 @@ describe('manifest runtime contract', () => {
     ).toBe(false)
   })
 
+  it('groups settings as design or general, defaulting to general, and refuses other groups', () => {
+    const grouped = manifestOf({
+      ...valid,
+      settings: {
+        sizeBody: { type: 'number', group: 'design' },
+        mapZoom: { type: 'number' },
+      },
+    })
+    expect(grouped.settings.map((s) => [s.key, s.group])).toEqual([
+      ['sizeBody', 'design'],
+      ['mapZoom', 'general'],
+    ])
+    expect(parse({ ...valid, settings: { x: { type: 'text', group: 'misc' } } }).ok).toBe(false)
+  })
+
   it('keeps old manifests backward compatible', () => {
     const old = manifestOf(valid)
     expect(old.settings).toEqual([])

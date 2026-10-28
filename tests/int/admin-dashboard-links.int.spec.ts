@@ -36,15 +36,27 @@ const loadConfig = async () => {
   return {
     collections: new Set((config.collections as { slug: string }[]).map((c) => c.slug)),
     globals: new Set((config.globals as { slug: string }[]).map((g) => g.slug)),
+    // Top-level admin routes (`admin.components.views`), by path without the slash.
+    views: new Set(
+      Object.values(
+        (config.admin?.components?.views ?? {}) as Record<string, { path?: string }>,
+      ).flatMap((view) => (view?.path ? [view.path.replace(/^\//, '')] : [])),
+    ),
   }
 }
 
 /** Assert a reference names a real entity of the type it claims to be. */
 const expectResolves = (
   ref: NavEntityRef,
-  { collections, globals }: { collections: Set<string>; globals: Set<string> },
+  {
+    collections,
+    globals,
+    views,
+  }: { collections: Set<string>; globals: Set<string>; views: Set<string> },
 ) => {
-  if (ref.type === 'collection') {
+  if (ref.type === 'view') {
+    expect(views, `admin route "${ref.slug}" is not registered`).toContain(ref.slug)
+  } else if (ref.type === 'collection') {
     expect(collections, `collection "${ref.slug}" is not registered`).toContain(ref.slug)
     expect(globals, `"${ref.slug}" is a collection but was referenced as a global`).not.toContain(
       ref.slug,

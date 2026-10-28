@@ -47,6 +47,15 @@ export const Theme: CollectionConfig = {
   },
   fields: [
     {
+      name: 'ui',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/deploy/admin/ThemeDesignSettingsField',
+        },
+      },
+    },
+    {
       type: 'row',
       fields: [
         {

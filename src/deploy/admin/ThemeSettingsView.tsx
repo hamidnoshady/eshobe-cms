@@ -47,6 +47,7 @@ export const ThemeSettingsView: React.FC<DocumentViewServerProps> = async ({ doc
   return (
     <Gutter>
       <ThemeSettingsForm
+        group="general"
         initial={view}
         siteId={siteId}
         siteLocales={(Array.isArray(site.availableLocales) ? site.availableLocales : ['fa']).map(String)}

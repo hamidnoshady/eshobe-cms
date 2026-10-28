@@ -50,7 +50,7 @@ const CUSTOMER_TARGET = [
   { entities: ['products', 'orders', 'payment-gateways', 'store'], label: 'فروشگاه' },
   { entities: ['site-branding', 'theme'], label: 'طراحی و انتشار' },
   { entities: ['users'], label: 'تیم' },
-  { entities: ['sites'], label: 'تنظیمات' },
+  { entities: ['theme-settings', 'sites'], label: 'تنظیمات' },
 ]
 
 /**
@@ -263,7 +263,24 @@ describe('sidebar information architecture', () => {
       visible: { collections: ['pages'], globals: [] },
     })
     const slugs = groups.flatMap((g) => g.entities.map((e) => e.slug))
-    expect(slugs).toEqual(['pages'])
+    // The theme-settings route is not an entity: it is always offered to a customer.
+    expect(slugs).toEqual(['pages', 'theme-settings'])
+  })
+
+  it('offers «تنظیمات پوسته» as a top-level route to customers only', () => {
+    const own = resolveNavGroups({
+      adminRoute: '/admin',
+      user: customer,
+      visible: { collections: [], globals: [] },
+    })
+    const entry = own.flatMap((g) => g.entities).find((e) => e.slug === 'theme-settings')
+    expect(entry).toMatchObject({ href: '/admin/theme-settings', label: 'تنظیمات پوسته' })
+    const ops = resolveNavGroups({
+      adminRoute: '/admin',
+      user: operator,
+      visible: everythingVisible(PLATFORM_NAV),
+    })
+    expect(ops.flatMap((g) => g.entities).some((e) => e.slug === 'theme-settings')).toBe(false)
   })
 
   it('never lists the same entity twice', () => {

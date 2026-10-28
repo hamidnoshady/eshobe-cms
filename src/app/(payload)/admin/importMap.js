@@ -35,6 +35,7 @@ import { default as default_2641ff35c71272844a0100235031216a } from '@/storage/a
 import { default as default_65a470f2202a8412641431111a42ebde } from '@/storage/admin/StorageOverviewView'
 import { default as default_4176c770526ccc60d32dde9523f009cf } from '@/storage/admin/StorageHealthView'
 import { default as default_3ebbbaea09260b9d83d5cdfeda76ec11 } from '@/storage/admin/StorageUsageView'
+import { default as default_33892ec733a29445f543d750cd1e6be4 } from '@/deploy/admin/ThemeDesignSettingsField'
 import { RowLabel as RowLabel_ec255a65fa6fa8d1faeb09cf35284224 } from '@/Header/RowLabel'
 import { RowLabel as RowLabel_1f6ff6ff633e3695d348f4f3c58f1466 } from '@/Footer/RowLabel'
 import { default as default_dbf97d303b2c66d609d855eec19054fd } from '@/deploy/admin/ThemePackageActions'
@@ -50,6 +51,7 @@ import { default as default_a06d29854f9ab0931acb16399be52d64 } from '@/admin/Cus
 import { default as default_8a7ab0eb7ab5c511aba12e68480bfe5e } from '@/components/BeforeLogin'
 import { TenantSelector as TenantSelector_d6d5f193a167989e2ee7d14202901e62 } from '@payloadcms/plugin-multi-tenant/rsc'
 import { TenantSelectionProvider as TenantSelectionProvider_d6d5f193a167989e2ee7d14202901e62 } from '@payloadcms/plugin-multi-tenant/rsc'
+import { default as default_5365d2b392ecb846f1b1e279800b19c0 } from '@/deploy/admin/ThemeSettingsPageView'
 import { CollectionCards as CollectionCards_f9c02e79a4aed9a3924487c0cd4cafb1 } from '@payloadcms/next/rsc'
 
 /** @type import('payload').ImportMap */
@@ -91,6 +93,7 @@ export const importMap = {
   "@/storage/admin/StorageOverviewView#default": default_65a470f2202a8412641431111a42ebde,
   "@/storage/admin/StorageHealthView#default": default_4176c770526ccc60d32dde9523f009cf,
   "@/storage/admin/StorageUsageView#default": default_3ebbbaea09260b9d83d5cdfeda76ec11,
+  "@/deploy/admin/ThemeDesignSettingsField#default": default_33892ec733a29445f543d750cd1e6be4,
   "@/Header/RowLabel#RowLabel": RowLabel_ec255a65fa6fa8d1faeb09cf35284224,
   "@/Footer/RowLabel#RowLabel": RowLabel_1f6ff6ff633e3695d348f4f3c58f1466,
   "@/deploy/admin/ThemePackageActions#default": default_dbf97d303b2c66d609d855eec19054fd,
@@ -106,5 +109,6 @@ export const importMap = {
   "@/components/BeforeLogin#default": default_8a7ab0eb7ab5c511aba12e68480bfe5e,
   "@payloadcms/plugin-multi-tenant/rsc#TenantSelector": TenantSelector_d6d5f193a167989e2ee7d14202901e62,
   "@payloadcms/plugin-multi-tenant/rsc#TenantSelectionProvider": TenantSelectionProvider_d6d5f193a167989e2ee7d14202901e62,
+  "@/deploy/admin/ThemeSettingsPageView#default": default_5365d2b392ecb846f1b1e279800b19c0,
   "@payloadcms/next/rsc#CollectionCards": CollectionCards_f9c02e79a4aed9a3924487c0cd4cafb1
 }

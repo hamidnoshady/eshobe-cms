@@ -35,7 +35,7 @@ export type NavEntityRef = {
    *  collection's own label in this context (e.g. `store` → «تنظیمات فروشگاه»). */
   label?: string
   slug: string
-  type: 'collection' | 'global'
+  type: 'collection' | 'global' | 'view'
   /** Payload custom collection view path suffix (e.g. `/infrastructure/storage`). */
   viewPath?: string
 }
@@ -50,6 +50,12 @@ export const collection = (slug: string, label?: string, viewPath?: string): Nav
   slug,
   label,
   viewPath,
+})
+/** A top-level admin route (`/admin/<path>`) that is not backed by a collection or global. */
+export const view = (path: string, label: string): NavEntityRef => ({
+  type: 'view',
+  slug: path,
+  label,
 })
 export const global = (slug: string, label?: string): NavEntityRef => ({
   type: 'global',
@@ -70,6 +76,7 @@ export const adminBase = (adminRoute: string): string => (adminRoute === '/' ? '
  */
 export const entityHref = (adminRoute: string, ref: NavEntityRef): string => {
   const base = adminBase(adminRoute)
+  if (ref.type === 'view') return `${base}/${ref.slug}`
   if (ref.type === 'global') return `${base}/globals/${ref.slug}`
   if (ref.viewPath) return `${base}/collections/${ref.slug}${ref.viewPath}`
   return `${base}/collections/${ref.slug}`
@@ -135,12 +142,10 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     entities: [collection('users', 'اعضای تیم')],
   },
   {
-    // «تنظیمات» — general, languages, connections, advanced. These are tabs on the
-    // one tenant-scoped settings document (`sites`), not separate routes: a
-    // customer edits their locales, domain and advanced options in the site edit
-    // view. API-key management, including MCP keys, is platform-owned.
+    // The theme's non-design options (map, coordinates, deployment variables, content
+    // mapping). Design options live inside «طراحی سایت». A top-level route, never a tab.
     label: 'تنظیمات',
-    entities: [collection('sites', 'تنظیمات سایت')],
+    entities: [view('theme-settings', 'تنظیمات پوسته'), collection('sites', 'تنظیمات سایت')],
   },
 ]
 
@@ -273,6 +278,8 @@ export const resolveNavGroups = ({
   const visibleGlobals = new Set(visible.globals)
 
   const isVisible = (e: NavEntityRef) => {
+    // A route's own view re-checks membership; the sidebar only offers it to customers.
+    if (e.type === 'view') return !operator
     if (e.type === 'collection') {
       if (hideShop && shopSlugs.has(e.slug)) return false
       return visibleCollections.has(e.slug)
@@ -282,7 +289,11 @@ export const resolveNavGroups = ({
 
   const hrefFor = (e: NavEntityRef): string => entityHref(adminRoute, e)
   const idFor = (e: NavEntityRef) =>
-    e.type === 'collection' ? `nav-${e.slug}` : `nav-global-${e.slug}`
+    e.type === 'collection'
+      ? `nav-${e.slug}`
+      : e.type === 'view'
+        ? `nav-view-${e.slug}`
+        : `nav-global-${e.slug}`
 
   const placed = new Set<string>()
   const key = (e: NavEntityRef) => `${e.type}:${e.slug}`

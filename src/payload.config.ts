@@ -210,6 +210,19 @@ export default buildConfig({
        * still decides visibility. See `src/admin/nav/EshobeNav.tsx`.
        */
       Nav: '@/admin/nav/EshobeNav',
+      /**
+       * Top-level admin routes. «تنظیمات پوسته» is the customer's non-design theme
+       * options (map, coordinates, deployment variables, content mapping); the design
+       * options sit inside «طراحی سایت» (the `theme` collection). Settings are never
+       * left behind a document tab — see CLAUDE.md, «Settings placement».
+       */
+      views: {
+        themeSettings: {
+          Component: '@/deploy/admin/ThemeSettingsPageView',
+          meta: { title: 'تنظیمات پوسته' },
+          path: '/theme-settings',
+        },
+      },
     },
     /**
      * Payload seeds a full-width «collections» grid of every collection card. A
