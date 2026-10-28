@@ -65,8 +65,9 @@ export const hero: Field = {
       admin: {
         condition: (_, { type } = {}) => ['highImpact', 'mediumImpact'].includes(type),
       },
+      // Optional on purpose: a page may use a high/medium-impact hero with text and
+      // links alone. Every renderer (ours and the deployed themes) skips a missing image.
       relationTo: 'media',
-      required: true,
     },
   ],
   label: false,
