@@ -4,3 +4,6 @@
 ## 2024-10-18 - Async Form Submit UX
 **Learning:** `react-hook-form` only automatically tracks `isSubmitting` when the `onSubmit` handler explicitly returns a Promise, which is important for natively rendering disabled states for form inputs.
 **Action:** Always verify `void` is not used for async form handlers and utilize `isSubmitting` for submit button `disabled` states to prevent duplicate submissions and give visual feedback.
+## 2024-10-28 - Date Picker Screen Reader Support
+**Learning:** Date picker cell grids are often constructed with numbered buttons representing days without context of month or year. Screen readers reading just the numbers create a confusing experience.
+**Action:** Always add an `aria-label` to dynamically generated calendar cell buttons that includes the full context (e.g. "Select Day Month Year").
