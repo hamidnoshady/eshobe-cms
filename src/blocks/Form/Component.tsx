@@ -128,7 +128,6 @@ export const FormBlock: React.FC<
           {!isLoading && hasSubmitted && confirmationType === 'message' && (
             <RichText data={confirmationMessage} />
           )}
-          {isLoading && !hasSubmitted && <p>در حال ارسال…</p>}
           {error && (
             /**
              * `role="alert"` so a screen reader announces a failed submission — the
@@ -177,7 +176,7 @@ export const FormBlock: React.FC<
               </div>
 
               <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
-                {submitButtonLabel}
+                {(isLoading || isSubmitting) ? 'در حال ارسال…' : submitButtonLabel}
               </Button>
             </form>
           )}
