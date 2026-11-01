@@ -1,6 +1,7 @@
 import type { CollectionAfterChangeHook, PayloadRequest } from 'payload'
 
 import type { Order, Product } from '@/payload-types'
+import { isMigrationWrite } from '@/lib/migration-context'
 
 const idOf = (value: unknown): null | string => {
   if (!value) return null
@@ -42,6 +43,9 @@ export const settleStock: CollectionAfterChangeHook<Order> = async ({
   req,
 }) => {
   if (operation !== 'update') return doc
+
+  // A replayed historical order is bookkeeping, not a sale: stock stays put.
+  if (isMigrationWrite(req, idOf(doc.site))) return doc
 
   const before = isPaid(previousDoc)
   const after = isPaid(doc)

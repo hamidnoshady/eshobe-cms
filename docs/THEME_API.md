@@ -557,6 +557,50 @@ const src = new URL(media.url!, site.media.origin).toString()
 | `breadcrumbs` | array {doc, url, label} auto via `nestedDocsPlugin` |
 | `site` |  |
 
+### Custom content — `content-type-definitions`, `content-entries`, `taxonomy-definitions`, `taxonomy-terms`, `entry-term-relations`, `content-relations`
+A site's own content types and vocabularies (issue #166 — WordPress custom post types/taxonomies/tags live here as first-class content, **never** flattened into `posts`/`categories`). All six are tenant-scoped like everything else: the tenant comes from `Host` or the site API key, and anonymous reads see only that site's data. The built-in renderer serves these at `/{archiveSlug}`, the type's `permalinkTemplate`, `/{taxonomyArchive}` and `/{taxonomyArchive}/{term}` (on a CMS-page miss), and the sitemap lists published entries + type archives — a theme may render the same data itself from these endpoints.
+
+Definitions (`content-type-definitions` / `taxonomy-definitions`), read = `scopedPublicRead(anyone)`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `key` | text | Stable ASCII machine key (`portfolio`) — what theme code and mappings reference |
+| `singularLabel` / `pluralLabel` | text, localized | |
+| `archiveSlug` | text, localized | First URL segment; empty = the `key`. Unique per site+locale across both definition kinds |
+| `hasArchive` | checkbox | |
+| `hierarchical` | checkbox | Terms/pages-style parents when true |
+| `permalinkTemplate` | select (types only) | `/{archive}/{slug}` · `/{archive}/{id}` · `/{slug}` · `/{id}` |
+| `taxonomies` | relation `taxonomy-definitions` hasMany (types only) | The only taxonomies entries of this type may file under |
+| `fieldSchema` | array (types only) | Typed ACF-like schema: `{key, label, fieldType, required, searchable, optionsText, relationTo, subSchema}`; `fieldType` ∈ text, textarea, number, boolean, date, url, select, multiselect, media, gallery, relationship, group, repeater, json |
+
+Entries (`content-entries`), read = published-only for anonymous (a `Where`, not a boolean), everything for signed-in staff of the site:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `contentType` | relation `content-type-definitions` | Must belong to the same site (enforced server-side) |
+| `title` / `slug` | text, localized | Slug unique per site+type+locale |
+| `status` | select | WordPress-shaped: `draft` · `pending` · `published` · `private` · `scheduled` · `trash` (no Payload drafts) |
+| `publishedAt`, `excerpt`, `body` (Lexical), `preservedHtml` | | `preservedHtml` is untranslated builder output — render as text, never markup |
+| `heroImage`, `ogImage`, `gallery` | uploads | |
+| `parent`, `menuOrder`, `author`, `authorName` | | `parent` only for hierarchical types, same type+site |
+| `fieldValues` | json | Validated against the type's `fieldSchema`; wrong types are rejected, unknown keys move to `unmappedMeta` |
+| `metaTitle`, `metaDescription`, `canonicalUrl`, `noindex` | | SEO overrides; `noindex` entries stay out of the sitemap |
+| `termRelations`, `outgoingRelations` | joins | Depth ≥ 2 populates `term`/`target*` |
+
+`taxonomy-terms`: `{name, slug (localized), description, taxonomy, parent}` — slug unique per site+taxonomy+locale; parent must share the taxonomy (acyclic). `entry-term-relations`: `{entry, term, taxonomy (derived), menuOrder}` — unique per (entry, term); the taxonomy must be declared on the entry's type. `content-relations`: `{fromEntry, relationKind (e.g. 'acf:related_projects'), targetCollection + one of targetEntry/targetProduct/targetPost/targetPage/targetMedia, menuOrder}`.
+
+Visibility rules a theme can rely on:
+
+- Anonymous: definitions and terms of the host site; **published** entries only; relation rows only while their source entry is published.
+- The `source` provenance block's `rawPayload` and `unmappedMeta` are **never** returned anonymously (staff-only) — do not build a theme on them.
+- Writes are staff/API-key only; moving an entry to `published` is owner-gated.
+
+```bash
+GET /api/content-type-definitions?where[key][equals]=portfolio&locale=fa
+GET /api/content-entries?where[contentType][equals]=<typeId>&sort=-publishedAt&depth=2
+GET /api/entry-term-relations?where[term][equals]=<termId>&depth=1   # entries filed under a term
+```
+
 ### `header` / `footer` — per-site singletons (`isGlobal: true`)
 `access: read = scopedPublicRead()` — nav belongs to site.
 

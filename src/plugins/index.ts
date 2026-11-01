@@ -268,6 +268,16 @@ export const plugins: Plugin[] = [
     cleanupAfterTenantDelete: false,
     collections: {
       categories: {},
+      // Issue #166 — the custom content engine. Definitions, terms, entries
+      // and both relation collections are a site's own rows exactly like
+      // pages/posts; unregistered, one customer's CPT schema and entries
+      // would be shared (and writable) across every tenant.
+      'content-type-definitions': {},
+      'taxonomy-definitions': {},
+      'taxonomy-terms': {},
+      'content-entries': {},
+      'entry-term-relations': {},
+      'content-relations': {},
       forms: {},
       'form-submissions': {},
       media: {},

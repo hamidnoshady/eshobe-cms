@@ -135,6 +135,12 @@ describe('admin nav visibility (config-level)', () => {
       'pages',
       'posts',
       'media',
+      'content-type-definitions',
+      'content-entries',
+      'taxonomy-definitions',
+      'taxonomy-terms',
+      'entry-term-relations',
+      'content-relations',
       'products',
       'orders',
       'store',
@@ -226,7 +232,15 @@ describe('admin nav resolution against the real config', () => {
       visible: visibleFor(cfg, editor),
     })
     const labels = groups.map((g) => g.label)
-    expect(labels).toEqual(['وب‌سایت', 'محتوا', 'فروشگاه', 'طراحی و انتشار', 'تیم', 'تنظیمات'])
+    expect(labels).toEqual([
+      'وب‌سایت',
+      'محتوا',
+      'انواع محتوا',
+      'فروشگاه',
+      'طراحی و انتشار',
+      'تیم',
+      'تنظیمات',
+    ])
     // A customer sees every website group and nothing falls through to «سایر».
     expect(labels).not.toContain(OTHER_GROUP_LABEL)
     // A control-plane link never appears in a customer's resolved nav.

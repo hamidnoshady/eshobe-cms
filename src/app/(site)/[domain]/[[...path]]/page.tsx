@@ -6,6 +6,7 @@ import { notFound, permanentRedirect } from 'next/navigation'
 import React from 'react'
 
 import { SiteHolding } from '@/components/SiteHolding'
+import { entryPath } from '@/lib/content-paths'
 import { POSTS_BASE, PRODUCTS_BASE } from '@/lib/slug'
 import { resolveSiteRoute } from '@/lib/site-route'
 import { getSiteContext, localeIsServed } from '@/lib/site-context'
@@ -14,6 +15,7 @@ import { uiString } from '@/lib/ui-strings'
 import { generateMeta } from '@/utilities/generateMeta'
 
 import { CheckoutReceipt, checkoutMetadata } from './CheckoutReceipt'
+import { queryContentEntry, queryContentRoute } from './contentQueries'
 import { PostDetail } from './PostDetail'
 import { PostsIndex } from './PostsIndex'
 import { ProductDetail } from './ProductDetail'
@@ -121,7 +123,7 @@ export default async function SiteRoute({ params, searchParams }: Args) {
       return <SearchResults page={pageNumber(query.page)} q={query.q} />
 
     case 'page':
-      return <SitePage slug={route.slug} />
+      return <SitePage page={pageNumber(query.page)} slug={route.slug} />
   }
 }
 
@@ -187,7 +189,31 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
       }
     }
 
-    case 'page':
-      return generateMeta({ doc: await queryPage(route.slug) })
+    case 'page': {
+      const cmsPage = await queryPage(route.slug)
+
+      if (cmsPage) return generateMeta({ doc: cmsPage })
+
+      // The same page-miss fallback the body takes (issue #166 §3): a custom
+      // entry's own SEO fields carry its metadata; an archive or a miss gets
+      // the empty object the template already knows how to answer with.
+      const match = await queryContentRoute(route.slug.split('/').filter(Boolean))
+      const resolved = match?.kind === 'entry' ? await queryContentEntry(match) : null
+
+      if (!resolved) return {}
+
+      const { entry, type } = resolved
+      const { locale, site } = await getSiteContext()
+      const canonical =
+        entry.canonicalUrl ??
+        (site ? siteUrl(site, { base: entryPath(type, entry), locale }) : undefined)
+
+      return {
+        alternates: canonical ? { canonical } : undefined,
+        description: entry.metaDescription ?? entry.excerpt ?? undefined,
+        robots: entry.noindex ? { follow: true, index: false } : undefined,
+        title: [entry.metaTitle ?? entry.title, site?.name].filter(Boolean).join(' | '),
+      }
+    }
   }
 }

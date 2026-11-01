@@ -1,6 +1,8 @@
 import type { CollectionAfterChangeHook } from 'payload'
 
 import type { Order } from '@/payload-types'
+import { idOf } from '@/lib/ids'
+import { isMigrationWrite } from '@/lib/migration-context'
 import { emitPlatformEvent } from '@/platform/webhooks'
 
 /**
@@ -16,6 +18,9 @@ export const emitOrderReversal: CollectionAfterChangeHook<Order> = async ({
   if (operation !== 'update') return doc
   if (previousDoc?.status !== 'paid') return doc
   if (doc.status !== 'refunded' && doc.status !== 'cancelled') return doc
+
+  // Side-effect-free under a migration write, like `emitOrderPaid`.
+  if (isMigrationWrite(req, idOf(doc.site))) return doc
 
   const event = doc.status === 'refunded' ? 'order.refunded' : 'order.cancelled'
 

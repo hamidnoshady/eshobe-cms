@@ -29,6 +29,12 @@ import { ResellerDomainEvents } from './collections/ResellerDomainEvents'
 import { ResellerDomainOperations } from './collections/ResellerDomainOperations'
 import { ResellerDomains } from './collections/ResellerDomains'
 import { Media } from './collections/Media'
+import { ContentEntries } from './collections/ContentEntries'
+import { ContentRelations } from './collections/ContentRelations'
+import { ContentTypeDefinitions } from './collections/ContentTypeDefinitions'
+import { EntryTermRelations } from './collections/EntryTermRelations'
+import { TaxonomyDefinitions } from './collections/TaxonomyDefinitions'
+import { TaxonomyTerms } from './collections/TaxonomyTerms'
 import { Orders } from './collections/Orders'
 import { PaymentGateways } from './collections/PaymentGateways'
 import { Plans } from './collections/Plans'
@@ -276,6 +282,17 @@ export default buildConfig({
     Posts,
     Media,
     Categories,
+    // Issue #166 — the native custom content engine: site-defined content
+    // types, taxonomies/terms, typed entries and their relations. The
+    // destination model a WordPress CPT lands in (and editable content in its
+    // own right). All six are tenant-scoped and registered in the
+    // multi-tenant plugin's `collections` map (src/plugins/index.ts).
+    ContentTypeDefinitions,
+    TaxonomyDefinitions,
+    TaxonomyTerms,
+    ContentEntries,
+    EntryTermRelations,
+    ContentRelations,
     Users,
     Sites,
     // WAVE-9 §9.4 — platform-admin only, deliberately not in the multi-tenant

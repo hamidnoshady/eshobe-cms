@@ -1,6 +1,8 @@
 import type { CollectionAfterChangeHook } from 'payload'
 
 import type { Order } from '@/payload-types'
+import { idOf } from '@/lib/ids'
+import { isMigrationWrite } from '@/lib/migration-context'
 import { emitPlatformEvent } from '@/platform/webhooks'
 
 /**
@@ -15,6 +17,8 @@ export const emitOrderPaid: CollectionAfterChangeHook<Order> = async ({
   req,
 }) => {
   if (operation !== 'update') return doc
+  // History replayed by the importer is not a fresh payment: no event, no webhook.
+  if (isMigrationWrite(req, idOf(doc.site))) return doc
   if (previousDoc?.status === 'paid' || doc.status !== 'paid') return doc
 
   await emitPlatformEvent(req, {

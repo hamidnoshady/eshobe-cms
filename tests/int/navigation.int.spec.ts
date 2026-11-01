@@ -47,6 +47,17 @@ const CUSTOMER_TARGET = [
     label: 'وب‌سایت',
   },
   { entities: ['posts', 'categories', 'media'], label: 'محتوا' },
+  {
+    entities: [
+      'content-entries',
+      'taxonomy-terms',
+      'content-type-definitions',
+      'taxonomy-definitions',
+      'entry-term-relations',
+      'content-relations',
+    ],
+    label: 'انواع محتوا',
+  },
   { entities: ['products', 'orders', 'payment-gateways', 'store'], label: 'فروشگاه' },
   { entities: ['site-branding', 'theme'], label: 'طراحی و انتشار' },
   { entities: ['users'], label: 'تیم' },
