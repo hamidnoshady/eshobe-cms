@@ -4,3 +4,6 @@
 ## 2024-10-18 - Async Form Submit UX
 **Learning:** `react-hook-form` only automatically tracks `isSubmitting` when the `onSubmit` handler explicitly returns a Promise, which is important for natively rendering disabled states for form inputs.
 **Action:** Always verify `void` is not used for async form handlers and utilize `isSubmitting` for submit button `disabled` states to prevent duplicate submissions and give visual feedback.
+## 2024-11-01 - Icon-only buttons lacking ARIA labels
+**Learning:** Found an icon-only button (`<Button buttonStyle="icon-label" icon="x" />`) used for removing users in `src/provisioning/AdminForm.tsx` that lacked an `aria-label`. This pattern is common for repetitive lists but causes accessibility issues for screen readers.
+**Action:** Always ensure icon-only buttons (`buttonStyle="icon-label"`) have descriptive `aria-label` attributes to maintain accessibility.

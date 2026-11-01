@@ -299,6 +299,7 @@ export const ProvisionSiteForm: React.FC = () => {
             </div>
 
             <Button
+              aria-label="Remove user"
               buttonStyle="icon-label"
               icon="x"
               onClick={() => setUsers(users.filter((_, i) => i !== index))}
