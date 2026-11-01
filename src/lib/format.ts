@@ -31,7 +31,8 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  const cacheKey = `${locale}-${JSON.stringify(options)}`
+  const safeOptionsDate = options || {}
+  const cacheKey = `${locale}-${JSON.stringify(safeOptionsDate, Object.keys(safeOptionsDate).sort())}`
   let formatter = dateTimeFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.DateTimeFormat(intlLocale(locale), {
@@ -51,7 +52,8 @@ export const formatNumber = (
   locale: string,
   options?: Intl.NumberFormatOptions,
 ): string => {
-  const cacheKey = `${locale}-${JSON.stringify(options || {})}`
+  const safeOptionsNum = options || {}
+  const cacheKey = `${locale}-${JSON.stringify(safeOptionsNum, Object.keys(safeOptionsNum).sort())}`
   let formatter = numberFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.NumberFormat(intlLocale(locale), options)
