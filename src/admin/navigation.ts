@@ -114,6 +114,22 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     entities: [collection('posts'), collection('categories'), collection('media')],
   },
   {
+    // The custom content engine (issue #166): a site's own content types and
+    // taxonomies — WordPress custom post types, taxonomies and tags live here
+    // as first-class Eshobe content, never flattened into posts/categories.
+    // Entries first (the daily editing surface); the two relation tables last,
+    // as the wiring an editor touches only when relating content.
+    label: 'انواع محتوا',
+    entities: [
+      collection('content-entries'),
+      collection('taxonomy-terms'),
+      collection('content-type-definitions'),
+      collection('taxonomy-definitions'),
+      collection('entry-term-relations'),
+      collection('content-relations'),
+    ],
+  },
+  {
     label: 'فروشگاه',
     entities: [
       // Overview / products / orders / payments / settings order. «نمای کلی» is

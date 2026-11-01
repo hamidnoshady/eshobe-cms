@@ -75,6 +75,12 @@ describe('Caddyfile control-plane API guard', () => {
       '/api/search',
       '/api/redirects',
       '/api/forms',
+      '/api/content-type-definitions',
+      '/api/content-entries',
+      '/api/taxonomy-definitions',
+      '/api/taxonomy-terms',
+      '/api/entry-term-relations',
+      '/api/content-relations',
       '/api/payments/methods',
     ]
 
@@ -91,6 +97,26 @@ describe('Caddyfile control-plane API guard', () => {
       indexOf('handle @anonymous_control_plane_graphql'),
     )
     expect(graphqlGuard).toContain('/api/graphql')
+  })
+
+  it('keeps the custom content API on web:3000 behind @cms_content on customer domains', () => {
+    // The mirror image of the control-plane block above: on a customer (possibly
+    // themed) domain these surfaces must reach the CMS, never the theme upstream.
+    const cmsContent = caddyfile.slice(
+      indexOf('@cms_content'),
+      indexOf('handle @cms_content'),
+    )
+
+    for (const surface of [
+      '/api/content-type-definitions',
+      '/api/content-entries',
+      '/api/taxonomy-definitions',
+      '/api/taxonomy-terms',
+      '/api/entry-term-relations',
+      '/api/content-relations',
+    ]) {
+      expect(cmsContent).toContain(surface)
+    }
   })
 })
 
