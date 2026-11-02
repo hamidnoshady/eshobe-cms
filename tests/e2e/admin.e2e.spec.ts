@@ -125,7 +125,10 @@ test.describe('Admin Panel', () => {
     // The field is `JalaliDateField`: a Jalali calendar popover, stored as a Gregorian ISO string.
     await openAboutPage('acme.localhost')
 
-    const field = page.locator('.jdp')
+    // Scope to `publishedAt` itself: the provenance group on the same form
+    // also carries a Jalali date (`source.modifiedAt`), so a bare `.jdp`
+    // matches two pickers and trips Playwright's strict mode.
+    const field = page.locator('#field-publishedAt')
     await expect(field.locator('.jdp__input')).toBeVisible()
     // A dev-server doc view refreshes its RSC payload once after the shell streams in
     // (tenant/locale preferences), which resets the form to the saved document. An edit
