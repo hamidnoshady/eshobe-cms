@@ -360,9 +360,8 @@ describe('validateSvgUpload — original Graphite animated logo regression', () 
   )
 
   it('accepts original Graphite logo with blur, comments, clipping and reduced-motion styles', () => {
-    // The checked-in fixture has no trailing newline; the upload wrapper added
-    // one byte to the original attachment's reported size.
-    expect(Buffer.byteLength(originalLogo, 'utf8')).toBe(19_800)
+    // The fixture preserves the customer's uploaded bytes, including final LF.
+    expect(Buffer.byteLength(originalLogo, 'utf8')).toBe(19_801)
     const result = accepted(originalLogo)
     if (result.ok) {
       expect(result.svg).toContain('<filter id="motionSmear"')
