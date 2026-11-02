@@ -21,6 +21,55 @@
     color: var(--theme-elevation-500);
     font-size: 0.8125rem;
   }
+
+  // The original SVG document, not an image size: CSS keyframes keep running.
+  // Payload's own upload preview is hidden when every selection is an SVG.
+  &__animated {
+    border: 1px solid var(--theme-elevation-150);
+    border-radius: var(--style-radius-m);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--base) / 2);
+    margin-top: calc(var(--base) / 2);
+    padding: calc(var(--base) / 2);
+  }
+
+  &__animated-label {
+    color: var(--theme-elevation-500);
+    font-size: 0.8125rem;
+  }
+
+  &__animated-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--base) / 2);
+  }
+
+  &__animated-item {
+    background: var(--theme-elevation-50);
+    border: 1px solid var(--theme-elevation-150);
+    border-radius: var(--style-radius-s);
+    margin: 0;
+    max-width: 12rem;
+    overflow: hidden;
+
+    img {
+      display: block;
+      height: 5rem;
+      object-fit: contain;
+      width: 100%;
+    }
+
+    figcaption {
+      direction: ltr;
+      font-size: 0.75rem;
+      overflow: hidden;
+      padding: calc(var(--base) / 4);
+      text-overflow: ellipsis;
+      unicode-bidi: plaintext;
+      white-space: nowrap;
+    }
+  }
 }
 
 .tenant-media-picker {
@@ -96,6 +145,12 @@
     color: var(--theme-elevation-600);
     font-size: 0.8125rem;
     margin-inline-start: auto;
+  }
+
+  &__hint {
+    color: var(--theme-elevation-500);
+    font-size: 0.8125rem;
+    margin: 0;
   }
 
   &__status:empty {

@@ -14,6 +14,7 @@ import { authenticated } from '../access/authenticated'
 import { setMediaPrefix } from '../hooks/mediaPrefix'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { sanitizeSvgUpload } from '@/hooks/sanitizeSvgUpload'
+import { adminThumbnailUrl, type PreviewMedia } from '@/lib/mediaPreview'
 import {
   accountMediaStorage,
   accountMediaStorageDelete,
@@ -86,7 +87,13 @@ export const Media: CollectionConfig = {
     // resolve lands in .next/, which is wiped on every image rebuild. Files are
     // always *served* through /api/media/file/*, so the location is private.
     staticDir: process.env.MEDIA_DIR || path.resolve(dirname, '../../public/media'),
-    adminThumbnail: 'thumbnail',
+    /**
+     * An SVG's generated size — when there is one — is a single raster frame. The
+     * admin list and branding previews have to point at the original document so
+     * its CSS animation runs. Raster uploads keep the small `thumbnail` size.
+     */
+    adminThumbnail: ({ doc }) =>
+      adminThumbnailUrl(doc as unknown as null | PreviewMedia | undefined),
     focalPoint: true,
     /**
      * What a customer may put in their media library — raster images, and SVG that
@@ -104,12 +111,16 @@ export const Media: CollectionConfig = {
      * landing mark looks wrong as a PNG. It is the one type that carries script, and
      * `/api/media/file/*` is a Caddy carve-out serving uploads from the *customer's
      * own origin*, so an SVG is admitted only through `sanitizeSvgUpload`, which runs
-     * first (`beforeOperation`) and accepts nothing but drawing elements and
-     * attributes — see the header of `src/lib/svg.ts` for what is refused and why
-     * it refuses instead of repairing. Payload then runs its own `validateSvg` over
-     * the result, and the file route answers SVG with `script-src 'none'`.
-     * `tests/int/uploads.int.spec.ts` pins the boundary: a scripted SVG, and an SVG
-     * wearing a `.png` name, are both still refused.
+     * first (`beforeOperation`). Its allowlist admits drawing elements and attributes
+     * plus a narrow, bounded `filter` / `feGaussianBlur` / `feMerge` / `feMergeNode`
+     * graph and CSS `@keyframes` animation for animated logos — nothing else, and
+     * always refuse-don't-repair. The hook also returns a structured reason code so
+     * the tenant uploader can explain a rejection. See the header of `src/lib/svg.ts`.
+     * Payload then runs its own `validateSvg` over the result, and the file route
+     * answers SVG with `script-src 'none'`. `tests/int/svg.int.spec.ts` and
+     * `tests/int/uploads.int.spec.ts` pin the boundary: a scripted SVG, an SVG
+     * wearing a `.png` name, a remote filter reference and SMIL are all refused,
+     * while the checked-in animated Graphite fixture uploads.
      *
      * Files already stored are not re-validated and keep serving.
      */

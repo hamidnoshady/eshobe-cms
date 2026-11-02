@@ -9,11 +9,14 @@ import type { Payload } from 'payload'
 
 import type { Site } from '@/payload-types'
 
+import { readFileSync } from 'node:fs'
+
 import sharp from 'sharp'
 import { getPayload } from 'payload'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
+import { MAX_SVG_BYTES } from '@/lib/svg'
 
 /**
  * What a customer may put in their media library.
@@ -32,6 +35,16 @@ import config from '@/payload.config'
  */
 let payload: Payload
 let siteId: string
+
+// The validator trims the XML declaration, comments and surrounding whitespace
+// before storing. Upload the trimmed bytes so `filesize` matches what is served.
+const graphiteLogo = Buffer.from(
+  readFileSync(new URL('../fixtures/graphite-animated-logo.svg', import.meta.url), 'utf8').trim(),
+  'utf8',
+)
+
+const maliciousSvg = (inner: string) =>
+  Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${inner}</svg>`, 'utf8')
 
 const upload = (file: { data: Buffer; mimetype: string; name: string }) =>
   payload.create({
@@ -118,5 +131,53 @@ describe('media uploads', () => {
     const html = Buffer.from('<html><body><script>alert(1)</script></body></html>', 'utf8')
 
     await expect(upload({ data: html, mimetype: 'image/png', name: 'page.png' })).rejects.toThrow()
+  })
+
+  it('accepts the checked-in Graphite animated SVG and keeps the original document', async () => {
+    const doc = await upload({
+      data: graphiteLogo,
+      mimetype: 'image/svg+xml',
+      name: 'graphite-animated.svg',
+    })
+
+    expect(doc.mimeType).toBe('image/svg+xml')
+    expect(doc.url).toMatch(/\.svg(?:\?|$)/)
+    expect(doc.filesize).toBe(graphiteLogo.length)
+    // A rasterized size is a static frame. The public site and branding settings
+    // are served `doc.url`, which still carries the CSS keyframes and filters.
+    expect(doc.sizes?.thumbnail?.url ?? '').not.toMatch(/\.(png|jpe?g|webp|avif)$/i)
+  })
+
+  it.each([
+    [
+      'an external filter resource',
+      '<defs><filter id="f"><feGaussianBlur in="SourceGraphic" stdDeviation="1"/></filter></defs><path d="M0 0" filter="url(https://evil.example/x.svg#f)"/>',
+    ],
+    ['SMIL animation', '<animate attributeName="opacity" from="0" to="1"/>'],
+    [
+      'an unsupported filter primitive',
+      '<defs><filter id="f"><feImage href="https://evil.example/x.png"/></filter></defs>',
+    ],
+    ['network-fetching CSS', '<style>@import "https://evil.example/x.css";</style>'],
+    [
+      'a high-complexity blur',
+      '<defs><filter id="f"><feGaussianBlur in="SourceGraphic" stdDeviation="1000"/></filter></defs>',
+    ],
+    [
+      'a payload-obfuscated script',
+      '<style>.a{fill:&#106;avascript:alert(1)}</style><path class="a" d="M0 0"/>',
+    ],
+  ])('refuses %s through the full upload pipeline', async (_label, inner) => {
+    await expect(
+      upload({ data: maliciousSvg(inner), mimetype: 'image/svg+xml', name: 'bad.svg' }),
+    ).rejects.toThrow(/فایل SVG پذیرفته نشد/)
+  })
+
+  it('keeps the 200 KB limit with its exact localized message', async () => {
+    const bytes = Buffer.alloc(MAX_SVG_BYTES + 1, 0x61)
+
+    await expect(
+      upload({ data: bytes, mimetype: 'image/svg+xml', name: 'huge.svg' }),
+    ).rejects.toThrow('۲۰۰ کیلوبایت')
   })
 })
