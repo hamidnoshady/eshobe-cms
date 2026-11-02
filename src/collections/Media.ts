@@ -90,7 +90,8 @@ export const Media: CollectionConfig = {
      * admin list and branding previews have to point at the original document so
      * its CSS animation runs. Raster uploads keep the small `thumbnail` size.
      */
-    adminThumbnail: ({ doc }) => adminThumbnailUrl(doc as unknown as PreviewMedia),
+    adminThumbnail: ({ doc }) =>
+      adminThumbnailUrl(doc as unknown as null | PreviewMedia | undefined),
     focalPoint: true,
     /**
      * What a customer may put in their media library — raster images, and SVG that

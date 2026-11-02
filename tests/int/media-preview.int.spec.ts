@@ -94,9 +94,12 @@ describe('media preview URLs', () => {
       'utf8',
     )
 
-    expect(source).toContain('adminThumbnail: ({ doc }) => adminThumbnailUrl')
+    expect(source).toContain('adminThumbnail: ({ doc })')
+    expect(source).toContain('adminThumbnailUrl(doc as unknown as')
     expect(adminThumbnailUrl(svgPreview)).toBe(svgPreview.url)
     expect(adminThumbnailUrl(pngPreview)).toBe('/api/media/file/logo-300.png')
+    expect(adminThumbnailUrl(null)).toBeNull()
+    expect(adminThumbnailUrl(undefined)).toBeNull()
   })
 
   it('publishes the original URL from the site descriptor', () => {

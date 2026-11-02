@@ -15,6 +15,14 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
+  /**
+   * Playwright's default per-test timeout is 30s, which is shorter than the
+   * explicit 30–60s waits this suite needs for a cold Next/Payload dev route.
+   * The test used to be killed at 30s while its own `expect(..., {timeout:
+   * 30_000})` was still waiting — a false "element not found" on CI. Passing
+   * tests finish at the same speed; only slow ones get room to settle.
+   */
+  timeout: 120_000,
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */

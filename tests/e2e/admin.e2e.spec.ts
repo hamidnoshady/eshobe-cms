@@ -54,11 +54,15 @@ test.describe('Admin Panel', () => {
 
     expect(doc, `no /about page seeded for ${domain}`).toBeTruthy()
 
-    await page.goto(`http://localhost:3000/admin/collections/pages/${doc!.id}`)
-    // 30s: a cold doc-edit view in the dev server streams the shell first and compiles
-    // the field components after, so the default 5s catches a page that has a sidebar
-    // and no form yet.
-    await expect(page.locator('input[name="title"]')).toBeVisible({ timeout: 30_000 })
+    await page.goto(`http://localhost:3000/admin/collections/pages/${doc!.id}`, {
+      timeout: 60_000,
+      waitUntil: 'domcontentloaded',
+    })
+    // A cold doc-edit view in the dev server streams the shell first and compiles
+    // the field components after. `load` can fire before the RSC payload has
+    // hydrated the form, so wait for the actual field — and give it longer than
+    // the old 30s test timeout allowed.
+    await expect(page.locator('input[name="title"]')).toBeVisible({ timeout: 60_000 })
   }
 
   test('renders in Persian, right-to-left', async () => {

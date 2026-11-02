@@ -36,8 +36,11 @@ import { MAX_SVG_BYTES } from '@/lib/svg'
 let payload: Payload
 let siteId: string
 
-const graphiteLogo = readFileSync(
-  new URL('../fixtures/graphite-animated-logo.svg', import.meta.url),
+// The validator trims the XML declaration, comments and surrounding whitespace
+// before storing. Upload the trimmed bytes so `filesize` matches what is served.
+const graphiteLogo = Buffer.from(
+  readFileSync(new URL('../fixtures/graphite-animated-logo.svg', import.meta.url), 'utf8').trim(),
+  'utf8',
 )
 
 const maliciousSvg = (inner: string) =>

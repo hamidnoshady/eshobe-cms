@@ -26,5 +26,5 @@ export const mediaPreviewUrl = (media: PreviewMedia): string =>
   isSvgMedia(media) ? originalMediaUrl(media) : media.sizes?.thumbnail?.url || originalMediaUrl(media)
 
 /** Payload's `adminThumbnail` callback shape (`false | null | string`). */
-export const adminThumbnailUrl = (media: PreviewMedia): null | string =>
-  mediaPreviewUrl(media) || null
+export const adminThumbnailUrl = (media?: null | PreviewMedia): null | string =>
+  media ? mediaPreviewUrl(media) || null : null

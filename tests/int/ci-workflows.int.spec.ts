@@ -274,3 +274,20 @@ describe('no production identifiers or credentials are committed in the workflow
     })
   })
 })
+
+describe('Playwright e2e timeouts', () => {
+  /**
+   * CI used to kill `admin.e2e.spec.ts` at Playwright's default 30s while the
+   * test itself was waiting 30s for a cold Next/Payload dev route to hydrate.
+   * The failure looked like a missing field, not a timeout. Pin the fix so the
+   * next config cleanup cannot silently reintroduce the flake.
+   */
+  it('gives cold dev routes longer than the longest in-test wait', () => {
+    const config = readFileSync(resolve(process.cwd(), 'playwright.config.ts'), 'utf8')
+    const admin = readFileSync(resolve(process.cwd(), 'tests/e2e/admin.e2e.spec.ts'), 'utf8')
+
+    expect(config).toMatch(/timeout:\s*120_000/)
+    expect(admin).toContain("waitUntil: 'domcontentloaded'")
+    expect(admin).toContain('toBeVisible({ timeout: 60_000 })')
+  })
+})
