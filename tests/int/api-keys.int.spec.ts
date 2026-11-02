@@ -297,6 +297,42 @@ describe('a site key', () => {
     expect(await read(req, 'categories', { site: { equals: siteId.studio } })).toHaveLength(0)
   })
 
+  it('reads only its own redirect rules for an external theme', async () => {
+    const issued = await issueKey({ name: 'redirect read test', role: 'site', siteId: siteId.acme })
+    const suffix = randomUUID()
+    const ownFrom = `/legacy-own-${suffix}`
+    const otherFrom = `/legacy-other-${suffix}`
+
+    const own = await payload.create({
+      collection: 'redirects',
+      data: { from: ownFrom, site: siteId.acme, to: { type: 'custom', url: '/about' } },
+      overrideAccess: true,
+    })
+    const other = await payload.create({
+      collection: 'redirects',
+      data: { from: otherFrom, site: siteId.studio, to: { type: 'custom', url: '/about' } },
+      overrideAccess: true,
+    })
+
+    try {
+      const req = await reqWithKey(issued.key, 'cms.example.test')
+      expect(await read(req, 'redirects', { from: { equals: ownFrom } })).toHaveLength(1)
+      expect(await read(req, 'redirects', { from: { equals: otherFrom } })).toHaveLength(0)
+      expect(await read(req, 'redirects', { site: { equals: siteId.studio } })).toHaveLength(0)
+
+      // The built-in renderer's Local-API exception must not turn the table
+      // into an anonymous HTTP list on the customer's own host.
+      const anonymousReq = await createLocalReq(
+        { req: { headers: new Headers({ host: 'acme.localhost' }) } as Partial<PayloadRequest> },
+        payload,
+      )
+      await expect(read(anonymousReq, 'redirects', { from: { equals: ownFrom } })).rejects.toThrow()
+    } finally {
+      await payload.delete({ id: own.id, collection: 'redirects', overrideAccess: true })
+      await payload.delete({ id: other.id, collection: 'redirects', overrideAccess: true })
+    }
+  })
+
   it('cannot read or write a collection it holds no grant on', async () => {
     const issued = await issueKey({ name: 'sites test', role: 'site', siteId: siteId.acme })
     const req = await reqWithKey(issued.key)

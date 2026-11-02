@@ -1,9 +1,18 @@
 import type { TextFieldSingleValidation } from 'payload'
 import {
+  BlockquoteFeature,
   BoldFeature,
+  HeadingFeature,
+  HorizontalRuleFeature,
+  InlineCodeFeature,
   ItalicFeature,
   LinkFeature,
+  OrderedListFeature,
   ParagraphFeature,
+  StrikethroughFeature,
+  SubscriptFeature,
+  SuperscriptFeature,
+  UnorderedListFeature,
   lexicalEditor,
   UnderlineFeature,
   type LinkFields,
@@ -12,9 +21,21 @@ import {
 export const defaultLexical = lexicalEditor({
   features: [
     ParagraphFeature(),
+    // The block/inline vocabulary a migrated WordPress body actually uses —
+    // the Gutenberg converter (`src/lib/migration/gutenberg.ts`) emits
+    // exactly these node kinds and nothing richer.
+    HeadingFeature({ enabledHeadingSizes: ['h1', 'h2', 'h3', 'h4'] }),
+    BlockquoteFeature(),
+    OrderedListFeature(),
+    UnorderedListFeature(),
+    HorizontalRuleFeature(),
     UnderlineFeature(),
     BoldFeature(),
     ItalicFeature(),
+    StrikethroughFeature(),
+    InlineCodeFeature(),
+    SubscriptFeature(),
+    SuperscriptFeature(),
     LinkFeature({
       enabledCollections: ['pages', 'posts'],
       fields: ({ defaultFields }) => {

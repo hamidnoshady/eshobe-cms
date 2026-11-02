@@ -17,7 +17,14 @@ import type { Field } from 'payload'
  *   migration-created content are distinguishable at a glance and in queries
  *   without either side needing a sentinel.
  */
-export const migrationSourceField = (): Field => ({
+/**
+ * `optional` is for collections that predate provenance (pages, posts,
+ * products, orders, media…): leaving the two classifying selects
+ * non-required keeps the group itself optional in the generated types, so a
+ * decade of existing create call sites stays valid. The defaults still
+ * stamp a native document when the group is written.
+ */
+export const migrationSourceField = ({ optional = false }: { optional?: boolean } = {}): Field => ({
   name: 'source',
   type: 'group',
   label: 'منشأ و مهاجرت',
@@ -42,7 +49,7 @@ export const migrationSourceField = (): Field => ({
             { label: 'ووکامرس', value: 'woocommerce' },
             { label: 'سامانه دیگر', value: 'other' },
           ],
-          required: true,
+          required: !optional,
         },
         {
           name: 'mappingStatus',
@@ -56,7 +63,7 @@ export const migrationSourceField = (): Field => ({
             { label: 'بایگانی‌شده', value: 'archived' },
             { label: 'مسدود', value: 'blocked' },
           ],
-          required: true,
+          required: !optional,
         },
       ],
     },

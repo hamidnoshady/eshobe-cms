@@ -58,10 +58,17 @@ const CUSTOMER_TARGET = [
     ],
     label: 'انواع محتوا',
   },
-  { entities: ['products', 'orders', 'payment-gateways', 'store'], label: 'فروشگاه' },
+  {
+    entities: ['products', 'orders', 'customers', 'coupons', 'payment-gateways', 'store'],
+    label: 'فروشگاه',
+  },
   { entities: ['site-branding', 'theme'], label: 'طراحی و انتشار' },
   { entities: ['users'], label: 'تیم' },
   { entities: ['theme-settings', 'sites'], label: 'تنظیمات' },
+  {
+    entities: ['migration-center', 'migration-jobs', 'migration-sources'],
+    label: 'مهاجرت',
+  },
 ]
 
 /**
@@ -139,7 +146,7 @@ describe('sidebar information architecture', () => {
       })
         .flatMap((g) => g.entities)
         .map((e) => e.slug)
-    const shop = ['products', 'orders', 'payment-gateways', 'store']
+    const shop = ['products', 'orders', 'customers', 'coupons', 'payment-gateways', 'store']
 
     for (const type of ['portfolio', 'business']) {
       const slugs = slugsFor(type)
@@ -275,8 +282,9 @@ describe('sidebar information architecture', () => {
       visible: { collections: ['pages'], globals: [] },
     })
     const slugs = groups.flatMap((g) => g.entities.map((e) => e.slug))
-    // The theme-settings route is not an entity: it is always offered to a customer.
-    expect(slugs).toEqual(['pages', 'theme-settings'])
+    // The theme-settings and Migration Center routes are not entities:
+    // each view re-checks membership, so both are offered to a customer.
+    expect(slugs).toEqual(['pages', 'theme-settings', 'migration-center'])
   })
 
   it('offers «تنظیمات پوسته» as a top-level route to customers only', () => {

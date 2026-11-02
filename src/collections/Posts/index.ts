@@ -40,6 +40,8 @@ import {
 import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
+import { migrationSourceField } from '../fields/migrationSource'
+import { validatePostRelations } from '../hooks/validatePostRelations'
 
 export const Posts: CollectionConfig<'posts'> = {
   slug: 'posts',
@@ -151,6 +153,17 @@ export const Posts: CollectionConfig<'posts'> = {
               },
               hasMany: true,
               relationTo: 'categories',
+            },
+            {
+              name: 'taxonomyTerms',
+              type: 'relationship',
+              label: 'واژه‌های طبقه‌بندی عمومی',
+              admin: {
+                description: 'برچسب‌ها و طبقه‌بندی‌های عمومی سایت؛ دسته نوشته همان فیلد بالا است.',
+                position: 'sidebar',
+              },
+              hasMany: true,
+              relationTo: 'taxonomy-terms',
             },
           ],
           label: 'اطلاعات نوشته',
@@ -278,6 +291,7 @@ export const Posts: CollectionConfig<'posts'> = {
       ],
     },
     slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
+    migrationSourceField({ optional: true }),
   ],
   hooks: {
     // `POSTS_BASE` is the whole difference between busting `/hello` (no such route
@@ -288,7 +302,7 @@ export const Posts: CollectionConfig<'posts'> = {
     // Access only checked that a site key exists — never trust the payload's own
     // `site` value on a key-authorized write.
     beforeChange: [forceApiKeySite],
-    beforeValidate: [enforceQuota('posts'), uniqueSlugPerSite],
+    beforeValidate: [enforceQuota('posts'), uniqueSlugPerSite, validatePostRelations],
   },
   versions: {
     drafts: {

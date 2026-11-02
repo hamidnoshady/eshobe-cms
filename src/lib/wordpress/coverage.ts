@@ -13,12 +13,12 @@ import { classifyCptCapability } from './discovery'
  *   - `archive-only` — preserved with provenance for audit/manual rebuild,
  *     explicitly not functional parity.
  *
- * Dispositions describe *destination readiness*, not importer progress: Woo
- * order history is `unsupported-blocking` until the multi-line commerce
- * model lands, because the honest alternative — flattening an order into one
- * product — is named out of scope by the issue itself. As later PRs land
- * (commerce model, connectors), rows move up this list deliberately, with
- * the mapping doc updated in the same change.
+ * Dispositions describe both destination readiness and the human decision a
+ * run still needs. Woo order history is `requires-mapping`, for example: the
+ * native multi-line model exists, but source/target money and the exact
+ * reconciliation gate must be confirmed before a cutover may proceed. Rows
+ * move deliberately as adapters land, with the mapping doc updated in the
+ * same change.
  */
 
 export type CoverageDisposition =
@@ -128,12 +128,11 @@ export const coverageMatrix = (
         break
       case 'product':
         push({
-          destination: 'products (+مدل تجارت کامل)',
-          disposition: facts.woo?.hasVariableProducts ? 'unsupported-blocking' : 'requires-mapping',
+          destination: 'products (+ویژگی/تنوع/نگارخانه)',
+          disposition: 'requires-mapping',
           label: 'محصولات ووکامرس',
-          reason: facts.woo?.hasVariableProducts
-            ? 'محصول متغیر با ویژگی/تنوع در مدل فعلی محصول جا نمی‌شود؛ تا PR مدل تجارت (تنوع/ویژگی/نگارخانه) ورود محصول متغیر متوقف می‌شود.'
-            : 'محصول ساده به کاتالوگ می‌آید؛ قیمت، مالیات، موجودی و نگارخانه نیاز به نگاشت صریح واحد پول و وضعیت دارند.',
+          reason:
+            'محصول ساده و متغیر هر دو در کاتالوگ می‌نشینند: ویژگی‌ها، تنوع‌ها با قیمت/موجودی جدا، نگارخانه، فروش مکمل و واژه‌ها. آنچه بازبینی انسانی می‌خواهد واحد پول و Decimals مبدأ است، نه مدل مقصد.',
           resource,
         })
         break
@@ -189,22 +188,29 @@ export const coverageMatrix = (
     resource: 'wp-users',
   })
   push({
-    destination: 'هنوز ساخته نشده — مشتری فروشگاه',
-    disposition: 'unsupported-blocking',
+    destination: 'customers (جدا از کاربران CMS)',
+    disposition: 'requires-mapping',
     label: 'مشتریان فروشگاه و حساب مشتری',
     reason:
-      'حساب مشتری فروشگاه نباید با کاربران مدیر CMS یکی شود و گذرواژه وردپرس قابل کپی نیست؛ تا مدل مشتری و فرایند مطالبه حساب ساخته شود، مهاجرت فروشگاهی با حساب مشتری متوقف است.',
+      'پروفایل، نشانی‌ها و رابطه با سفارش‌ها وارد customers می‌شود — هرگز به‌صورت کاربر مدیر CMS. گذرواژه وردپرس کپی نمی‌شود؛ حساب با دعوت/بازنشانی مطالبه می‌شود (claimStatus)، و مالک باید پیش از برش نهایی مسیر دعوت را تأیید کند.',
     resource: 'customers',
   })
 
   if (inventory.hasWooCommerce) {
     push({
-      destination: 'هنوز ساخته نشده — سفارش چندسطری',
-      disposition: 'unsupported-blocking',
+      destination: 'orders (سطرهای چندگانه + جمع‌بندی کامل)',
+      disposition: 'requires-mapping',
       label: 'سفارش‌ها، سطرها، بازپرداخت و مالیات ووکامرس',
       reason:
-        'مدل فعلی سفارش ای‌شوب تک‌محصولی است؛ تخت‌کردن سفارش چندسطری از دست‌دادن تاریخچه مالی است. تا PR مدل تجارت (سطر سفارش/جمع‌بندی/بازپرداخت) تاریخچه سفارش منتقل نمی‌شود.',
+        'سفارش با همه سطرها، تخفیف/کوپن، ارسال، مالیات، هزینه‌ها، بازپرداخت و تاریخچه پرداخت وارد می‌شود و فیلدهای قدیمی تک‌محصولی فقط آینه سطر نخست‌اند. ورود تاریخی در بافت مهاجرت انجام می‌شود تا موجودی امروز و رویدادهای پرداخت دست نخورند؛ برش نهایی منوط به تطبیق دقیق جمع‌هاست.',
       resource: 'orders',
+    })
+    push({
+      destination: 'coupons',
+      disposition: 'supported',
+      label: 'کوپن‌های تخفیف ووکامرس',
+      reason: 'کد، گونه و مقدار، سقف استفاده، محدودیت محصول و بازه اعتبار منتقل می‌شود و سفارش‌های تاریخی به همین ردیف‌ها ارجاع می‌دهند.',
+      resource: 'coupons',
     })
     if (facts.woo?.hasSubscriptions) {
       push({

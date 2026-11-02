@@ -5,7 +5,7 @@ import { redirectsPlugin } from '@payloadcms/plugin-redirects'
 import { seoPlugin } from '@payloadcms/plugin-seo'
 import { searchPlugin } from '@payloadcms/plugin-search'
 import type { Plugin } from 'payload'
-import { revalidateRedirects } from '@/hooks/revalidateRedirects'
+import { revalidateRedirects, revalidateRedirectsDelete } from '@/hooks/revalidateRedirects'
 import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
 import { GenerateTitle, GenerateURL } from '@payloadcms/plugin-seo/types'
 import { FixedToolbarFeature, HeadingFeature, lexicalEditor } from '@payloadcms/richtext-lexical'
@@ -17,8 +17,8 @@ import type { Config, Page, Post } from '@/payload-types'
 import { isPlatformAdmin, platformAdminFieldAccess } from '@/access/platformAdmin'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '@/access/anyone'
-import { authenticated } from '@/access/authenticated'
-import { scopedPublicRead } from '@/access/siteRead'
+import { apiKeyAware } from '@/access/siteApiKey'
+import { redirectRoutingRead, scopedPublicRead } from '@/access/siteRead'
 import { idOf } from '@/lib/ids'
 import { validateSubmissionData, type SubmissionFormField } from '@/lib/form-submission-validation'
 import {
@@ -70,7 +70,7 @@ export const plugins: Plugin[] = [
         // A redirect table is site config: `acme.ir/* → studio.ir/*` is not information
         // one customer should be able to read off another's domain, and a headless
         // renderer resolving a path must not be able to walk the platform's redirects.
-        read: scopedPublicRead(authenticated),
+        read: apiKeyAware(scopedPublicRead(redirectRoutingRead)),
       },
       admin: {
         group: SITE_CONTENT_GROUP,
@@ -89,6 +89,9 @@ export const plugins: Plugin[] = [
               admin: {
                 description: 'برای اعمال این تغییر، سایت باید بازسازی شود.',
               },
+              // Per-`(site, from)`, enforced by `uniqueRedirectFromPerSite`
+              // and the SQL index — not the plugin's platform-global unique.
+              unique: false,
             }
           }
           return field
@@ -96,6 +99,7 @@ export const plugins: Plugin[] = [
       },
       hooks: {
         afterChange: [revalidateRedirects],
+        afterDelete: [revalidateRedirectsDelete],
       },
     },
   }),
@@ -290,6 +294,23 @@ export const plugins: Plugin[] = [
       // Wave 7. A product and an order are as much a site's rows as a page is; an
       // unregistered collection is *shared* between every customer, silently.
       orders: {},
+      // Issue #166 — storefront customers and coupons are the shop's own
+      // rows; a customer book is PII, so an unregistered entry here would be
+      // a cross-tenant personal-data leak, not a cosmetic bug.
+      customers: {},
+      coupons: {},
+      // Issue #166 — the migration ledger. Connector credentials, jobs,
+      // raw-payload records and errors are per-site operational data; every
+      // one of these nine collections carries exactly one site.
+      'migration-sources': {},
+      'migration-jobs': {},
+      'migration-batches': {},
+      'migration-mappings': {},
+      'migration-records': {},
+      'migration-events': {},
+      'migration-errors': {},
+      'migration-redirects': {},
+      'migration-audits': {},
       // Wave 10. A gateway row holds a merchant's credentials *and* which site they
       // belong to, so this is the one collection where an unregistered entry would not
       // merely leak content — it would hand every tenant a form for every other tenant's

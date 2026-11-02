@@ -460,9 +460,25 @@ GET /api/posts?where[slug][equals]=first-post&locale=fa&depth=1
 | `sku` | text, indexed | Internal, not shown |
 | `trackInventory` | checkbox, default false | `false` → unlimited |
 | `inventory` | number, min 0, required when `trackInventory` true | Decremented on `orders.status→paid` via `settleStock` hook |
+| `body` | richText (Lexical), localized | Full product description |
+| `productType` | select `simple|variable|grouped|external`, default `simple` | Older rows may omit/null it — treat that as `simple`. Only `simple` and `variable` are directly purchasable through `/api/checkout` |
+| `attributes` | array `{key, name, visible, usedForVariation, options:[{value}]}` | `name` and option `value` are localized. `key` is the stable machine key used in variation `attributeValues` |
+| `variations` | array | Present on `variable` products. Each row is `{key?, label?, sku?, price, compareAtPrice?, trackInventory, inventory?, image?, attributeValues?, active, weight?, sourceId?, sourceStatus?}`; all prices are integer minor units |
+| `gallery` | upload `media`, hasMany | Additional images after the primary `image` |
+| `terms` | relationship `taxonomy-terms`, hasMany | Product categories/tags and other vocabularies; each term names its own taxonomy — these are **not** blog `categories` |
+| `groupedProducts`, `upsells`, `crossSells` | relationship `products`, hasMany | Same-site only |
+| `externalUrl`, `buttonText` | text (`buttonText` localized) | For `productType:"external"`; render an outbound action, do not call checkout |
+| `virtual`, `downloadable` | checkbox, default `false` | Descriptive delivery flags; this API does not expose Woo download grants |
+| `weight`, `length`, `width`, `height` | text | Source-preserved dimension strings, not unit-normalized numbers |
+| `metaTitle`, `metaDescription`, `canonicalUrl`, `noindex` | SEO fields | Prefer `canonicalUrl` when present; omit `noindex:true` products from sitemap/index surfaces |
 | `site`, `_status` | | |
 
-Prices: `price=180000` with `IRT` = 180,000 Toman. Display only via `formatPrice(price, currency, locale)`.
+Prices: `price=180000` with `IRT` = 180,000 Toman. Display only via
+`formatPrice(price, currency, locale)`. For a variable product, the parent
+`price` is catalogue metadata (imports use the lowest variation price), but
+the purchasable price is the selected `variations[].price`; render the active
+variation range/selected price rather than pretending the parent row is the
+SKU being bought.
 
 ```bash
 GET /api/products?where[slug][equals]=chair&locale=fa&depth=1
@@ -477,15 +493,27 @@ GET /api/products?limit=12&sort=-createdAt&locale=fa   # catalogue
 |-------|------|-------|
 | `reference` | text, required, indexed, readOnly | Random `newOrderReference()` — not sequential (prevents volume leakage) |
 | `status` | select `pending|paid|cancelled|refunded`, default `pending` | |
-| `product` | relationship `products`, required, maxDepth 1 | |
-| `productTitle` | text, readOnly | Snapshot at order time |
-| `quantity` | number, 1..MAX_ORDER_QUANTITY | MAX_ORDER_QUANTITY is env-tunable, default ~10 |
-| `unitPrice` | number, required, readOnly | Snapshot of `product.price` |
-| `total` | number, required, readOnly | `unitPrice * quantity` |
-| `currency` | select `IRT|IRR|USD|EUR`, required, readOnly | Snapshot of site's `store.currency` |
-| `buyer` | group | `name` text required, `phone` text required (normalized, validated `/^0?9\d{9}$/`), `email` email?, `note` textarea? |
-| `payment` | group | `provider: bank|http` required, `reference` text?, `paidAt` date? |
+| `items` | array | **The authoritative order lines.** Each is `{product, productTitle, variationKey?, variationLabel?, sku?, quantity, unitPrice, subtotal, taxTotal, total, sourceLineId?}`, with every money value in integer minor units |
+| `product` | relationship `products`, required, maxDepth 1 | Legacy mirror of `items[0].product` for older receipts/integrations |
+| `productTitle` | text, readOnly | Legacy mirror of the first line's title snapshot |
+| `quantity` | number, required | Legacy mirror of `items[0].quantity`. Stored historical rows allow up to 1,000,000; the public checkout separately enforces `MAX_ORDER_QUANTITY` |
+| `unitPrice` | number, required, readOnly | Legacy mirror of `items[0].unitPrice` |
+| `subtotal`, `discountTotal`, `shippingTotal`, `taxTotal`, `total` | number, integer minor units | For a line-bearing order, validation enforces `subtotal - discountTotal + shippingTotal + taxTotal + sum(fees.total) = total` exactly |
+| `coupons` | array `{coupon?, code, discount}` | `code`/`discount` are purchase-time snapshots, even if the coupon row later changes |
+| `shippingLines`, `taxLines`, `fees` | arrays | Shipping methods/totals, tax rate lines/totals and other signed integer fee lines |
+| `refunds` | array `{sourceId?, amount, reason?, refundedAt?, transactionId?}` | Refunds are history rows; they do not rewrite the original `total` identity |
+| `paymentHistory` | array `{methodId?, methodTitle?, transactionId?, status?, amount?, paidAt?, note?}` | Payment metadata only — never a reusable card/vault credential |
+| `customer` | relationship `customers` (optional) | Same-site storefront customer; guest/native checkout orders may have none |
+| `customerNote`, `billingAddress`, `shippingAddress` | textarea / address groups | Address groups contain `firstName,lastName,company,address1,address2,city,state,postcode,country,phone,email` |
+| `currency` | select `IRT|IRR|USD|EUR`, required, readOnly | Snapshot of site's `store.currency` (or the reviewed target currency for an imported order) |
+| `buyer` | group | `name` text required, `phone` text required (normalized, validated `/^0?9\d{9}$/` for native checkout), `email` email?, `note` textarea? |
+| `payment` | group | `provider` from the configured payment-provider options, `reference` text?, `paidAt` date?, `mode?: live|sandbox`; `gatewayData` is server-written and not client-writable |
 | `site` | relation | |
+
+Themes and operator integrations must render **all** `items`. Read the legacy
+`product`/`quantity`/`unitPrice` fields only as a fallback for a pre-expansion
+row whose `items` is empty; treating them as the whole order silently loses
+every line after the first and every shipping/tax/fee component.
 
 List with site key:
 ```bash
@@ -493,6 +521,31 @@ GET /api/orders?where[status][equals]=pending&sort=-createdAt&limit=20
 # update status only — access hook restricts writable field to status:
 PATCH /api/orders/<id>  { "status":"paid" }   # with site key
 ```
+
+### `customers` — staff-only customer book
+
+A storefront customer is a profile in `customers`, **not** a CMS `user`:
+`{email?, firstName?, lastName?, displayName?, phone?, username?, status,
+claimStatus, addresses[], notes?}`. Addresses carry billing/shipping
+defaults. Access is authenticated staff only and the collection is PII, so a
+theme must not list it or treat it as a public account API.
+`claimTokenHash` is never readable/writable through the collection API, and
+an imported customer starts `claimStatus:"unclaimed"` — account access is
+established by a later invitation/reset flow, never by importing a WordPress
+password hash. `orders.customer` links an order to this same-site profile;
+native one-page checkout still stores its buyer snapshot in `orders.buyer`
+and does not need a customer row.
+
+### `coupons` — staff-managed, checkout submits only the code
+
+`{code, description?, discountType:"percent|fixed-cart|fixed-product",
+amount, minimumAmount?, maximumAmount?, usageLimit?, usageLimitPerUser?,
+usageCount, individualUse, freeShipping, products[], excludedProducts[],
+startsAt?, expiresAt?, active}`. Codes are stored uppercase and are unique
+per site. For `percent`, `amount` is 0–100; otherwise it is integer minor
+units. The collection is authenticated staff-only: a storefront never lists
+coupons, it sends one `couponCode` to `POST /api/checkout` and the server
+resolves amount/window/limits/product restrictions from the site's row.
 
 ### `store` — per-site settings (`isGlobal: true`)
 `access: read = scopedPublicRead()` (public so storefront can format prices), `paymentInstructions` field has `read: ({req:{user}})=>Boolean(user)` — **not in public response**.
@@ -633,8 +686,23 @@ GET /api/search?where[or][0][title][like]=q&... + ?depth=1 for posts?
 ```
 But use Payload's `where` on `search` as above, then fetch each `doc.value` as a post.
 
-### `redirects` — per-site
-`from: text` (source path), `to: {type, reference: pages|posts, url}`. Hook `revalidateRedirects` clears cache.
+### `redirects` — per-site permanent redirects
+`{site, from:text, to:{type:"reference|custom", reference:pages|posts, url}}`.
+A `from` path is unique **per site**, not platform-wide. Store normalized,
+site-root-relative paths (leading `/`, no query/hash, no trailing slash except
+`/` itself). Reference targets resolve through the target page/post's
+localized public URL; custom targets may be an internal path or absolute
+`http(s)` URL.
+
+The built-in renderer checks this collection before locale/content routing
+(with a signed-in draft-preview bypass), follows exactly one hop per request,
+ignores an exact self-rule, preserves the incoming query when the target has
+none, and answers **308 Permanent Redirect**. An external theme must do the
+same routing step before returning its own 404: fetch only its tenant's rows
+server-side (admin session or site API key — never an unscoped public list),
+match the normalized incoming path, and return a permanent 301/308 to the
+resolved target. `revalidateRedirects` busts both the legacy `redirects`
+cache tag and the tenant-scoped site tag on change/delete.
 
 ### `users` / `api-keys`
 Not theme-rendered. `users.tenants[]: {tenant: siteId, role: owner|editor}`. `api-keys`: see §3 Auth. Only listing via `GET /api/api-keys/list?siteId=` with platform key (see §17).
@@ -645,7 +713,7 @@ Not theme-rendered. `users.tenants[]: {tenant: siteId, role: owner|editor}`. `ap
 
 ### Concept: Catalog + Checkout First (no cart)
 - No cart document — one buy button → one `orders` row. A cart is a future block.
-- Inventory is optional per product (`trackInventory`). When `true`, order completion decrements `inventory` by `quantity` (hook `settleStock`). Exhausted product returns `409` with `available`.
+- Inventory is optional per product (`trackInventory`). When an order crosses into `paid`, `settleStock` settles **every** `items[]` line: a variation that tracks its own count moves that count, otherwise the product count moves; reversing out of `paid` restores both stock and coupon usage. Checkout returns `409` with `available` when the selected product/variation cannot cover the quantity.
 - Currency is site-global (from `store`), not per-product. All four codes: `IRT` (Toman, default), `IRR` (Rial), `USD`, `EUR`. Theme never shows a price without a unit — use `formatPrice()`.
 
 ### Product Listing (headless)
@@ -673,6 +741,23 @@ GET /api/products?where[slug][equals]=my-product&locale=fa&depth=1&limit=1
 # produces: { docs:[{title, slug, price, compareAtPrice, image:{url}, ...}], ... }
 ```
 
+Render by `productType` (absent = `simple`):
+
+- `simple` — buy `product.id` at `product.price`.
+- `variable` — let the buyer choose an **active** variation. Match product
+  attributes using `attributes[].key` → `variations[].attributeValues`, show
+  that variation's own price/image/stock, and submit its stable
+  `variations[].key` as checkout `variation` (below). Never submit the array
+  index or label as the identity.
+- `grouped` — render `groupedProducts` as individual purchasable products;
+  the group row itself is not sold by checkout.
+- `external` — render `buttonText` as a link to `externalUrl`; it is not sold
+  by checkout.
+
+At `depth=1`, primary/gallery/variation media and same-site product/term
+relationships can be populated for a detail page. Do not use depth 2 on a
+catalogue list.
+
 ### Store Settings Fetch
 ```ts
 // Public: on customer's Host
@@ -690,6 +775,8 @@ GET /api/site  // → { store:{currency,paymentProvider} }
 - Validates `productId` is UUID, product is published and belongs to this site, `quantity` 1..MAX, buyer `name`+`phone`, optional `email`/`note`.
 - Phone normalized: Persian digits accepted, stored ASCII. Valid `/^0?9\d{9}$/`.
 - Price is **never** from body — `unitPrice` and `total` read from product row, `currency` from store.
+- Product type gates the request: `grouped`/`external` are refused as not directly purchasable; `variable` requires `variation` to equal an active variation's stable `key`, and supplying `variation` for a non-variable product is a `400`.
+- Optional `couponCode` is trimmed/uppercased and resolved only against this site's coupon book. Percent discounts floor to integer minor units; `fixed-product` multiplies by quantity; `fixed-cart` applies once; the result is capped at the subtotal. An unknown/inapplicable code is a `400`, never silently ignored.
 - Guards: per-IP fixed-window throttle (`CHECKOUT_RATE_LIMIT` env, default 20/10min, `Retry-After` on 429) + per-`phone+product+site` duplicate pending refusal (15 min, env `CHECKOUT_DUPLICATE_WINDOW_MINUTES`). Duplicate does **not** return existing receipt link (would be oracle).
 
 **Request:**
@@ -700,7 +787,9 @@ Content-Type: application/json
 
 {
   "product": "550e8400-e29b-41d4-a716-446655440000",
+  "variation": "red-large",   // only for productType=variable: variations[].key
   "quantity": 1,
+  "couponCode": "WELCOME10",  // optional; server resolves it for this site
   "name": "علی رضایی",
   "phone": "۰۹۱۲۳۴۵۶۷۸۹",     // Persian digits ok
   "email": "ali@example.com",  // optional, must contain @
@@ -709,6 +798,15 @@ Content-Type: application/json
 }
 ```
 `product` is UUID `id` of `products`, not slug.
+
+The created order has one authoritative line (`items[0]`) snapshotting the
+selected product/variation, SKU, title, label, quantity and integer-minor
+unit price. Native checkout sets `shippingTotal:0`, `taxTotal:0`,
+`subtotal = unitPrice * quantity` and `total = subtotal - discountTotal`;
+the legacy `product`/`quantity`/`unitPrice` fields mirror that one line so
+older receipts and integrations keep working. An applied coupon is stored
+in `coupons[0]` with its code/discount snapshot; its usage count is spent
+only when the order becomes `paid` and restored if that payment is reversed.
 
 **Responses:**
 
@@ -768,6 +866,12 @@ Not an API endpoint — a Next.js page `CheckoutReceipt.tsx` rendered at `src/ap
 
 Data fetched server-side via `readOrderDocs(payload, orderId, siteId, locale)` — also pulls `paymentInstructions` localized in page's locale.
 
+Render the receipt from `order.items` (all lines, variation labels and line
+totals) plus `subtotal`, `discountTotal`, `shippingTotal`, `taxTotal`, fees
+and `total`, formatting each amount in `order.currency`. Only a legacy row
+with empty `items` falls back to its single `productTitle`/`quantity`/
+`unitPrice` mirror.
+
 **To reconstruct headlessly** (e.g., email, external renderer):
 ```ts
 import { signOrderReceipt, verifyOrderReceipt } from '@eshobe/site-runtime' // or src/lib/order-receipt
@@ -793,7 +897,17 @@ paymentProviderOptions // for admin select
 ```
 
 #### Inventory Settling
-Hook `settleStock` runs `afterChange` on `orders`: when status transitions to `paid` and `product.trackInventory`, decrement `products.inventory`. If inventory would go negative, the transition is blocked (?) — actually initiated checkout already checks, but settling is authoritative. Ensure you render inventory state fresh from product doc after purchase.
+Hook `settleStock` runs `afterChange` on `orders`, but only on an update that
+crosses the `paid` boundary. It settles every `items[]` line (or the legacy
+single-product mirror when `items` is empty): a self-tracked variation moves
+its own `inventory`, otherwise the product's tracked inventory moves; coupon
+usage moves in the same direction. Leaving `paid` restores both. Checkout
+checks availability before creating the order, but settlement is still the
+authority after money has arrived: if two buyers raced the last unit, the
+paid order stands, the count clamps at zero and an oversold error is logged
+for the operator rather than failing the completed payment. Historical
+migration-context writes are the exception — they move neither stock nor
+coupon usage.
 
 ---
 
@@ -905,7 +1019,7 @@ Fetch `Form` separately for its `fields[]` → render form inputs (see Forms in 
   "showBuyButton": true           // false → catalogue only, price stays, no purchase form
 }
 ```
-Render by fetching products as in §7. Price via `formatPrice(product.price, site.store.currency, locale)`. Buy button → `POST /api/checkout` with `product.id`. See PurchaseForm: `src/blocks/ProductGrid/PurchaseForm.tsx` for honeypot + quantity handling.
+Render by fetching products as in §7. Price via `formatPrice(product.price, site.store.currency, locale)` for a simple product, or the selected/active variation price for a variable one. Buy button → `POST /api/checkout` with `product.id` (plus `variation:<stable variation key>` when variable). Grouped entries link to their member products and external entries link out. See PurchaseForm: `src/blocks/ProductGrid/PurchaseForm.tsx` for honeypot + quantity handling.
 
 #### `gallery`
 ```json
@@ -1364,7 +1478,7 @@ export function ProductGridBlock({ block, site, locale }:any){
             {p.summary && <p>{p.summary}</p>}
             <div className="font-bold">{formatPrice(p.price, site.store.currency, locale)}</div>
             {p.compareAtPrice && <div className="line-through opacity-60">{formatPrice(p.compareAtPrice, site.store.currency, locale)}</div>}
-            {block.showBuyButton && <PurchaseForm productId={p.id} siteDomain={site.domain} locale={locale}/>}
+            {block.showBuyButton && p.productType !== 'grouped' && p.productType !== 'external' && <PurchaseForm product={p} currency={site.store.currency} siteDomain={site.domain} locale={locale}/>}
           </div>
         ))}
       </div>
@@ -1372,14 +1486,18 @@ export function ProductGridBlock({ block, site, locale }:any){
   )
 }
 
-function PurchaseForm({productId, siteDomain, locale}:any){
+function PurchaseForm({product, currency, siteDomain, locale}:any){
   const [loading,setLoading]=useState(false)
   async function submit(formData:FormData){
     setLoading(true)
     const res = await fetch(`https://${siteDomain}/api/checkout`,{
       method:'POST', headers:{'content-type':'application/json'},
       body: JSON.stringify({
-        product: productId,
+        product: product.id,
+        // The variation select below exists only for a variable product;
+        // its value is the stable key, never the label or array position.
+        ...(product.productType==='variable' ? { variation:String(formData.get('variation')||'') } : {}),
+        ...(String(formData.get('couponCode')||'').trim() ? { couponCode:String(formData.get('couponCode')||'').trim() } : {}),
         quantity: Number(formData.get('quantity')||1),
         name: String(formData.get('name')||''),
         phone: String(formData.get('phone')||''),
@@ -1399,6 +1517,8 @@ function PurchaseForm({productId, siteDomain, locale}:any){
       <input type="text" name="company" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden="true"/>
       <input name="name" required placeholder="نام" className="border ps-3 pe-3 py-2 w-full"/>
       <input name="phone" required placeholder="۰۹۱۲..." dir="ltr" className="border ps-3 pe-3 py-2 w-full"/>
+      {product.productType==='variable' && <select name="variation" required className="border px-3 py-2 w-full">{product.variations.filter((v:any)=>v.active!==false).map((v:any)=><option key={v.key} value={v.key}>{v.label} — {formatPrice(v.price, currency, locale)}</option>)}</select>}
+      <input name="couponCode" placeholder="کد تخفیف (اختیاری)" className="border ps-3 pe-3 py-2 w-full"/>
       <input name="quantity" type="number" min={1} max={10} defaultValue={1} className="border w-20"/>
       <button disabled={loading} className="bg-primary text-primary-foreground px-4 py-2 rounded-md w-full">خرید</button>
     </form>
@@ -1437,19 +1557,19 @@ export default async function Layout({children, params}:{children:any, params:an
 When prompted to *build a theme*, have the AI run this sequence — don't skip steps:
 
 1. **Fetch `GET /api/site`** — store `availableLocales`, `defaultLocale`, `blocks`, `store.currency`, `theme`, `media.origin`, `contractVersion`. If `type !== "store"` and block list lacks `productGrid`, the price block is `pricing` instead — adapt.
-2. **Probe a product** — `GET /api/products?limit=1&locale=<default>` → learn currency formatting, inventory shape, image URL shape.
-3. **Pick router** — implement `resolveSiteRoute` + `localeHref` + `dirFor`. Handle `RESERVED_PAGE_SLUGS` and serving guard. Test: `/`, `/en`, `/posts`, `/posts/<slug>`, `/products/<slug>`, `/search`, `/checkout/<id>`.
+2. **Probe a product** — `GET /api/products?limit=1&locale=<default>` → learn currency formatting, `productType`, attributes/variations, inventory shape, image URL shape.
+3. **Pick router** — implement `resolveSiteRoute` + `localeHref` + `dirFor`. Handle `RESERVED_PAGE_SLUGS` and serving guard. Before content/404 routing, resolve the tenant-scoped `redirects` row for the normalized path and answer one permanent 301/308 hop. Test: `/`, `/en`, `/posts`, `/posts/<slug>`, `/products/<slug>`, `/search`, `/checkout/<id>`, and one redirected legacy path.
 4. **Implement blocks** — start with `productGrid` + `content` + `mediaBlock` + `cta`. Others are incremental. Assert unknown `blockType` warns, not crash.
 5. **Theme** — `themeCss(site.theme)` in `<style>`, Vazirmatn, logical Tailwind utilities, body `line-height: --line-height`.
 6. **Formatting** — replace every `date.toLocaleString()` with `formatDate(date, locale)`, every `num.toString()` with `formatNumber`/`toLocaleDigits`, every price with `formatPrice(minor, currency, locale)`.
-7. **Checkout UI** — product card with honeypot (`company` hidden), `POST /api/checkout`, handle 429/409/missing price, redirect to `redirectUrl ?? confirmationUrl`.
+7. **Checkout UI** — product card with honeypot (`company` hidden), `POST /api/checkout`, stable `variation` key for variable products, optional `couponCode`, handle 400/429/409/missing price, redirect to `redirectUrl ?? confirmationUrl`. Receipts render every `order.items` line and the exact totals breakdown.
 8. **Media** — `new URL(media.url, site.media.origin)`. Prefer `sizes.medium` for grid.
 9. **SEO** — canonical via `siteUrl`, `hreflang` from alternates, OG via `/og`, `noindex` on `/search` and `/checkout`.
 10. **Revalidation** — if timer-based, `fetch` with `next: {revalidate:30}`. If event-driven, listen to `POST REVALIDATE_WEBHOOK_URL` with `x-eshobe-signature` HMAC verification (see §17).
 
 **Prompt to give the agent:**
 
-> Build a Persian-first ecommerce theme for Eshobe CMS. Use only Host-scoped public APIs; tenant is the Host, never a param. First fetch `/api/site` for the tenant's locales, blocks, currency and theme tokens, render them through `@eshobe/site-runtime` helpers. The store sells with `GET /api/products` (price is integer minor units in site.store.currency — format only via formatPrice), buy via `POST /api/checkout` (with honeypot field `company`), and receipt at `/checkout/:id?r=`. Block `productGrid` is the catalogue; other 13 blocks are static. Theme tokens go via themeCss() as body CSS variables; all dates Jalali on fa via formatDate. Never invent a currency conversion — site owns the unit.
+> Build a Persian-first ecommerce theme for Eshobe CMS. Tenant comes from Host or the server-held site API key, never a param. First fetch `/api/site` for the tenant's locales, blocks, currency and theme tokens, render them through `@eshobe/site-runtime` helpers. Before content/404 routing, resolve the tenant's `redirects` server-side with the site API key and answer one permanent 301/308 hop. The store sells with `GET /api/products` (price is integer minor units in site.store.currency — format only via formatPrice); honor `simple|variable|grouped|external`, buy simple/variable products via `POST /api/checkout` with honeypot field `company`, a stable `variation` key for variable products and an optional server-resolved `couponCode`, and render every `order.items` line on the receipt at `/checkout/:id?r=`. Block `productGrid` is the catalogue; other 13 blocks are static. Theme tokens go via themeCss() as body CSS variables; all dates Jalali on fa via formatDate. Never invent a currency conversion — site owns the unit.
 
 ---
 

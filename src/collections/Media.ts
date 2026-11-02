@@ -20,6 +20,7 @@ import {
 } from '@/collections/hooks/accountMediaStorage'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
 import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
+import { migrationSourceField } from './fields/migrationSource'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -63,6 +64,7 @@ export const Media: CollectionConfig = {
         },
       }),
     },
+    migrationSourceField({ optional: true }),
   ],
   hooks: {
     // An SVG is validated against an allowlist (and refused if it carries anything

@@ -20,6 +20,7 @@ import { PostDetail } from './PostDetail'
 import { PostsIndex } from './PostsIndex'
 import { ProductDetail } from './ProductDetail'
 import { queryPage, queryPost, queryProduct } from './queries'
+import { querySiteRedirect } from './redirectQueries'
 import { SearchResults } from './SearchResults'
 import { SitePage } from './SitePage'
 
@@ -49,6 +50,17 @@ type Args = {
   searchParams: Promise<SiteSearchParams>
 }
 
+const searchString = (query: SiteSearchParams): string => {
+  const params = new URLSearchParams()
+
+  for (const [name, value] of Object.entries(query)) {
+    if (Array.isArray(value)) value.forEach((item) => params.append(name, item))
+    else if (typeof value === 'string') params.set(name, value)
+  }
+
+  return params.toString()
+}
+
 /** The aliases preserve path/query but never become a second indexable URL. */
 const canonicalAliasUrl = (
   site: Site,
@@ -58,14 +70,7 @@ const canonicalAliasUrl = (
   const route = path?.length
     ? `/${path.map((segment) => encodeURIComponent(segment)).join('/')}`
     : ''
-  const params = new URLSearchParams()
-
-  for (const [name, value] of Object.entries(query)) {
-    if (Array.isArray(value)) value.forEach((item) => params.append(name, item))
-    else if (typeof value === 'string') params.set(name, value)
-  }
-
-  const search = params.toString()
+  const search = searchString(query)
 
   return `${siteUrl(site, { slug: 'home' })}${route}${search ? `?${search}` : ''}`
 }
@@ -101,6 +106,12 @@ export default async function SiteRoute({ params, searchParams }: Args) {
       />
     )
   }
+
+  // A saved redirect is an explicit routing instruction, so it wins over a
+  // document that happens to live at the old path. `permanentRedirect` is a
+  // 308: the method and body semantics survive, as they do for host aliases.
+  const redirectTarget = await querySiteRedirect(path, searchString(query))
+  if (redirectTarget) permanentRedirect(redirectTarget)
 
   if (!(await localeIsServed(path))) notFound()
 

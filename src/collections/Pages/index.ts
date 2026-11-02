@@ -16,6 +16,8 @@ import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalida
 import { reservedPageSlug } from '../../hooks/reservedPageSlug'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
+import { migrationSourceField } from '../fields/migrationSource'
+import { validatePageParent } from '../hooks/validatePageParent'
 
 import {
   MetaDescriptionField,
@@ -137,13 +139,24 @@ export const Pages: CollectionConfig<'pages'> = {
     // `disableUnique` because a slug is only unique per `{ site, locale }` — see
     // `uniqueSlugPerSite`, which does the enforcing a DB index cannot.
     slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
+    {
+      name: 'parent',
+      type: 'relationship',
+      label: 'برگه والد',
+      admin: {
+        description: 'سلسله‌مراتب برگه‌های وردپرس در مهاجرت همین‌جا حفظ می‌شود؛ برگه بدون والد، ریشه است.',
+        position: 'sidebar',
+      },
+      relationTo: 'pages',
+    },
+    migrationSourceField({ optional: true }),
   ],
   hooks: {
     afterChange: [revalidateSiteDoc()],
     beforeChange: [populatePublishedAt],
     // Quota before the slug rules: "you are out of pages on this plan" is the more
     // useful refusal, and there is no point validating a document that cannot exist.
-    beforeValidate: [enforceQuota('pages'), uniqueSlugPerSite, reservedPageSlug],
+    beforeValidate: [enforceQuota('pages'), uniqueSlugPerSite, reservedPageSlug, validatePageParent],
     afterDelete: [revalidateSiteDocDelete()],
   },
   versions: {

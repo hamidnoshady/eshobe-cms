@@ -233,9 +233,9 @@ describe('WordPress discovery + coverage', () => {
 
     expect(byResource.get('post-type:portfolio')?.disposition).toBe('supported')
     expect(byResource.get('taxonomy:genre')?.disposition).toBe('supported')
-    expect(byResource.get('post-type:product')?.disposition).toBe('unsupported-blocking')
-    expect(byResource.get('orders')?.disposition).toBe('unsupported-blocking')
-    expect(byResource.get('customers')?.disposition).toBe('unsupported-blocking')
+    expect(byResource.get('post-type:product')?.disposition).toBe('requires-mapping')
+    expect(byResource.get('orders')?.disposition).toBe('requires-mapping')
+    expect(byResource.get('customers')?.disposition).toBe('requires-mapping')
     expect(byResource.get('plugin:elementor')?.disposition).toBe('archive-only')
     expect(byResource.get('plugin:some-unknown-plugin')?.disposition).toBe('requires-mapping')
     expect(coverageBlockers(rows).length).toBeGreaterThan(0)
@@ -331,7 +331,11 @@ describe('dry-run report accounting', () => {
 
     const portfolio = report.resources.find((r) => r.resource === 'post-type:portfolio')!
     expect(portfolio).toMatchObject({ seen: 2, unchanged: 1, wouldCreate: 1 })
-    expect(report.resources.find((r) => r.resource === 'orders')).toMatchObject({ blocked: 2, seen: 2 })
+    expect(report.resources.find((r) => r.resource === 'orders')).toMatchObject({
+      blocked: 0,
+      seen: 2,
+      wouldCreate: 2,
+    })
     expect(report.resources.find((r) => r.resource === 'media')!.errors).toHaveLength(1)
     for (const resource of report.resources) {
       expect(
@@ -344,8 +348,8 @@ describe('dry-run report accounting', () => {
       ).toBe(resource.seen)
     }
     expect(report.unknownMetaKeysByResource['post-type:portfolio']).toContain('unmapped_plugin_key')
-    expect(report.moneyChecks).toEqual([]) // orders blocked before money checks run
-    expect(report.readyToImport).toBe(false) // commerce blockers are honest
+    expect(report.moneyChecks.map((check) => check.ok)).toEqual([true, false])
+    expect(report.readyToImport).toBe(false) // the non-reconciling source order stays a blocker
   })
 
   it('flags a non-reconciling order total when orders are not blocked', () => {

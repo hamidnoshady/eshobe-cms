@@ -12,4 +12,11 @@
 export const isShopSite = (type: null | string | undefined): boolean => type === 'store'
 
 /** Collections that only exist for a shop. */
-export const SHOP_COLLECTIONS = ['products', 'orders', 'payment-gateways', 'store'] as const
+export const SHOP_COLLECTIONS = [
+  'products',
+  'orders',
+  'customers',
+  'coupons',
+  'payment-gateways',
+  'store',
+] as const

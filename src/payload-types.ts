@@ -88,7 +88,18 @@ export interface Config {
     footer: Footer;
     products: Product;
     orders: Order;
+    customers: Customer;
+    coupons: Coupon;
     store: Store;
+    'migration-sources': MigrationSource;
+    'migration-jobs': MigrationJob;
+    'migration-batches': MigrationBatch;
+    'migration-mappings': MigrationMapping;
+    'migration-records': MigrationRecord;
+    'migration-events': MigrationEvent;
+    'migration-errors': MigrationError;
+    'migration-redirects': MigrationRedirect;
+    'migration-audits': MigrationAudit;
     'payment-gateways': PaymentGateway;
     'cdn-accounts': CdnAccount;
     'cdn-zones': CdnZone;
@@ -145,6 +156,9 @@ export interface Config {
       termRelations: 'entry-term-relations';
       outgoingRelations: 'content-relations';
     };
+    'migration-sources': {
+      jobs: 'migration-jobs';
+    };
     'payload-folders': {
       documentsAndFolders: 'payload-folders' | 'media';
     };
@@ -170,7 +184,18 @@ export interface Config {
     footer: FooterSelect<false> | FooterSelect<true>;
     products: ProductsSelect<false> | ProductsSelect<true>;
     orders: OrdersSelect<false> | OrdersSelect<true>;
+    customers: CustomersSelect<false> | CustomersSelect<true>;
+    coupons: CouponsSelect<false> | CouponsSelect<true>;
     store: StoreSelect<false> | StoreSelect<true>;
+    'migration-sources': MigrationSourcesSelect<false> | MigrationSourcesSelect<true>;
+    'migration-jobs': MigrationJobsSelect<false> | MigrationJobsSelect<true>;
+    'migration-batches': MigrationBatchesSelect<false> | MigrationBatchesSelect<true>;
+    'migration-mappings': MigrationMappingsSelect<false> | MigrationMappingsSelect<true>;
+    'migration-records': MigrationRecordsSelect<false> | MigrationRecordsSelect<true>;
+    'migration-events': MigrationEventsSelect<false> | MigrationEventsSelect<true>;
+    'migration-errors': MigrationErrorsSelect<false> | MigrationErrorsSelect<true>;
+    'migration-redirects': MigrationRedirectsSelect<false> | MigrationRedirectsSelect<true>;
+    'migration-audits': MigrationAuditsSelect<false> | MigrationAuditsSelect<true>;
     'payment-gateways': PaymentGatewaysSelect<false> | PaymentGatewaysSelect<true>;
     'cdn-accounts': CdnAccountsSelect<false> | CdnAccountsSelect<true>;
     'cdn-zones': CdnZonesSelect<false> | CdnZonesSelect<true>;
@@ -240,6 +265,7 @@ export interface Config {
       storageHealthCheck: TaskStorageHealthCheck;
       billingIntegration: TaskBillingIntegration;
       cdnZoneSync: TaskCdnZoneSync;
+      migrationJobs: TaskMigrationJobs;
       schedulePublish: TaskSchedulePublish;
       inline: {
         input: unknown;
@@ -366,6 +392,49 @@ export interface Page {
    */
   generateSlug?: boolean | null;
   slug: string;
+  /**
+   * سلسله‌مراتب برگه‌های وردپرس در مهاجرت همین‌جا حفظ می‌شود؛ برگه بدون والد، ریشه است.
+   */
+  parent?: (string | null) | Page;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -670,6 +739,45 @@ export interface Media {
     };
     [k: string]: unknown;
   } | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   prefix?: string | null;
   _objectKey?: string | null;
   folder?: (string | null) | FolderInterface;
@@ -954,6 +1062,10 @@ export interface Post {
   };
   relatedPosts?: (string | Post)[] | null;
   categories?: (string | Category)[] | null;
+  /**
+   * برچسب‌ها و طبقه‌بندی‌های عمومی سایت؛ دسته نوشته همان فیلد بالا است.
+   */
+  taxonomyTerms?: (string | TaxonomyTerm)[] | null;
   projectMetadata?: {
     location?: string | null;
     date?: string | null;
@@ -989,6 +1101,45 @@ export interface Post {
    */
   generateSlug?: boolean | null;
   slug: string;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -1006,7 +1157,49 @@ export interface Category {
    */
   generateSlug?: boolean | null;
   slug: string;
+  /**
+   * درخت دسته‌های وردپرس در مهاجرت همین‌جا حفظ می‌شود؛ دسته بدون والد، ریشه است.
+   */
   parent?: (string | null) | Category;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   breadcrumbs?:
     | {
         doc?: (string | null) | Category;
@@ -1015,6 +1208,482 @@ export interface Category {
         id?: string | null;
       }[]
     | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * واژه‌های طبقه‌بندی‌ها و برچسب‌ها؛ هر واژه دقیقاً به یک طبقه‌بندی از همین سایت تعلق دارد.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "taxonomy-terms".
+ */
+export interface TaxonomyTerm {
+  id: string;
+  site?: (string | null) | Site;
+  taxonomy: string | TaxonomyDefinition;
+  name: string;
+  /**
+   * When enabled, the slug will auto-generate from the title field on save and autosave.
+   */
+  generateSlug?: boolean | null;
+  slug: string;
+  description?: string | null;
+  /**
+   * فقط در طبقه‌بندی سلسله‌مراتبی، و از همان طبقه‌بندی.
+   */
+  parent?: (string | null) | TaxonomyTerm;
+  menuOrder?: number | null;
+  sourceTermTaxonomyId?: string | null;
+  /**
+   * نشانی صفحه این واژه روی سایت قدیمی؛ مبنای تغییر مسیر و بررسی پوشش نشانی‌ها.
+   */
+  legacyArchiveUrl?: string | null;
+  /**
+   * فقط فراداده‌ای که آگاهانه برای نمایش نگاشته شده این‌جا بیاید؛ بار خام کامل در منشأ است.
+   */
+  meta?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  entryRelations?: {
+    docs?: (string | EntryTermRelation)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source: {
+    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
+    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * هر طبقه‌بندی (دسته، برچسب یا گونه سفارشی وردپرس) تعریف جدای خودش را دارد و هیچ‌وقت با دسته‌بندی‌های دیگر ادغام نمی‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "taxonomy-definitions".
+ */
+export interface TaxonomyDefinition {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * شناسه پایدار طبقه‌بندی در نگاشت و قالب؛ مثل genre یا post_tag. بعد از ورود داده تغییر نکند.
+   */
+  key: string;
+  singularLabel: string;
+  pluralLabel: string;
+  description?: string | null;
+  /**
+   * روشن یعنی واژه‌ها والد/فرزند دارند (دسته)؛ خاموش یعنی تخت‌اند (برچسب).
+   */
+  hierarchical?: boolean | null;
+  hasArchive?: boolean | null;
+  /**
+   * بخش نخست نشانی صفحه‌های این طبقه‌بندی؛ مثل «سبک» در /سبک/مسکونی/. خالی یعنی همان کلید ماشینی.
+   */
+  archiveSlug?: string | null;
+  terms?: {
+    docs?: (string | TaxonomyTerm)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source: {
+    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
+    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * پیوند هر رکورد محتوا با واژه‌های طبقه‌بندی‌اش؛ هر جفت (رکورد، واژه) فقط یک‌بار.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "entry-term-relations".
+ */
+export interface EntryTermRelation {
+  id: string;
+  site?: (string | null) | Site;
+  entry: string | ContentEntry;
+  term: string | TaxonomyTerm;
+  /**
+   * خودکار از طبقه‌بندی خود واژه پر می‌شود؛ برای پالایش سریع بر اساس طبقه‌بندی.
+   */
+  taxonomy: string | TaxonomyDefinition;
+  menuOrder?: number | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source: {
+    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
+    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * رکوردهای گونه‌های محتوای سفارشی. فقط وضعیت «منتشرشده» برای بازدیدکننده دیده می‌شود؛ وضعیت‌های دیگر درون‌سامانه‌ای‌اند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "content-entries".
+ */
+export interface ContentEntry {
+  id: string;
+  site?: (string | null) | Site;
+  contentType: string | ContentTypeDefinition;
+  title: string;
+  /**
+   * When enabled, the slug will auto-generate from the title field on save and autosave.
+   */
+  generateSlug?: boolean | null;
+  slug: string;
+  status: 'draft' | 'pending' | 'published' | 'private' | 'scheduled' | 'trash';
+  /**
+   * با نخستین انتشار خودکار پر می‌شود؛ برای رکورد مهاجر تاریخ مبدأ است.
+   */
+  publishedAt?: string | null;
+  excerpt?: string | null;
+  body?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  } | null;
+  /**
+   * خروجی خام مبدأ (صفحه‌ساز/شورت‌کد) که تبدیل وفادارانه‌اش ممکن نبوده است. در سایت به‌صورت متن امن نمایش داده می‌شود، هرگز به‌صورت HTML خام.
+   */
+  preservedHtml?: string | null;
+  heroImage?: (string | null) | Media;
+  ogImage?: (string | null) | Media;
+  gallery?: (string | Media)[] | null;
+  /**
+   * فقط در گونه سلسله‌مراتبی، و از همان گونه.
+   */
+  parent?: (string | null) | ContentEntry;
+  menuOrder?: number | null;
+  author?: (string | null) | User;
+  /**
+   * نام نمایشی مبدأ، وقتی نویسنده حساب ای‌شوب ندارد.
+   */
+  authorName?: string | null;
+  /**
+   * شیء JSON کلیدبه‌کلیدِ طرح گونه محتوا. کلیدِ بیرون از طرح دور ریخته نمی‌شود و به «فراداده نگاشت‌نشده» می‌رود.
+   */
+  fieldValues?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * داده مبدأ که هنوز به فیلدی نگاشته نشده؛ حفظ شده تا بعداً نگاشت شود و در API عمومی منتشر نمی‌شود.
+   */
+  unmappedMeta?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * خودکار از فیلدهای «قابل جست‌وجو» ساخته می‌شود.
+   */
+  searchText?: string | null;
+  metaTitle?: string | null;
+  metaDescription?: string | null;
+  canonicalUrl?: string | null;
+  noindex?: boolean | null;
+  termRelations?: {
+    docs?: (string | EntryTermRelation)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  outgoingRelations?: {
+    docs?: (string | ContentRelation)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source: {
+    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
+    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * گونه‌های محتوای سفارشی سایت (معادل CPT وردپرس). رکوردها در «محتوای سفارشی» با همین تعریف‌ها ساخته و ویرایش می‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "content-type-definitions".
+ */
+export interface ContentTypeDefinition {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * شناسه پایدار گونه در نگاشت و قالب؛ مثل portfolio. بعد از ورود داده تغییر نکند.
+   */
+  key: string;
+  singularLabel: string;
+  pluralLabel: string;
+  description?: string | null;
+  hierarchical?: boolean | null;
+  hasArchive?: boolean | null;
+  /**
+   * بخش نخست نشانی این گونه؛ مثل «نمونه-کار» در /نمونه-کار/خانه-دریا/. خالی یعنی همان کلید ماشینی.
+   */
+  archiveSlug?: string | null;
+  /**
+   * نشانی هر رکورد چطور ساخته شود؛ {archive} همان بخش نشانی بایگانی بالاست.
+   */
+  permalinkTemplate: '/{archive}/{slug}' | '/{archive}/{id}' | '/{slug}' | '/{id}';
+  /**
+   * رکوردهای این گونه فقط زیر واژه‌های همین طبقه‌بندی‌ها پرونده می‌شوند.
+   */
+  taxonomies?: (string | TaxonomyDefinition)[] | null;
+  /**
+   * طرح تایپ‌دار مقادیر رکوردها (معادل گروه فیلد ACF). مقادیر ناشناخته هنگام ورود گم نمی‌شوند؛ در «فراداده نگاشت‌نشده» رکورد می‌مانند.
+   */
+  fieldSchema?:
+    | {
+        key: string;
+        label: string;
+        fieldType:
+          | 'text'
+          | 'textarea'
+          | 'number'
+          | 'boolean'
+          | 'date'
+          | 'url'
+          | 'select'
+          | 'multiselect'
+          | 'media'
+          | 'gallery'
+          | 'relationship'
+          | 'group'
+          | 'repeater'
+          | 'json';
+        required?: boolean | null;
+        searchable?: boolean | null;
+        /**
+         * در هر خط یک گزینه: «مقدار|برچسب» یا فقط مقدار.
+         */
+        optionsText?: string | null;
+        relationTo?: ('content-entries' | 'pages' | 'posts' | 'products' | 'media' | 'taxonomy-terms') | null;
+        /**
+         * فهرست JSON تعریف فیلدهای داخلی، با همان کلیدهای همین فرم (key/label/fieldType/...).
+         */
+        subSchema?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        helpText?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  entries?: {
+    docs?: (string | ContentEntry)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source: {
+    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
+    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -1052,6 +1721,238 @@ export interface User {
     | null;
   password?: string | null;
   collection: 'users';
+}
+/**
+ * رابطه تایپ‌دار رکورد محتوا با سند دیگر (رکورد، محصول، نوشته، برگه یا رسانه همین سایت).
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "content-relations".
+ */
+export interface ContentRelation {
+  id: string;
+  site?: (string | null) | Site;
+  fromEntry: string | ContentEntry;
+  /**
+   * کلید ماشینی شکاف رابطه؛ مثل related یا acf:related_projects (بخش پس از دونقطه کلید فیلد مبدأست).
+   */
+  relationKind: string;
+  targetCollection: 'content-entries' | 'products' | 'posts' | 'pages' | 'media';
+  targetEntry?: (string | null) | ContentEntry;
+  targetProduct?: (string | null) | Product;
+  targetPost?: (string | null) | Post;
+  targetPage?: (string | null) | Page;
+  targetMedia?: (string | null) | Media;
+  menuOrder?: number | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source: {
+    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
+    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * قیمت‌ها بر حسب واحد پولِ خودِ این سایت نوشته می‌شود.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "products".
+ */
+export interface Product {
+  id: string;
+  site?: (string | null) | Site;
+  title: string;
+  /**
+   * When enabled, the slug will auto-generate from the title field on save and autosave.
+   */
+  generateSlug?: boolean | null;
+  slug: string;
+  /**
+   * زیر عنوان در کارت محصول نمایش داده می‌شود.
+   */
+  summary?: string | null;
+  image?: (string | null) | Media;
+  /**
+   * عدد صحیح، بر حسب واحد پول این سایت (پیش‌فرض: تومان).
+   */
+  price: number;
+  /**
+   * اختیاری؛ با خط‌خوردگی کنار قیمت نمایش داده می‌شود.
+   */
+  compareAtPrice?: number | null;
+  /**
+   * برای خودتان؛ روی سایت نمایش داده نمی‌شود.
+   */
+  sku?: string | null;
+  /**
+   * خاموش یعنی «همیشه موجود».
+   */
+  trackInventory?: boolean | null;
+  /**
+   * با پرداخت موفق هر سفارش به اندازهٔ تعدادش کم می‌شود.
+   */
+  inventory?: number | null;
+  body?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  } | null;
+  /**
+   * ساده مستقیم خریده می‌شود؛ متغیر از روی تنوع‌ها؛ گروهی چند محصول را کنار هم می‌گذارد؛ خارجی به نشانی بیرونی می‌رود و در سبد ای‌شوب فروخته نمی‌شود.
+   */
+  productType?: ('simple' | 'variable' | 'grouped' | 'external') | null;
+  virtual?: boolean | null;
+  downloadable?: boolean | null;
+  externalUrl?: string | null;
+  buttonText?: string | null;
+  groupedProducts?: (string | Product)[] | null;
+  gallery?: (string | Media)[] | null;
+  attributes?:
+    | {
+        key: string;
+        name: string;
+        visible?: boolean | null;
+        usedForVariation?: boolean | null;
+        options?:
+          | {
+              value: string;
+              id?: string | null;
+            }[]
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * خرید با «کلید» هر تنوع انجام می‌شود و سطر سفارش همان کلید و قیمت زمان خرید را نگه می‌دارد.
+   */
+  variations?:
+    | {
+        key?: string | null;
+        label?: string | null;
+        sku?: string | null;
+        price: number;
+        compareAtPrice?: number | null;
+        trackInventory?: boolean | null;
+        inventory?: number | null;
+        image?: (string | null) | Media;
+        /**
+         * نگاشت کلید ویژگی به گزینه انتخاب‌شده؛ مثل {"color":"قرمز"}.
+         */
+        attributeValues?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        active?: boolean | null;
+        weight?: string | null;
+        sourceId?: string | null;
+        sourceStatus?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * دسته/برچسب محصول و دیگر طبقه‌بندی‌ها؛ هر واژه طبقه‌بندی خودش را دارد و با دسته نوشته‌ها قاطی نمی‌شود.
+   */
+  terms?: (string | TaxonomyTerm)[] | null;
+  upsells?: (string | Product)[] | null;
+  crossSells?: (string | Product)[] | null;
+  weight?: string | null;
+  length?: string | null;
+  width?: string | null;
+  height?: string | null;
+  metaTitle?: string | null;
+  metaDescription?: string | null;
+  canonicalUrl?: string | null;
+  noindex?: boolean | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -1470,50 +2371,6 @@ export interface ProductGridBlock {
   blockType: 'productGrid';
 }
 /**
- * قیمت‌ها بر حسب واحد پولِ خودِ این سایت نوشته می‌شود.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "products".
- */
-export interface Product {
-  id: string;
-  site?: (string | null) | Site;
-  title: string;
-  /**
-   * When enabled, the slug will auto-generate from the title field on save and autosave.
-   */
-  generateSlug?: boolean | null;
-  slug: string;
-  /**
-   * زیر عنوان در کارت محصول نمایش داده می‌شود.
-   */
-  summary?: string | null;
-  image?: (string | null) | Media;
-  /**
-   * عدد صحیح، بر حسب واحد پول این سایت (پیش‌فرض: تومان).
-   */
-  price: number;
-  /**
-   * اختیاری؛ با خط‌خوردگی کنار قیمت نمایش داده می‌شود.
-   */
-  compareAtPrice?: number | null;
-  /**
-   * برای خودتان؛ روی سایت نمایش داده نمی‌شود.
-   */
-  sku?: string | null;
-  /**
-   * خاموش یعنی «همیشه موجود».
-   */
-  trackInventory?: boolean | null;
-  /**
-   * با پرداخت موفق هر سفارش به اندازهٔ تعدادش کم می‌شود.
-   */
-  inventory?: number | null;
-  updatedAt: string;
-  createdAt: string;
-  _status?: ('draft' | 'published') | null;
-}
-/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "GalleryBlock".
  */
@@ -1636,545 +2493,6 @@ export interface ArchiveBlock {
   id?: string | null;
   blockName?: string | null;
   blockType: 'archive';
-}
-/**
- * گونه‌های محتوای سفارشی سایت (معادل CPT وردپرس). رکوردها در «محتوای سفارشی» با همین تعریف‌ها ساخته و ویرایش می‌شوند.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "content-type-definitions".
- */
-export interface ContentTypeDefinition {
-  id: string;
-  site?: (string | null) | Site;
-  /**
-   * شناسه پایدار گونه در نگاشت و قالب؛ مثل portfolio. بعد از ورود داده تغییر نکند.
-   */
-  key: string;
-  singularLabel: string;
-  pluralLabel: string;
-  description?: string | null;
-  hierarchical?: boolean | null;
-  hasArchive?: boolean | null;
-  /**
-   * بخش نخست نشانی این گونه؛ مثل «نمونه-کار» در /نمونه-کار/خانه-دریا/. خالی یعنی همان کلید ماشینی.
-   */
-  archiveSlug?: string | null;
-  /**
-   * نشانی هر رکورد چطور ساخته شود؛ {archive} همان بخش نشانی بایگانی بالاست.
-   */
-  permalinkTemplate: '/{archive}/{slug}' | '/{archive}/{id}' | '/{slug}' | '/{id}';
-  /**
-   * رکوردهای این گونه فقط زیر واژه‌های همین طبقه‌بندی‌ها پرونده می‌شوند.
-   */
-  taxonomies?: (string | TaxonomyDefinition)[] | null;
-  /**
-   * طرح تایپ‌دار مقادیر رکوردها (معادل گروه فیلد ACF). مقادیر ناشناخته هنگام ورود گم نمی‌شوند؛ در «فراداده نگاشت‌نشده» رکورد می‌مانند.
-   */
-  fieldSchema?:
-    | {
-        key: string;
-        label: string;
-        fieldType:
-          | 'text'
-          | 'textarea'
-          | 'number'
-          | 'boolean'
-          | 'date'
-          | 'url'
-          | 'select'
-          | 'multiselect'
-          | 'media'
-          | 'gallery'
-          | 'relationship'
-          | 'group'
-          | 'repeater'
-          | 'json';
-        required?: boolean | null;
-        searchable?: boolean | null;
-        /**
-         * در هر خط یک گزینه: «مقدار|برچسب» یا فقط مقدار.
-         */
-        optionsText?: string | null;
-        relationTo?: ('content-entries' | 'pages' | 'posts' | 'products' | 'media' | 'taxonomy-terms') | null;
-        /**
-         * فهرست JSON تعریف فیلدهای داخلی، با همان کلیدهای همین فرم (key/label/fieldType/...).
-         */
-        subSchema?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        helpText?: string | null;
-        id?: string | null;
-      }[]
-    | null;
-  entries?: {
-    docs?: (string | ContentEntry)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source: {
-    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
-    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * هر طبقه‌بندی (دسته، برچسب یا گونه سفارشی وردپرس) تعریف جدای خودش را دارد و هیچ‌وقت با دسته‌بندی‌های دیگر ادغام نمی‌شود.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "taxonomy-definitions".
- */
-export interface TaxonomyDefinition {
-  id: string;
-  site?: (string | null) | Site;
-  /**
-   * شناسه پایدار طبقه‌بندی در نگاشت و قالب؛ مثل genre یا post_tag. بعد از ورود داده تغییر نکند.
-   */
-  key: string;
-  singularLabel: string;
-  pluralLabel: string;
-  description?: string | null;
-  /**
-   * روشن یعنی واژه‌ها والد/فرزند دارند (دسته)؛ خاموش یعنی تخت‌اند (برچسب).
-   */
-  hierarchical?: boolean | null;
-  hasArchive?: boolean | null;
-  /**
-   * بخش نخست نشانی صفحه‌های این طبقه‌بندی؛ مثل «سبک» در /سبک/مسکونی/. خالی یعنی همان کلید ماشینی.
-   */
-  archiveSlug?: string | null;
-  terms?: {
-    docs?: (string | TaxonomyTerm)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source: {
-    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
-    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * واژه‌های طبقه‌بندی‌ها و برچسب‌ها؛ هر واژه دقیقاً به یک طبقه‌بندی از همین سایت تعلق دارد.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "taxonomy-terms".
- */
-export interface TaxonomyTerm {
-  id: string;
-  site?: (string | null) | Site;
-  taxonomy: string | TaxonomyDefinition;
-  name: string;
-  /**
-   * When enabled, the slug will auto-generate from the title field on save and autosave.
-   */
-  generateSlug?: boolean | null;
-  slug: string;
-  description?: string | null;
-  /**
-   * فقط در طبقه‌بندی سلسله‌مراتبی، و از همان طبقه‌بندی.
-   */
-  parent?: (string | null) | TaxonomyTerm;
-  menuOrder?: number | null;
-  sourceTermTaxonomyId?: string | null;
-  /**
-   * نشانی صفحه این واژه روی سایت قدیمی؛ مبنای تغییر مسیر و بررسی پوشش نشانی‌ها.
-   */
-  legacyArchiveUrl?: string | null;
-  /**
-   * فقط فراداده‌ای که آگاهانه برای نمایش نگاشته شده این‌جا بیاید؛ بار خام کامل در منشأ است.
-   */
-  meta?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  entryRelations?: {
-    docs?: (string | EntryTermRelation)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source: {
-    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
-    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * پیوند هر رکورد محتوا با واژه‌های طبقه‌بندی‌اش؛ هر جفت (رکورد، واژه) فقط یک‌بار.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "entry-term-relations".
- */
-export interface EntryTermRelation {
-  id: string;
-  site?: (string | null) | Site;
-  entry: string | ContentEntry;
-  term: string | TaxonomyTerm;
-  /**
-   * خودکار از طبقه‌بندی خود واژه پر می‌شود؛ برای پالایش سریع بر اساس طبقه‌بندی.
-   */
-  taxonomy: string | TaxonomyDefinition;
-  menuOrder?: number | null;
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source: {
-    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
-    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * رکوردهای گونه‌های محتوای سفارشی. فقط وضعیت «منتشرشده» برای بازدیدکننده دیده می‌شود؛ وضعیت‌های دیگر درون‌سامانه‌ای‌اند.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "content-entries".
- */
-export interface ContentEntry {
-  id: string;
-  site?: (string | null) | Site;
-  contentType: string | ContentTypeDefinition;
-  title: string;
-  /**
-   * When enabled, the slug will auto-generate from the title field on save and autosave.
-   */
-  generateSlug?: boolean | null;
-  slug: string;
-  status: 'draft' | 'pending' | 'published' | 'private' | 'scheduled' | 'trash';
-  /**
-   * با نخستین انتشار خودکار پر می‌شود؛ برای رکورد مهاجر تاریخ مبدأ است.
-   */
-  publishedAt?: string | null;
-  excerpt?: string | null;
-  body?: {
-    root: {
-      type: string;
-      children: {
-        type: any;
-        version: number;
-        [k: string]: unknown;
-      }[];
-      direction: ('ltr' | 'rtl') | null;
-      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
-      indent: number;
-      version: number;
-    };
-    [k: string]: unknown;
-  } | null;
-  /**
-   * خروجی خام مبدأ (صفحه‌ساز/شورت‌کد) که تبدیل وفادارانه‌اش ممکن نبوده است. در سایت به‌صورت متن امن نمایش داده می‌شود، هرگز به‌صورت HTML خام.
-   */
-  preservedHtml?: string | null;
-  heroImage?: (string | null) | Media;
-  ogImage?: (string | null) | Media;
-  gallery?: (string | Media)[] | null;
-  /**
-   * فقط در گونه سلسله‌مراتبی، و از همان گونه.
-   */
-  parent?: (string | null) | ContentEntry;
-  menuOrder?: number | null;
-  author?: (string | null) | User;
-  /**
-   * نام نمایشی مبدأ، وقتی نویسنده حساب ای‌شوب ندارد.
-   */
-  authorName?: string | null;
-  /**
-   * شیء JSON کلیدبه‌کلیدِ طرح گونه محتوا. کلیدِ بیرون از طرح دور ریخته نمی‌شود و به «فراداده نگاشت‌نشده» می‌رود.
-   */
-  fieldValues?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * داده مبدأ که هنوز به فیلدی نگاشته نشده؛ حفظ شده تا بعداً نگاشت شود و در API عمومی منتشر نمی‌شود.
-   */
-  unmappedMeta?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * خودکار از فیلدهای «قابل جست‌وجو» ساخته می‌شود.
-   */
-  searchText?: string | null;
-  metaTitle?: string | null;
-  metaDescription?: string | null;
-  canonicalUrl?: string | null;
-  noindex?: boolean | null;
-  termRelations?: {
-    docs?: (string | EntryTermRelation)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  outgoingRelations?: {
-    docs?: (string | ContentRelation)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source: {
-    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
-    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * رابطه تایپ‌دار رکورد محتوا با سند دیگر (رکورد، محصول، نوشته، برگه یا رسانه همین سایت).
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "content-relations".
- */
-export interface ContentRelation {
-  id: string;
-  site?: (string | null) | Site;
-  fromEntry: string | ContentEntry;
-  /**
-   * کلید ماشینی شکاف رابطه؛ مثل related یا acf:related_projects (بخش پس از دونقطه کلید فیلد مبدأست).
-   */
-  relationKind: string;
-  targetCollection: 'content-entries' | 'products' | 'posts' | 'pages' | 'media';
-  targetEntry?: (string | null) | ContentEntry;
-  targetProduct?: (string | null) | Product;
-  targetPost?: (string | null) | Post;
-  targetPage?: (string | null) | Page;
-  targetMedia?: (string | null) | Media;
-  menuOrder?: number | null;
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source: {
-    system: 'eshobe' | 'wordpress' | 'woocommerce' | 'other';
-    mappingStatus: 'manual' | 'imported' | 'archived' | 'blocked';
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
 }
 /**
  * اتصال S3-compatible برای رسانهٔ همهٔ سایت‌ها. فقط یک اتصال می‌تواند فعال باشد؛ Secret Key رمزنگاری‌شده ذخیره می‌شود و هرگز از API برنمی‌گردد.
@@ -2424,6 +2742,305 @@ export interface Order {
       | boolean
       | null;
   };
+  /**
+   * سطر اول در فیلدهای قدیمی «محصول/تعداد/قیمت» هم بازتاب می‌یابد تا API و رسیدهای قبلی همان بمانند.
+   */
+  items?:
+    | {
+        product: string | Product;
+        productTitle: string;
+        variationKey?: string | null;
+        variationLabel?: string | null;
+        sku?: string | null;
+        quantity: number;
+        unitPrice: number;
+        subtotal: number;
+        taxTotal?: number | null;
+        total: number;
+        sourceLineId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  customer?: (string | null) | Customer;
+  customerNote?: string | null;
+  billingAddress?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    company?: string | null;
+    address1?: string | null;
+    address2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  };
+  shippingAddress?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    company?: string | null;
+    address1?: string | null;
+    address2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  };
+  subtotal?: number | null;
+  discountTotal?: number | null;
+  shippingTotal?: number | null;
+  taxTotal?: number | null;
+  coupons?:
+    | {
+        coupon?: (string | null) | Coupon;
+        code: string;
+        discount?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  shippingLines?:
+    | {
+        methodId?: string | null;
+        methodTitle: string;
+        total?: number | null;
+        taxTotal?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  taxLines?:
+    | {
+        label: string;
+        rateCode?: string | null;
+        ratePercent?: number | null;
+        taxTotal?: number | null;
+        shippingTaxTotal?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  fees?:
+    | {
+        name: string;
+        total: number;
+        taxTotal?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  refunds?:
+    | {
+        sourceId?: string | null;
+        amount: number;
+        reason?: string | null;
+        refundedAt?: string | null;
+        transactionId?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  paymentHistory?:
+    | {
+        methodId?: string | null;
+        methodTitle?: string | null;
+        transactionId?: string | null;
+        status?: string | null;
+        amount?: number | null;
+        paidAt?: string | null;
+        note?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "customers".
+ */
+export interface Customer {
+  id: string;
+  site?: (string | null) | Site;
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+  phone?: string | null;
+  /**
+   * فقط برای شناسایی در تطبیق مهاجرت؛ گذرواژه وردپرس هرگز وارد نمی‌شود.
+   */
+  username?: string | null;
+  status: 'active' | 'inactive' | 'blocked';
+  claimStatus: 'unclaimed' | 'invited' | 'claimed' | 'disabled';
+  claimTokenHash?: string | null;
+  claimExpiresAt?: string | null;
+  invitedAt?: string | null;
+  claimedAt?: string | null;
+  addresses?:
+    | {
+        label?: string | null;
+        firstName?: string | null;
+        lastName?: string | null;
+        company?: string | null;
+        address1?: string | null;
+        address2?: string | null;
+        city?: string | null;
+        state?: string | null;
+        postcode?: string | null;
+        country?: string | null;
+        phone?: string | null;
+        email?: string | null;
+        isDefaultBilling?: boolean | null;
+        isDefaultShipping?: boolean | null;
+        id?: string | null;
+      }[]
+    | null;
+  notes?: string | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "coupons".
+ */
+export interface Coupon {
+  id: string;
+  site?: (string | null) | Site;
+  code: string;
+  description?: string | null;
+  discountType: 'percent' | 'fixed-cart' | 'fixed-product';
+  /**
+   * در گونه درصدی ۰ تا ۱۰۰؛ وگرنه واحد خرد پول سایت.
+   */
+  amount: number;
+  minimumAmount?: number | null;
+  maximumAmount?: number | null;
+  usageLimit?: number | null;
+  usageLimitPerUser?: number | null;
+  usageCount?: number | null;
+  individualUse?: boolean | null;
+  freeShipping?: boolean | null;
+  products?: (string | Product)[] | null;
+  excludedProducts?: (string | Product)[] | null;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  active?: boolean | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -2446,6 +3063,439 @@ export interface Store {
    * شمارهٔ کارت یا هر متنی که خریدار باید ببیند تا پول را بفرستد. در API عمومی و در جست‌وجو نمایش داده نمی‌شود.
    */
   paymentInstructions?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * اتصال‌های وردپرس/ووکامرس این سایت. ساخت و ویرایش از «مرکز مهاجرت» انجام می‌شود؛ اعتبارنامه‌ها رمزشده‌اند و هرگز نمایش داده نمی‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-sources".
+ */
+export interface MigrationSource {
+  id: string;
+  site?: (string | null) | Site;
+  name: string;
+  /**
+   * فقط HTTPS روی دامنه عمومی؛ نشانی داخلی یا خصوصی پذیرفته نمی‌شود.
+   */
+  baseUrl: string;
+  /**
+   * شناسه پایدار همین نصب وردپرس؛ بخشی از کلید یکتایی هر رکورد واردشده است و بعد از نخستین ورود تغییر نمی‌کند.
+   */
+  installation: string;
+  /**
+   * حساب مدیر وردپرس که رمز برنامه (Application Password) برایش ساخته شده است.
+   */
+  wpUsername?: string | null;
+  wpApplicationPassword?: string | null;
+  wooConsumerKey?: string | null;
+  wooConsumerSecret?: string | null;
+  credentialsSummary?: string | null;
+  status: 'untested' | 'ready' | 'blocked' | 'error';
+  /**
+   * فهرست گونه‌های محتوا و طبقه‌بندی‌های دیده‌شده در آخرین کشف (discovery).
+   */
+  inventory?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * تکلیف هر بخش مبدأ در مقصد: پشتیبانی‌شده، نیازمند نگاشت، بایگانی یا مسدود.
+   */
+  coverage?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  lastCheckedAt?: string | null;
+  lastError?: string | null;
+  jobs?: {
+    docs?: (string | MigrationJob)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * کارهای مهاجرت این سایت؛ وضعیت و نقطه ادامه از «مرکز مهاجرت» مدیریت می‌شود و اینجا فقط گزارش است.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-jobs".
+ */
+export interface MigrationJob {
+  id: string;
+  site?: (string | null) | Site;
+  title: string;
+  source: string | MigrationSource;
+  operation: 'discover' | 'dry-run' | 'import' | 'sync' | 'reconcile' | 'cutover' | 'rollback';
+  status:
+    | 'draft'
+    | 'queued'
+    | 'running'
+    | 'paused'
+    | 'blocked'
+    | 'ready'
+    | 'ready-for-cutover'
+    | 'completed'
+    | 'cancelled'
+    | 'failed'
+    | 'rolled-back';
+  phase?: string | null;
+  control: 'run' | 'pause' | 'cancel';
+  runRequestedAt?: string | null;
+  currentRunId?: string | null;
+  lockedAt?: string | null;
+  lockToken?: string | null;
+  /**
+   * زبان مقصد، واحد پول و Decimals ووکامرس، تأیید ریالی، و این‌که کدام بخش‌ها وارد شوند.
+   */
+  settings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  inventory?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  coverage?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  dryRunReport?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  reconciliationReport?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * آخرین صفحه خوانده‌شده و مرز زمانی هر منبع؛ ادامه اجرا از همین‌جا ممکن است.
+   */
+  checkpoint?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  summary?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  blockers?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  counts?: {
+    seen?: number | null;
+    imported?: number | null;
+    updated?: number | null;
+    unchanged?: number | null;
+    archived?: number | null;
+    blocked?: number | null;
+    errors?: number | null;
+  };
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastSyncAt?: string | null;
+  /**
+   * برش نهایی فقط وقتی ممکن است که مالک تأیید کند وردپرس در وضعیت فقط‌خواندنی/نگهداری است و سفارش یا محتوای تازه‌ای نوشته نمی‌شود.
+   */
+  sourceWriteFenceConfirmedAt?: string | null;
+  cutoverAt?: string | null;
+  rolledBackAt?: string | null;
+  lastError?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-batches".
+ */
+export interface MigrationBatch {
+  id: string;
+  site?: (string | null) | Site;
+  job: string | MigrationJob;
+  source?: (string | null) | MigrationSource;
+  runId: string;
+  resource: string;
+  page: number;
+  status: 'running' | 'completed' | 'failed' | 'paused' | 'cancelled';
+  counts?: {
+    seen?: number | null;
+    imported?: number | null;
+    updated?: number | null;
+    unchanged?: number | null;
+    archived?: number | null;
+    blocked?: number | null;
+    errors?: number | null;
+  };
+  checkpoint?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  error?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-mappings".
+ */
+export interface MigrationMapping {
+  id: string;
+  site?: (string | null) | Site;
+  job: string | MigrationJob;
+  source?: (string | null) | MigrationSource;
+  resource: string;
+  sourceField?: string | null;
+  destination: string;
+  disposition: 'supported' | 'requires-mapping' | 'unsupported-blocking' | 'archive-only' | 'excluded';
+  status: 'proposed' | 'confirmed' | 'rejected';
+  transform?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  reason?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-records".
+ */
+export interface MigrationRecord {
+  id: string;
+  site?: (string | null) | Site;
+  job?: (string | null) | MigrationJob;
+  source: string | MigrationSource;
+  idempotencyKey: string;
+  installation: string;
+  resource: string;
+  sourceRecordId: string;
+  sourceSlug?: string | null;
+  sourcePermalink?: string | null;
+  sourceModifiedAt?: string | null;
+  contentHash?: string | null;
+  destinationCollection?: string | null;
+  destinationId?: string | null;
+  disposition:
+    'planned' | 'imported' | 'updated' | 'unchanged' | 'archived' | 'blocked' | 'error' | 'deleted' | 'rolled-back';
+  /**
+   * بازگشت فقط سندهایی را حذف می‌کند که مهاجرت ساخته، نه سندهای موجودی که به منشأ پیوند خورده‌اند.
+   */
+  createdByMigration?: boolean | null;
+  destinationUpdatedAt?: string | null;
+  attempts?: number | null;
+  lastError?: string | null;
+  metadata?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  rawPayload?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-events".
+ */
+export interface MigrationEvent {
+  id: string;
+  site?: (string | null) | Site;
+  job?: (string | null) | MigrationJob;
+  source?: (string | null) | MigrationSource;
+  eventType: string;
+  level: 'info' | 'warning' | 'error';
+  resource?: string | null;
+  sourceRecordId?: string | null;
+  message: string;
+  details?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-errors".
+ */
+export interface MigrationError {
+  id: string;
+  site?: (string | null) | Site;
+  job?: (string | null) | MigrationJob;
+  batch?: (string | null) | MigrationBatch;
+  source?: (string | null) | MigrationSource;
+  record?: (string | null) | MigrationRecord;
+  resource?: string | null;
+  sourceRecordId?: string | null;
+  code: string;
+  message: string;
+  retryable?: boolean | null;
+  attempts?: number | null;
+  status: 'open' | 'resolved' | 'ignored';
+  details?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-redirects".
+ */
+export interface MigrationRedirect {
+  id: string;
+  site?: (string | null) | Site;
+  job?: (string | null) | MigrationJob;
+  source?: (string | null) | MigrationSource;
+  record?: (string | null) | MigrationRecord;
+  fromUrl: string;
+  toUrl: string;
+  resource?: string | null;
+  sourceRecordId?: string | null;
+  destinationCollection?: string | null;
+  destinationId?: string | null;
+  status: 'proposed' | 'applied' | 'unchanged' | 'conflict' | 'ignored' | 'rolled-back';
+  redirect?: (string | null) | Redirect;
+  message?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "redirects".
+ */
+export interface Redirect {
+  id: string;
+  site?: (string | null) | Site;
+  /**
+   * برای اعمال این تغییر، سایت باید بازسازی شود.
+   */
+  from: string;
+  to?: {
+    type?: ('reference' | 'custom') | null;
+    reference?:
+      | ({
+          relationTo: 'pages';
+          value: string | Page;
+        } | null)
+      | ({
+          relationTo: 'posts';
+          value: string | Post;
+        } | null);
+    url?: string | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-audits".
+ */
+export interface MigrationAudit {
+  id: string;
+  site?: (string | null) | Site;
+  job?: (string | null) | MigrationJob;
+  source?: (string | null) | MigrationSource;
+  actor?: (string | null) | User;
+  action: string;
+  summary: string;
+  details?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -3828,33 +4878,6 @@ export interface AuditLog {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "redirects".
- */
-export interface Redirect {
-  id: string;
-  site?: (string | null) | Site;
-  /**
-   * برای اعمال این تغییر، سایت باید بازسازی شود.
-   */
-  from: string;
-  to?: {
-    type?: ('reference' | 'custom') | null;
-    reference?:
-      | ({
-          relationTo: 'pages';
-          value: string | Page;
-        } | null)
-      | ({
-          relationTo: 'posts';
-          value: string | Post;
-        } | null);
-    url?: string | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "form-submissions".
  */
 export interface FormSubmission {
@@ -4136,6 +5159,7 @@ export interface PayloadJob {
           | 'storageHealthCheck'
           | 'billingIntegration'
           | 'cdnZoneSync'
+          | 'migrationJobs'
           | 'schedulePublish';
         taskID: string;
         input?:
@@ -4176,6 +5200,7 @@ export interface PayloadJob {
         | 'storageHealthCheck'
         | 'billingIntegration'
         | 'cdnZoneSync'
+        | 'migrationJobs'
         | 'schedulePublish'
       )
     | null;
@@ -4282,8 +5307,52 @@ export interface PayloadLockedDocument {
         value: string | Order;
       } | null)
     | ({
+        relationTo: 'customers';
+        value: string | Customer;
+      } | null)
+    | ({
+        relationTo: 'coupons';
+        value: string | Coupon;
+      } | null)
+    | ({
         relationTo: 'store';
         value: string | Store;
+      } | null)
+    | ({
+        relationTo: 'migration-sources';
+        value: string | MigrationSource;
+      } | null)
+    | ({
+        relationTo: 'migration-jobs';
+        value: string | MigrationJob;
+      } | null)
+    | ({
+        relationTo: 'migration-batches';
+        value: string | MigrationBatch;
+      } | null)
+    | ({
+        relationTo: 'migration-mappings';
+        value: string | MigrationMapping;
+      } | null)
+    | ({
+        relationTo: 'migration-records';
+        value: string | MigrationRecord;
+      } | null)
+    | ({
+        relationTo: 'migration-events';
+        value: string | MigrationEvent;
+      } | null)
+    | ({
+        relationTo: 'migration-errors';
+        value: string | MigrationError;
+      } | null)
+    | ({
+        relationTo: 'migration-redirects';
+        value: string | MigrationRedirect;
+      } | null)
+    | ({
+        relationTo: 'migration-audits';
+        value: string | MigrationAudit;
       } | null)
     | ({
         relationTo: 'payment-gateways';
@@ -4538,6 +5607,22 @@ export interface PagesSelect<T extends boolean = true> {
   publishedAt?: T;
   generateSlug?: T;
   slug?: T;
+  parent?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   _status?: T;
@@ -4801,6 +5886,7 @@ export interface PostsSelect<T extends boolean = true> {
   content?: T;
   relatedPosts?: T;
   categories?: T;
+  taxonomyTerms?: T;
   projectMetadata?:
     | T
     | {
@@ -4834,6 +5920,21 @@ export interface PostsSelect<T extends boolean = true> {
       };
   generateSlug?: T;
   slug?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   _status?: T;
@@ -4846,6 +5947,21 @@ export interface MediaSelect<T extends boolean = true> {
   site?: T;
   alt?: T;
   caption?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
   prefix?: T;
   _objectKey?: T;
   folder?: T;
@@ -4945,6 +6061,21 @@ export interface CategoriesSelect<T extends boolean = true> {
   generateSlug?: T;
   slug?: T;
   parent?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
   breadcrumbs?:
     | T
     | {
@@ -5387,6 +6518,73 @@ export interface ProductsSelect<T extends boolean = true> {
   sku?: T;
   trackInventory?: T;
   inventory?: T;
+  body?: T;
+  productType?: T;
+  virtual?: T;
+  downloadable?: T;
+  externalUrl?: T;
+  buttonText?: T;
+  groupedProducts?: T;
+  gallery?: T;
+  attributes?:
+    | T
+    | {
+        key?: T;
+        name?: T;
+        visible?: T;
+        usedForVariation?: T;
+        options?:
+          | T
+          | {
+              value?: T;
+              id?: T;
+            };
+        id?: T;
+      };
+  variations?:
+    | T
+    | {
+        key?: T;
+        label?: T;
+        sku?: T;
+        price?: T;
+        compareAtPrice?: T;
+        trackInventory?: T;
+        inventory?: T;
+        image?: T;
+        attributeValues?: T;
+        active?: T;
+        weight?: T;
+        sourceId?: T;
+        sourceStatus?: T;
+        id?: T;
+      };
+  terms?: T;
+  upsells?: T;
+  crossSells?: T;
+  weight?: T;
+  length?: T;
+  width?: T;
+  height?: T;
+  metaTitle?: T;
+  metaDescription?: T;
+  canonicalUrl?: T;
+  noindex?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   _status?: T;
@@ -5422,6 +6620,226 @@ export interface OrdersSelect<T extends boolean = true> {
         mode?: T;
         gatewayData?: T;
       };
+  items?:
+    | T
+    | {
+        product?: T;
+        productTitle?: T;
+        variationKey?: T;
+        variationLabel?: T;
+        sku?: T;
+        quantity?: T;
+        unitPrice?: T;
+        subtotal?: T;
+        taxTotal?: T;
+        total?: T;
+        sourceLineId?: T;
+        id?: T;
+      };
+  customer?: T;
+  customerNote?: T;
+  billingAddress?:
+    | T
+    | {
+        firstName?: T;
+        lastName?: T;
+        company?: T;
+        address1?: T;
+        address2?: T;
+        city?: T;
+        state?: T;
+        postcode?: T;
+        country?: T;
+        phone?: T;
+        email?: T;
+      };
+  shippingAddress?:
+    | T
+    | {
+        firstName?: T;
+        lastName?: T;
+        company?: T;
+        address1?: T;
+        address2?: T;
+        city?: T;
+        state?: T;
+        postcode?: T;
+        country?: T;
+        phone?: T;
+        email?: T;
+      };
+  subtotal?: T;
+  discountTotal?: T;
+  shippingTotal?: T;
+  taxTotal?: T;
+  coupons?:
+    | T
+    | {
+        coupon?: T;
+        code?: T;
+        discount?: T;
+        id?: T;
+      };
+  shippingLines?:
+    | T
+    | {
+        methodId?: T;
+        methodTitle?: T;
+        total?: T;
+        taxTotal?: T;
+        id?: T;
+      };
+  taxLines?:
+    | T
+    | {
+        label?: T;
+        rateCode?: T;
+        ratePercent?: T;
+        taxTotal?: T;
+        shippingTaxTotal?: T;
+        id?: T;
+      };
+  fees?:
+    | T
+    | {
+        name?: T;
+        total?: T;
+        taxTotal?: T;
+        id?: T;
+      };
+  refunds?:
+    | T
+    | {
+        sourceId?: T;
+        amount?: T;
+        reason?: T;
+        refundedAt?: T;
+        transactionId?: T;
+        id?: T;
+      };
+  paymentHistory?:
+    | T
+    | {
+        methodId?: T;
+        methodTitle?: T;
+        transactionId?: T;
+        status?: T;
+        amount?: T;
+        paidAt?: T;
+        note?: T;
+        id?: T;
+      };
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "customers_select".
+ */
+export interface CustomersSelect<T extends boolean = true> {
+  site?: T;
+  email?: T;
+  firstName?: T;
+  lastName?: T;
+  displayName?: T;
+  phone?: T;
+  username?: T;
+  status?: T;
+  claimStatus?: T;
+  claimTokenHash?: T;
+  claimExpiresAt?: T;
+  invitedAt?: T;
+  claimedAt?: T;
+  addresses?:
+    | T
+    | {
+        label?: T;
+        firstName?: T;
+        lastName?: T;
+        company?: T;
+        address1?: T;
+        address2?: T;
+        city?: T;
+        state?: T;
+        postcode?: T;
+        country?: T;
+        phone?: T;
+        email?: T;
+        isDefaultBilling?: T;
+        isDefaultShipping?: T;
+        id?: T;
+      };
+  notes?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "coupons_select".
+ */
+export interface CouponsSelect<T extends boolean = true> {
+  site?: T;
+  code?: T;
+  description?: T;
+  discountType?: T;
+  amount?: T;
+  minimumAmount?: T;
+  maximumAmount?: T;
+  usageLimit?: T;
+  usageLimitPerUser?: T;
+  usageCount?: T;
+  individualUse?: T;
+  freeShipping?: T;
+  products?: T;
+  excludedProducts?: T;
+  startsAt?: T;
+  expiresAt?: T;
+  active?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -5434,6 +6852,224 @@ export interface StoreSelect<T extends boolean = true> {
   currency?: T;
   paymentProvider?: T;
   paymentInstructions?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-sources_select".
+ */
+export interface MigrationSourcesSelect<T extends boolean = true> {
+  site?: T;
+  name?: T;
+  baseUrl?: T;
+  installation?: T;
+  wpUsername?: T;
+  wpApplicationPassword?: T;
+  wooConsumerKey?: T;
+  wooConsumerSecret?: T;
+  credentialsSummary?: T;
+  status?: T;
+  inventory?: T;
+  coverage?: T;
+  lastCheckedAt?: T;
+  lastError?: T;
+  jobs?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-jobs_select".
+ */
+export interface MigrationJobsSelect<T extends boolean = true> {
+  site?: T;
+  title?: T;
+  source?: T;
+  operation?: T;
+  status?: T;
+  phase?: T;
+  control?: T;
+  runRequestedAt?: T;
+  currentRunId?: T;
+  lockedAt?: T;
+  lockToken?: T;
+  settings?: T;
+  inventory?: T;
+  coverage?: T;
+  dryRunReport?: T;
+  reconciliationReport?: T;
+  checkpoint?: T;
+  summary?: T;
+  blockers?: T;
+  counts?:
+    | T
+    | {
+        seen?: T;
+        imported?: T;
+        updated?: T;
+        unchanged?: T;
+        archived?: T;
+        blocked?: T;
+        errors?: T;
+      };
+  startedAt?: T;
+  finishedAt?: T;
+  lastSyncAt?: T;
+  sourceWriteFenceConfirmedAt?: T;
+  cutoverAt?: T;
+  rolledBackAt?: T;
+  lastError?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-batches_select".
+ */
+export interface MigrationBatchesSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  source?: T;
+  runId?: T;
+  resource?: T;
+  page?: T;
+  status?: T;
+  counts?:
+    | T
+    | {
+        seen?: T;
+        imported?: T;
+        updated?: T;
+        unchanged?: T;
+        archived?: T;
+        blocked?: T;
+        errors?: T;
+      };
+  checkpoint?: T;
+  startedAt?: T;
+  finishedAt?: T;
+  error?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-mappings_select".
+ */
+export interface MigrationMappingsSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  source?: T;
+  resource?: T;
+  sourceField?: T;
+  destination?: T;
+  disposition?: T;
+  status?: T;
+  transform?: T;
+  reason?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-records_select".
+ */
+export interface MigrationRecordsSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  source?: T;
+  idempotencyKey?: T;
+  installation?: T;
+  resource?: T;
+  sourceRecordId?: T;
+  sourceSlug?: T;
+  sourcePermalink?: T;
+  sourceModifiedAt?: T;
+  contentHash?: T;
+  destinationCollection?: T;
+  destinationId?: T;
+  disposition?: T;
+  createdByMigration?: T;
+  destinationUpdatedAt?: T;
+  attempts?: T;
+  lastError?: T;
+  metadata?: T;
+  rawPayload?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-events_select".
+ */
+export interface MigrationEventsSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  source?: T;
+  eventType?: T;
+  level?: T;
+  resource?: T;
+  sourceRecordId?: T;
+  message?: T;
+  details?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-errors_select".
+ */
+export interface MigrationErrorsSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  batch?: T;
+  source?: T;
+  record?: T;
+  resource?: T;
+  sourceRecordId?: T;
+  code?: T;
+  message?: T;
+  retryable?: T;
+  attempts?: T;
+  status?: T;
+  details?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-redirects_select".
+ */
+export interface MigrationRedirectsSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  source?: T;
+  record?: T;
+  fromUrl?: T;
+  toUrl?: T;
+  resource?: T;
+  sourceRecordId?: T;
+  destinationCollection?: T;
+  destinationId?: T;
+  status?: T;
+  redirect?: T;
+  message?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "migration-audits_select".
+ */
+export interface MigrationAuditsSelect<T extends boolean = true> {
+  site?: T;
+  job?: T;
+  source?: T;
+  actor?: T;
+  action?: T;
+  summary?: T;
+  details?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -6863,6 +8499,16 @@ export interface TaskCdnZoneSync {
   input?: unknown;
   output: {
     synced?: number | null;
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskMigrationJobs".
+ */
+export interface TaskMigrationJobs {
+  input?: unknown;
+  output: {
+    processed?: number | null;
   };
 }
 /**

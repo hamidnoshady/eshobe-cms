@@ -31,6 +31,7 @@ import * as migration_20261005_180000_deploy_flow_fixes from './20261005_180000_
 import * as migration_20261005_190000_project_metadata_localized from './20261005_190000_project_metadata_localized';
 import * as migration_20261028_090000_cdn_shared_accounts from './20261028_090000_cdn_shared_accounts';
 import * as migration_20261031_120000_custom_content_types from './20261031_120000_custom_content_types';
+import * as migration_20261101_120000_wordpress_migration_center from './20261101_120000_wordpress_migration_center';
 
 export const migrations = [
   {
@@ -197,5 +198,10 @@ export const migrations = [
     up: migration_20261031_120000_custom_content_types.up,
     down: migration_20261031_120000_custom_content_types.down,
     name: '20261031_120000_custom_content_types'
+  },
+  {
+    up: migration_20261101_120000_wordpress_migration_center.up,
+    down: migration_20261101_120000_wordpress_migration_center.down,
+    name: '20261101_120000_wordpress_migration_center'
   },
 ];
