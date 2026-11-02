@@ -350,3 +350,59 @@ describe('validateSvgUpload — the safe animated-logo subset', () => {
     `))
   })
 })
+
+
+describe('validateSvgUpload — original Graphite animated logo regression', () => {
+  // Exact 19,801-byte customer upload, not the simplified fixture above.
+  const originalLogo = readFileSync(
+    new URL('../fixtures/graphite-animated-logo-original.svg', import.meta.url),
+    'utf8',
+  )
+
+  it('accepts original Graphite logo with blur, comments, clipping and reduced-motion styles', () => {
+    expect(Buffer.byteLength(originalLogo, 'utf8')).toBe(19_801)
+    const result = accepted(originalLogo)
+    if (result.ok) {
+      expect(result.svg).toContain('<filter id="motionSmear"')
+      expect(result.svg).toContain('filter:blur(5px)')
+      expect(result.svg).toContain('filter:blur(.5px)')
+      expect(result.svg).toContain('@media(prefers-reduced-motion:reduce)')
+      expect(result.svg).toContain('/* Unmodified original mark geometry')
+      expect(result.svg).toContain('color-scheme:light dark')
+      expect(result.svg).toContain('clip-path:inset(100% 0 0 0)')
+      expect(result.svg).toContain('--clip-start:inset(0 100% 0 0)')
+      expect(result.svg).toContain('r:5')
+      expect(result.svg).not.toContain('<?xml')
+    }
+  })
+
+  it('accepts standalone comments between CSS rules, preserving them as-is', () => {
+    const svg = wrap('<style>/* first */.mark{fill:#111}\n/* second */.next{opacity:1}</style><path class="mark" d="M0 0"/>')
+    const result = accepted(svg)
+    if (result.ok) expect(result.svg).toContain('/* second */')
+  })
+
+  it('accepts a narrow reduced-motion fallback with !important', () => {
+    accepted(wrap('<style>.mark{filter:blur(5px);clip-path:inset(-3% -3% -3% -3%)}@media (prefers-reduced-motion: reduce){.mark{animation:none!important;filter:none!important;opacity:1!important}}</style><path class="mark" d="M0 0"/>'))
+  })
+
+  it.each([
+    ['a CSS comment splitting a property', '.mark{fi/* X */ll:red}'],
+    ['a CSS comment splitting a selector', '.ma/* X */rk{fill:red}'],
+    ['a CSS comment inside a declaration value', '.mark{fill:/* X */red}'],
+    ['an unterminated CSS comment', '/* unclosed .mark{fill:red}'],
+    ['a media query other than reduced motion', '@media (min-width: 1px){.mark{opacity:1}}'],
+    ['a nested media query', '@media (prefers-reduced-motion: reduce){@media (prefers-reduced-motion: reduce){.mark{opacity:1}}}'],
+    ['an unbounded blur radius', '.mark{filter:blur(21px)}'],
+    ['a negative blur radius', '.mark{filter:blur(-1px)}'],
+    ['a compound CSS blur chain', '.mark{filter:blur(5px) blur(2px)}'],
+    ['an unsupported CSS blur argument', '.mark{filter:blur(var(--radius))}'],
+    ['an unbounded inset region', '.mark{clip-path:inset(1001px)}'],
+    ['external resources inside reduced motion', '@media(prefers-reduced-motion:reduce){.mark{filter:url(https://bad.example/a.svg)}}'],
+    ['an unsupported @supports rule', '@supports (display:grid){.mark{opacity:1}}'],
+    ['an arbitrary color-scheme value', ':root{color-scheme:url(#x)}'],
+    ['malicious CSS @import', '@import url(https://bad.example/x.css);.mark{opacity:1}'],
+  ])('still rejects %s', (_label, css) => {
+    refused(wrap('<style>' + css + '</style><path class="mark" d="M0 0"/>'))
+  })
+})
