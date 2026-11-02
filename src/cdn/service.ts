@@ -3,9 +3,14 @@ import type { Payload, PayloadRequest } from 'payload'
 import { decryptCdnSecret } from './crypto'
 import type {
   CdnAction,
+  CdnArvanOriginHttps,
+  CdnConnectionTestResult,
+  CdnDiscoveryResult,
   CdnDnsRecord,
   CdnPurgeResult,
   CdnProvider,
+  CdnRecordType,
+  CdnRemoteDnsRecord,
   CdnRuleAction,
   CdnSecurityRule,
   CdnSyncResult,
@@ -160,20 +165,71 @@ const cloudflareRecord = (zone: CdnZoneInput, record: CdnDnsRecord): ObjectValue
   type: record.type,
 })
 
-const arvanRecord = (record: CdnDnsRecord): ObjectValue => {
+/**
+ * Map the provider-neutral desired edge↔origin TLS mode onto ArvanCloud's
+ * per-record `upstream_https` field.
+ *
+ * ArvanCloud exposes **no** zone-level `ssl.mode`: its `/ssl` endpoint carries
+ * `https_redirect`, `tls_version` (edge) and HSTS only. The origin side of TLS is
+ * realised per DNS record via `upstream_https`. So `ssl.mode` becomes real here —
+ * and nowhere else. `strict` certificate *validation* is not a field the
+ * documented ArvanCloud API exposes, so it is applied as `upstream_https: "on"`
+ * and reported as not fully verifiable rather than silently claimed.
+ */
+export const arvanUpstreamHttps = (zone: CdnZoneInput): CdnArvanOriginHttps => {
+  const explicit = zone.arvan?.originHttps
+  if (explicit === 'on' || explicit === 'off' || explicit === 'default') return explicit
+  switch (zone.ssl?.mode) {
+    case 'flexible':
+      // Flexible: edge HTTPS, plain HTTP to origin.
+      return 'off'
+    case 'full':
+    case 'strict':
+      // Full/strict: HTTPS to origin. ArvanCloud cannot enforce strict
+      // validation, so `strict` is indistinguishable from `full` here.
+      return 'on'
+    default:
+      return 'default'
+  }
+}
+
+/** `true` when the desired `strict` mode can actually be verified by ArvanCloud.
+ * It cannot, so the sync reports this rather than pretending a strict handshake. */
+export const arvanStrictVerifiable = (zone: CdnZoneInput): boolean => zone.ssl?.mode !== 'strict'
+
+const arvanRecord = (zone: CdnZoneInput, record: CdnDnsRecord): ObjectValue => {
   const shared = {
     cloud: Boolean(record.proxied),
     ip_filter_mode: { count: 'single', geo_filter: 'none', order: 'none' },
     name: record.name,
     ttl: record.ttl ?? 120,
     type: record.type,
-    upstream_https: 'default',
+    upstream_https: arvanUpstreamHttps(zone),
   }
   if (record.type === 'A' || record.type === 'AAAA') {
-    return { ...shared, value: [{ country: '', ip: record.content, port: null, weight: null }] }
+    return {
+      ...shared,
+      value: [
+        {
+          country: '',
+          ip: record.content,
+          // An explicit origin port only travels when the operator set one; a
+          // null port means "provider default", not "port 0".
+          port: zone.arvan?.originPort ?? null,
+          weight: null,
+        },
+      ],
+    }
   }
   if (record.type === 'CNAME')
-    return { ...shared, value: { host: record.content, host_header: 'source', port: -1 } }
+    return {
+      ...shared,
+      value: {
+        host: record.content,
+        host_header: zone.arvan?.originHostHeader ?? 'source',
+        port: -1,
+      },
+    }
   if (record.type === 'MX')
     return { ...shared, value: { host: record.content, priority: String(record.priority ?? 10) } }
   if (record.type === 'TXT') return { ...shared, value: { text: record.content } }
@@ -323,7 +379,7 @@ const syncArvanRecords = async (
   const current = await http.list(`/domains/${encodeURIComponent(zone.zoneName)}/dns-records`)
   for (const record of zone.dnsRecords ?? []) {
     assertProxyable(record)
-    const payload = arvanRecord(record)
+    const payload = arvanRecord(zone, record)
     const key = recordKey(record)
     let existingId = record.providerRecordId || (key ? externalIds[key] : undefined)
     // An exact existing record is consciously adopted on its first CMS sync; a
@@ -415,6 +471,12 @@ const syncCloudflareSettings = async (
   }
 }
 
+/** ArvanCloud's `tls_version` expects `"TLSv1.2"` (or `""` for default); the
+ * CMS stores the neutral `"1.2"`. Sending the neutral value would be silently
+ * rejected or misread, so normalise it here. */
+const arvanTlsVersion = (minimumTls?: string | null): string | undefined =>
+  minimumTls ? (minimumTls.startsWith('TLSv') ? minimumTls : `TLSv${minimumTls}`) : undefined
+
 const syncArvanSettings = async (
   http: ProviderHttp,
   zone: CdnZoneInput,
@@ -425,7 +487,7 @@ const syncArvanSettings = async (
   await http.request(`/domains/${domain}/ssl`, {
     body: JSON.stringify({
       ...(ssl.alwaysUseHttps !== undefined ? { https_redirect: ssl.alwaysUseHttps } : {}),
-      ...(ssl.minimumTls ? { tls_version: ssl.minimumTls } : {}),
+      ...(arvanTlsVersion(ssl.minimumTls) ? { tls_version: arvanTlsVersion(ssl.minimumTls) } : {}),
       ...(zone.hsts?.enabled !== undefined
         ? {
             hsts_include_subdomains: Boolean(zone.hsts.includeSubdomains),
@@ -438,6 +500,16 @@ const syncArvanSettings = async (
     method: 'PATCH',
   })
   action(actions, 'tls-and-hsts', 'applied')
+
+  // The desired `ssl.mode` is realised per record as `upstream_https` (see
+  // `arvanRecord`). Record it explicitly so the admin can see the mapping was
+  // applied — and that `strict` cannot be verified by ArvanCloud — instead of
+  // the mode disappearing into a zone-level field that does not exist.
+  const upstream = arvanUpstreamHttps(zone)
+  const strictNote = zone.ssl?.mode === 'strict' && !arvanStrictVerifiable(zone)
+    ? ' · صریح بررسی نمی‌شود'
+    : ''
+  action(actions, 'origin-tls-mode', 'applied', `upstream_https=${upstream}${strictNote}`)
 
   const cache = zone.cache ?? {}
   await http.request(`/domains/${domain}/caching`, {
@@ -780,6 +852,148 @@ export const deleteCdnRecords = async (
     }
   }
   return actions
+}
+
+/**
+ * Read-only discovery of the authoritative remote state for one zone.
+ *
+ * This is the "import existing state" step: it never creates, updates or deletes
+ * anything at the provider. It reads the zone, its DNS records and its settings,
+ * and normalises them so the admin can see what is already there — including
+ * which records carry the `eshobe-cms` marker (CMS-owned) versus foreign ones —
+ * before adopting or reconciling anything. A zone that does not exist at the
+ * provider throws `CdnConfigurationError`, which the endpoint surfaces as a
+ * clear "zone not found" rather than silently returning an empty state.
+ */
+export const discoverCdnZone = async (zone: CdnZoneInput): Promise<CdnDiscoveryResult> => {
+  const token = decryptCdnSecret(zone.credentials?.apiToken)
+  if (!token)
+    throw new CdnConfigurationError('API token قابل استفاده نیست. آن را دوباره وارد کنید.')
+  const http = new ProviderHttp(zone.provider, token)
+  const actions: CdnAction[] = []
+  const readAt = new Date().toISOString()
+  const allowedTypes: CdnRecordType[] = ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'CAA']
+
+  if (zone.provider === 'cloudflare') {
+    const resolved = await cloudflareZone(http, zone, false)
+    if (!resolved.id) throw new CdnProviderError('Cloudflare zone has no id')
+    const records = await http.list(`/zones/${resolved.id}/dns_records?per_page=200`)
+    const dnsRecords: CdnRemoteDnsRecord[] = records.map((row) => {
+      const type = asString(row.type)
+      return {
+        content: String(row.content ?? ''),
+        name: String(row.name ?? ''),
+        proxied: row.proxied === true,
+        providerRecordId: asString(row.id) ?? null,
+        ttl: row.ttl === 1 ? null : (typeof row.ttl === 'number' ? row.ttl : null),
+        type: (allowedTypes.includes(type as CdnRecordType) ? type : 'TXT') as CdnRecordType,
+      }
+    })
+    action(actions, 'discover:zone', 'applied')
+    action(actions, 'discover:dns-records', 'applied', String(dnsRecords.length))
+    return {
+      actions,
+      remote: {
+        dnsRecords,
+        nameservers: resolved.nameservers,
+        providerZoneId: resolved.id,
+        readAt,
+        settings: {},
+        status: resolved.status ?? null,
+        zoneName: zone.zoneName,
+      },
+    }
+  }
+
+  const resolved = await arvanZone(http, zone, false)
+  const records = await http.list(`/domains/${encodeURIComponent(zone.zoneName)}/dns-records`)
+  const dnsRecords: CdnRemoteDnsRecord[] = records.map((row) => {
+    const type = asString(row.type)
+    let content = ''
+    if (type === 'A' || type === 'AAAA') content = asString(array(row.value)[0]?.ip) ?? ''
+    else if (type === 'CNAME' || type === 'MX') content = asString(object(row.value).host) ?? ''
+    else if (type === 'TXT') content = asString(object(row.value).text) ?? ''
+    else if (type === 'CAA') content = asString(object(row.value).value) ?? ''
+    return {
+      content,
+      name: asString(row.name) ?? '',
+      proxied: row.cloud === true,
+      providerRecordId: asString(row.id) ?? null,
+      ttl: typeof row.ttl === 'number' ? row.ttl : null,
+      type: (allowedTypes.includes(type as CdnRecordType) ? type : 'TXT') as CdnRecordType,
+    }
+  })
+  // Read back the SSL and caching settings ArvanCloud exposes, so the admin sees
+  // the effective remote state rather than only desired state.
+  const ssl = await http.request(`/domains/${encodeURIComponent(zone.zoneName)}/ssl`)
+  const caching = await http.request(`/domains/${encodeURIComponent(zone.zoneName)}/caching`)
+  action(actions, 'discover:zone', 'applied')
+  action(actions, 'discover:dns-records', 'applied', String(dnsRecords.length))
+  return {
+    actions,
+    remote: {
+      dnsRecords,
+      nameservers: resolved.nameservers,
+      providerZoneId: resolved.id ?? null,
+      readAt,
+      settings: {
+        hsts: { enabled: ssl.hsts_status === true },
+        // ArvanCloud exposes no zone-level `ssl.mode`; `null` means "not exposed".
+        mode: null,
+        minimumTls: asString(ssl.tls_version)?.replace(/^TLSv/i, '') ?? null,
+        securityLevel: null,
+        wafMode: asString(ssl.waf_mode) ?? asString(caching.waf_mode) ?? null,
+      },
+      status: resolved.status ?? null,
+      zoneName: zone.zoneName,
+    },
+  }
+}
+
+/**
+ * Validate a zone's provider credentials with a single read, without mutating
+ * anything. Distinguishes the three outcomes an operator actually needs to act
+ * on: a bad/expired token, a token that authenticates but cannot see the zone,
+ * and a zone that simply is not there yet. Throws only for an unusable local
+ * token or an unexpected provider failure.
+ */
+export const testCdnConnection = async (
+  zone: CdnZoneInput,
+): Promise<CdnConnectionTestResult> => {
+  const token = decryptCdnSecret(zone.credentials?.apiToken)
+  if (!token) throw new CdnConfigurationError('API token قابل استفاده نیست.')
+  const http = new ProviderHttp(zone.provider, token)
+  const checkedAt = new Date().toISOString()
+  try {
+    const resolved =
+      zone.provider === 'cloudflare'
+        ? await cloudflareZone(http, zone, false)
+        : await arvanZone(http, zone, false)
+    return {
+      checkedAt,
+      ok: true,
+      message: `اتصال برقرار است؛ zone «${zone.zoneName}» یافت شد.`,
+      providerZoneId: resolved.id ?? null,
+      zoneName: zone.zoneName,
+    }
+  } catch (error) {
+    if (error instanceof CdnProviderError) {
+      const refused = error.status === 401 || error.status === 403
+      return {
+        checkedAt,
+        ok: false,
+        message: refused
+          ? `توکن توسط ارائه‌دهنده رد شد (status ${error.status}).`
+          : error.message,
+        zoneName: zone.zoneName,
+      }
+    }
+    if (error instanceof CdnConfigurationError) {
+      // The token authenticated (no provider error) but the zone is not there.
+      return { checkedAt, ok: false, message: error.message, zoneName: zone.zoneName }
+    }
+    throw error
+  }
 }
 
 /** Used only by staff-only endpoint code, immediately before a provider call. */

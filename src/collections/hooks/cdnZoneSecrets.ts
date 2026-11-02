@@ -82,6 +82,23 @@ export const maskCdnCredential =
   ({ req, value }) =>
     req?.context?.[CDN_SECRET_READ_CONTEXT_KEY] ? value : undefined
 
+/** Stamp `originOverrideAt` whenever a zone's own origin target is set or
+ * changed, and clear it when the override is removed. This is the auditable
+ * "when was this override applied" record the per-zone origin workflow needs;
+ * it is not a form field. */
+export const stampCdnOriginOverride: CollectionBeforeChangeHook = async ({
+  data,
+  operation,
+  originalDoc,
+}) => {
+  const target = typeof data?.originTarget === 'string' ? data.originTarget.trim() : ''
+  const previous =
+    typeof originalDoc?.originTarget === 'string' ? originalDoc.originTarget : ''
+  if (target && target !== previous) data.originOverrideAt = new Date().toISOString()
+  else if (!target && previous && operation === 'update') data.originOverrideAt = null
+  return data
+}
+
 /** A zone is an account-level resource. Sharing one between tenant records would
  * allow two administrators to write contradictory DNS and WAF state. */
 export const uniqueCdnProviderZone: CollectionBeforeChangeHook = async ({

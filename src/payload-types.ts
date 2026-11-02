@@ -2689,11 +2689,34 @@ export interface CdnZone {
    * فقط برای ساخت zone جدید لازم است؛ برای zone از قبل موجود لازم نیست.
    */
   cloudflareAccountId?: string | null;
+  /**
+   * IPv4، IPv6 یا hostname معتبر. رکوردهای پراکسی‌شدهٔ این zone به این مقصد اشاره می‌کنند.
+   */
+  originTarget?: string | null;
+  /**
+   * مثلاً «موضوع graphitearc.com — Srv2 theme app».
+   */
+  originOverrideReason?: string | null;
+  originOverrideAt?: string | null;
   arvanDomainMode?: ('full' | 'partial') | null;
   /**
    * برای ساخت دامنهٔ partial فقط اگر حساب شما چنین مقدار plan level می‌خواهد وارد کنید.
    */
   arvanPlanLevel?: string | null;
+  arvan?: {
+    /**
+     * مستقیماً به فیلد `upstream_https` رکورد می‌پرد. اگر خالی بود، از `ssl.mode` استنباط می‌شود.
+     */
+    originHttps?: ('default' | 'on' | 'off') | null;
+    /**
+     * اختیاری؛ فقط زمانی که API رکورد آن را می‌پذیرد.
+     */
+    originPort?: number | null;
+    /**
+     * می‌تواند Host header یا SNI متفاوتی به origin بفرستد.
+     */
+    originHostHeader?: string | null;
+  };
   /**
    * توکن دارای کمترین سطح دسترسی ممکن وارد کنید. هنگام ذخیره AES-256-GCM رمزنگاری می‌شود؛ بعد از آن در پنل، REST و GraphQL برگردانده نمی‌شود. Cloudflare: Zone/DNS/Cache Purge/Zone Settings Edit. Arvan: API Key مربوط به CDN.
    */
@@ -2808,6 +2831,10 @@ export interface CdnZone {
   lastSyncAt?: string | null;
   lastSyncDetail?: string | null;
   lastPurgeAt?: string | null;
+  lastConnectionTestAt?: string | null;
+  lastConnectionTestOk?: boolean | null;
+  lastConnectionTestDetail?: string | null;
+  lastDiscoverAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -5531,8 +5558,18 @@ export interface CdnZonesSelect<T extends boolean = true> {
   active?: T;
   provisionIfMissing?: T;
   cloudflareAccountId?: T;
+  originTarget?: T;
+  originOverrideReason?: T;
+  originOverrideAt?: T;
   arvanDomainMode?: T;
   arvanPlanLevel?: T;
+  arvan?:
+    | T
+    | {
+        originHttps?: T;
+        originPort?: T;
+        originHostHeader?: T;
+      };
   credentials?:
     | T
     | {
@@ -5617,6 +5654,10 @@ export interface CdnZonesSelect<T extends boolean = true> {
   lastSyncAt?: T;
   lastSyncDetail?: T;
   lastPurgeAt?: T;
+  lastConnectionTestAt?: T;
+  lastConnectionTestOk?: T;
+  lastConnectionTestDetail?: T;
+  lastDiscoverAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

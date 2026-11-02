@@ -4,10 +4,12 @@ import { isPlatformAdmin, platformAdmin, platformAdminFieldAccess } from '@/acce
 import { hiddenFromCustomers, PLATFORM_GROUPS } from '@/admin/visibility'
 import { isValidDomain, normalizeDomain } from '@/lib/domains'
 
+import { validateOriginTarget } from './hooks/cdnAccountSecrets'
 import {
   CDN_SECRET_READ_CONTEXT_KEY,
   encryptCdnCredentials,
   maskCdnCredential,
+  stampCdnOriginOverride,
   uniqueCdnProviderZone,
 } from './hooks/cdnZoneSecrets'
 
@@ -170,6 +172,40 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
       },
     },
     {
+      type: 'collapsible',
+      label: 'مقصد origin و تغییر استیت',
+      admin: {
+        initCollapsed: true,
+        description:
+          'به‌جای یک مقصد origin سراسری، هر zone می‌تواند مقصد خود را تعریف کند: دو سایت که روی سرورهای متفاوتی اجرا می‌شوند، نباید رکورد پراکسی‌شان به یک IP اشاره کند. اگر خالی ماند، مقصد حساب سراسری استفاده می‌شود.',
+      },
+      fields: [
+        {
+          name: 'originTarget',
+          type: 'text',
+          label: 'مقصد origin این zone',
+          validate: validateOriginTarget,
+          admin: {
+            description:
+              'IPv4، IPv6 یا hostname معتبر. رکوردهای پراکسی‌شدهٔ این zone به این مقصد اشاره می‌کنند.',
+          },
+        },
+        {
+          name: 'originOverrideReason',
+          type: 'text',
+          label: 'دلیل تغییر استیت',
+          admin: { description: 'مثلاً «موضوع graphitearc.com — Srv2 theme app».' },
+        },
+        {
+          name: 'originOverrideAt',
+          type: 'date',
+          label: 'زمان تغییر استیت',
+          access: fieldAccess,
+          admin: { readOnly: true, description: 'به‌صورت خودکار وقتی که مقصد origin این zone تنظیم می‌شود، ثبت می‌شود.' },
+        },
+      ],
+    },
+    {
       type: 'row',
       fields: [
         {
@@ -194,6 +230,53 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
               'برای ساخت دامنهٔ partial فقط اگر حساب شما چنین مقدار plan level می‌خواهد وارد کنید.',
             width: '50',
           },
+        },
+      ],
+    },
+    {
+      type: 'collapsible',
+      label: 'آروان — مقصد origin و TLS',
+      admin: {
+        initCollapsed: true,
+        condition: (data) => data?.provider === 'arvancloud',
+        description:
+          'این بخش فقط در ArvanCloud نمایش داده می‌شود. ArvanCloud تابعی برای `ssl.mode` در سطح zone ندارد؛ TLS تا origin را در سطح هر رکورد از طریق `upstream_https` اعمال می‌کند. مقدار `strict` هیچ‌چیز را در ArvanCloud صریح بررسی نمی‌کند.',
+      },
+      fields: [
+        {
+          name: 'arvan',
+          type: 'group',
+          fields: [
+            {
+              name: 'originHttps',
+              type: 'select',
+              label: 'HTTPS تا origin (upstream_https)',
+              defaultValue: 'default',
+              options: [
+                { label: 'پیش‌فرض ارائه‌دهنده (auto)', value: 'default' },
+                { label: 'همیشه HTTPS به origin', value: 'on' },
+                { label: 'همیشه HTTP به origin', value: 'off' },
+              ],
+              admin: {
+                description:
+                  'مستقیماً به فیلد `upstream_https` رکورد می‌پرد. اگر خالی بود، از `ssl.mode` استنباط می‌شود.',
+              },
+            },
+            {
+              name: 'originPort',
+              type: 'number',
+              label: 'پورتِ origin',
+              min: 1,
+              max: 65535,
+              admin: { description: 'اختیاری؛ فقط زمانی که API رکورد آن را می‌پذیرد.' },
+            },
+            {
+              name: 'originHostHeader',
+              type: 'text',
+              label: 'Host header / SNI origin',
+              admin: { description: 'می‌تواند Host header یا SNI متفاوتی به origin بفرستد.' },
+            },
+          ],
         },
       ],
     },
@@ -661,11 +744,39 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
           access: { create: () => false, update: () => false },
           admin: { readOnly: true },
         },
+        {
+          name: 'lastConnectionTestAt',
+          type: 'date',
+          label: 'آخرین تست اتصال',
+          access: { create: () => false, update: () => false },
+          admin: { readOnly: true },
+        },
+        {
+          name: 'lastConnectionTestOk',
+          type: 'checkbox',
+          label: 'نتیجهٔ تست اتصال',
+          access: { create: () => false, update: () => false },
+          admin: { readOnly: true },
+        },
+        {
+          name: 'lastConnectionTestDetail',
+          type: 'textarea',
+          label: 'جزئیات تست اتصال',
+          access: { create: () => false, update: () => false },
+          admin: { readOnly: true },
+        },
+        {
+          name: 'lastDiscoverAt',
+          type: 'date',
+          label: 'آخرین کشف (خواندنی)',
+          access: { create: () => false, update: () => false },
+          admin: { readOnly: true },
+        },
       ],
     },
   ],
   hooks: {
-    beforeChange: [encryptCdnCredentials, uniqueCdnProviderZone],
+    beforeChange: [encryptCdnCredentials, stampCdnOriginOverride, uniqueCdnProviderZone],
   },
   labels: { singular: 'zone CDN', plural: 'zoneهای CDN' },
   timestamps: true,
