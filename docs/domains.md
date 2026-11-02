@@ -148,16 +148,21 @@ An explicit **ArvanCloud → مقصد origin و TLS → HTTPS تا origin (`upst
 
 The shared `cdn-accounts.originTarget` is the default origin for a zone's proxied records, but a zone may set its own **مقصد origin** (with a reason and timestamp) so two sites on different physical deployments (Srv1 Traefik → Srv2 theme, multi-server) do not share one IP. A tenant never chooses its origin: the self-service flow always resolves the account's target, and a per-zone override is operator-only.
 
-#### Read-only discovery and connection test (staff)
+#### Read-only discovery, connection test and diff (staff)
 
-Two staff-only endpoints complement the mutating `POST /api/cdn/sync`:
+Three staff-only endpoints complement the mutating `POST /api/cdn/sync`:
 
 | Route | What it does |
 | --- | --- |
 | `POST /api/cdn/zones/test-connection` `{ id }` | Validates the zone's credentials with a single read and records the outcome. Distinguishes a rejected token from a token that authenticates but cannot see the zone. Read-only at the provider. |
 | `POST /api/cdn/zones/discover` `{ id }` | Reads the authoritative remote state — zone, nameservers, DNS records and settings — without mutating anything. The "import existing state" step before adoption or reconciliation. |
+| `POST /api/cdn/zones/diff` `{ id }` | Dry-run preview: reads remote state and diffs it against the zone's desired state. Reports which records would be created (`new`), updated (`drifted`), already match (`in-sync`), are foreign and untouched (`external`), and which settings the provider does not support (`unsupported`). Read-only; the apply step is still `POST /api/cdn/sync`. |
 
-Both are platform-staff only; no API key qualifies. Their results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+All three are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+
+#### Provider capability matrix
+
+`src/cdn/capabilities.ts` is the single source of truth for what each provider actually supports. ArvanCloud and Cloudflare are deliberately **not** treated as interchangeable: a control the provider's API does not expose is reported `unsupported` with an explanation rather than silently sent and claimed as applied. The diff endpoint returns the matrix for the zone's provider so the UI can disable unsupported controls with that explanation.
 
 ### Plans, premium capabilities and origin protection
 
