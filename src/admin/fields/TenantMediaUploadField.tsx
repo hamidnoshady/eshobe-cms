@@ -24,7 +24,15 @@ import { formatAdminURL } from 'payload/shared'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { formatNumber } from '@/lib/format'
+import { isSvgMedia, mediaPreviewUrl } from '@/lib/mediaPreview'
 
+import {
+  networkUploadError,
+  parseUploadError,
+  unexpectedUploadError,
+  uploadErrorMessage,
+  type UploadErrorInfo,
+} from './uploadErrors'
 import './TenantMediaUploadField.scss'
 
 type ID = number | string
@@ -53,6 +61,8 @@ type Paginated<T> = {
 }
 
 type Where = Record<string, unknown>
+
+type UploadFailure = Error & { filename?: string; uploadError?: UploadErrorInfo }
 
 type PickerProps = {
   apiRoute: string
@@ -135,6 +145,92 @@ const appendConstraint = (where: Where, constraint: Where): Where => ({
   ...where,
   and: [...(Array.isArray(where.and) ? (where.and as Where[]) : []), constraint],
 })
+
+/**
+ * Payload's upload preview picks the best-fitting generated size. For an animated
+ * SVG that is a raster frame (or no frame at all), so a branding field renders the
+ * original document here as well. The same query the picker uses, scoped to this site.
+ */
+const useSelectedSvgDocs = (
+  apiRoute: string,
+  ids: string[],
+  locale: string,
+  siteID: string | null,
+): MediaDoc[] => {
+  const [docs, setDocs] = useState<MediaDoc[]>([])
+  const idsKey = ids.join('|')
+
+  useEffect(() => {
+    let current = true
+    if (!idsKey || !siteID) {
+      // Clearing happens in a microtask, not synchronously in the effect body.
+      queueMicrotask(() => {
+        if (current) setDocs([])
+      })
+      return () => {
+        current = false
+      }
+    }
+    const selected = idsKey.split('|')
+    const params = new URLSearchParams({ depth: '0', limit: String(selected.length), page: '1' })
+    if (locale) params.set('locale', locale)
+    appendQueryValue(params, 'where', {
+      and: [{ id: { in: selected } }, { site: { equals: siteID } }],
+    })
+
+    void fetch(`${collectionURL(apiRoute, 'media')}?${params.toString()}`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (response) => {
+        if (!response.ok) return [] as MediaDoc[]
+        const result = (await response.json()) as Paginated<MediaDoc>
+        return Array.isArray(result.docs) ? result.docs : []
+      })
+      .then((found) => {
+        if (!current) return
+        const byID = new Map(
+          found
+            .filter((doc) => isSvgMedia(doc) && doc.url)
+            .map((doc) => [String(doc.id), doc]),
+        )
+        setDocs(selected.map((id) => byID.get(id)).filter((doc): doc is MediaDoc => Boolean(doc)))
+      })
+      .catch(() => {
+        if (current) setDocs([])
+      })
+
+    return () => {
+      current = false
+    }
+  }, [apiRoute, idsKey, locale, siteID])
+
+  return docs
+}
+
+const AnimatedSvgPreviews = ({ docs, isPersian }: { docs: MediaDoc[]; isPersian: boolean }) => {
+  if (!docs.length) return null
+  return (
+    <div
+      aria-label={copy(isPersian, 'پیشنمایش نشان متحرک', 'Animated logo preview')}
+      className="tenant-media-upload__animated"
+    >
+      <span className="tenant-media-upload__animated-label">
+        {copy(isPersian, 'پیشنمایش نشان متحرک (فایل اصلی)', 'Animated logo preview (original file)')}
+      </span>
+      <div className="tenant-media-upload__animated-list">
+        {docs.map((doc) => (
+          <figure className="tenant-media-upload__animated-item" key={String(doc.id)}>
+            {/* A plain <img> keeps the original animated SVG; NextImage would freeze it. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img alt="" data-animated-svg="true" src={mediaPreviewUrl(doc)} />
+            <figcaption>{doc.filename || doc.alt || copy(isPersian, 'نشان', 'Logo')}</figcaption>
+          </figure>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const folderParentID = (folder: FolderDoc, fieldName: string): string | null =>
   relationID((folder as unknown as Record<string, unknown>)[fieldName])
@@ -415,9 +511,35 @@ const PickerDialog = ({
     if (!files?.length || !uploadAllowed) return
     setUploading(true)
     setError('')
+    const created: MediaDoc[] = []
+
+    const failUpload = (info: UploadErrorInfo, filename: string): never => {
+      const failure = new Error('Upload failed.') as UploadFailure
+      failure.uploadError = info
+      failure.filename = filename
+      throw failure
+    }
+    // A later file can fail after earlier ones were stored. Those are real media
+    // rows and must still become the field's selection; only the failed filename
+    // gets the error. The list refresh is skipped on failure so it cannot clear it.
+    const commitCreated = (refresh: boolean) => {
+      if (!created.length) return
+      setSelectedDocs((current) => ({
+        ...current,
+        ...Object.fromEntries(created.map((doc) => [String(doc.id), doc])),
+      }))
+      setSelectedIDs((current) => {
+        const merged = [...current]
+        for (const doc of created) {
+          const id = String(doc.id)
+          if (!merged.includes(id)) merged.push(id)
+        }
+        return maxRows && hasMany ? merged.slice(0, maxRows) : merged
+      })
+      if (refresh) void refreshMedia(1).catch(() => undefined)
+    }
 
     try {
-      const created: MediaDoc[] = []
       const remainingRows = maxRows && hasMany
         ? Math.max(0, maxRows - selectedIDs.length)
         : Number.POSITIVE_INFINITY
@@ -437,29 +559,30 @@ const PickerDialog = ({
           body: formData,
           credentials: 'include',
           method: 'POST',
-        })
-        if (!response.ok) throw new Error('Upload failed.')
-        const body = await response.json() as { doc?: MediaDoc } & MediaDoc
+        }).catch(() => failUpload(networkUploadError(), file.name))
+        if (!response.ok) failUpload(await parseUploadError(response), file.name)
+
+        const body = (await response
+          .json()
+          .catch(() => failUpload(unexpectedUploadError(), file.name))) as {
+          doc?: MediaDoc
+        } & MediaDoc
         const doc = body.doc ?? body
-        if (doc.id === undefined) throw new Error('Upload failed.')
+        if (doc.id === undefined) failUpload(unexpectedUploadError(), file.name)
         created.push(doc)
       }
 
-      setSelectedDocs((current) => ({
-        ...current,
-        ...Object.fromEntries(created.map((doc) => [String(doc.id), doc])),
-      }))
-      setSelectedIDs((current) => {
-        const merged = [...current]
-        for (const doc of created) {
-          const id = String(doc.id)
-          if (!merged.includes(id)) merged.push(id)
-        }
-        return maxRows && hasMany ? merged.slice(0, maxRows) : merged
-      })
-      await refreshMedia(1)
-    } catch {
-      setError(copy(isPersian, 'بارگذاری انجام نشد. نوع و اندازهٔ فایل را بررسی کنید.', 'Upload failed. Check the file type and size, then try again.'))
+      commitCreated(true)
+    } catch (error) {
+      const failure = error as Partial<UploadFailure>
+      commitCreated(false)
+      setError(
+        uploadErrorMessage(
+          failure.uploadError ?? unexpectedUploadError(),
+          failure.filename ?? '',
+          isPersian,
+        ),
+      )
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -601,6 +724,16 @@ const PickerDialog = ({
         )}
       </div>
 
+      {uploadAllowed && (
+        <p className="tenant-media-picker__hint">
+          {copy(
+            isPersian,
+            'راهنما: SVG حداکثر ۲۰۰ کیلوبایت، فقط عناصر ترسیمی، فیلترهای تار/ترکیب امن و انیمیشن CSS. بررسی نهایی روی سرور انجام میشود.',
+            'Hint: SVG up to 200 KB — drawing elements, safe blur/merge filters and CSS animation only. The server has the final say.',
+          )}
+        </p>
+      )}
+
       <div aria-live="polite" className="tenant-media-picker__status">
         {folderLoading && copy(isPersian, 'در حال بارگذاری پوشه‌ها…', 'Loading folders…')}
         {mediaLoading && copy(isPersian, 'در حال بارگذاری رسانه‌ها…', 'Loading media…')}
@@ -660,12 +793,18 @@ const PickerDialog = ({
         {visibleMedia.map((doc) => {
           const id = String(doc.id)
           const selected = selectedIDs.includes(id)
-          const thumbnail = doc.sizes?.thumbnail?.url || doc.url || ''
+          const thumbnail = mediaPreviewUrl(doc)
           const title = doc.alt || doc.filename || id
           const cannotAdd = !selected && selectionLimitReached
           const preview = (
             <span className="tenant-media-picker__thumb">
-              {thumbnail ? <img alt="" loading="lazy" src={thumbnail} /> : <span aria-hidden="true">▧</span>}
+              {thumbnail ? (
+                // A plain <img> shows validated uploads — including the original animated SVG — as-is.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img alt="" loading="lazy" src={thumbnail} />
+              ) : (
+                <span aria-hidden="true">▧</span>
+              )}
             </span>
           )
 
@@ -837,6 +976,9 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
     const values = Array.isArray(value) ? value : value === null || value === undefined || value === '' ? [] : [value]
     return values.map(relationID).filter((id): id is string => Boolean(id))
   }, [value])
+  const selectedSvgDocs = useSelectedSvgDocs(apiRoute, currentIDs, code, siteID)
+  const hasOnlySvgSelection =
+    selectedSvgDocs.length > 0 && selectedSvgDocs.length === currentIDs.length
   const inputValue: UploadInputProps['value'] = hasMany
     ? currentIDs.map((id) => ({ relationTo: 'media' as const, value: id }))
     : value as UploadInputProps['value']
@@ -867,7 +1009,7 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
           className="tenant-media-upload__native"
           Description={Description}
           description={field.admin?.description}
-          displayPreview={field.displayPreview}
+          displayPreview={hasOnlySvgSelection ? false : field.displayPreview}
           Error={Error}
           filterOptions={filterOptions}
           hasMany={hasMany}
@@ -909,6 +1051,7 @@ const TenantMediaUploadFieldComponent = (props: UploadFieldClientProps) => {
             </span>
           )}
         </div>
+        <AnimatedSvgPreviews docs={selectedSvgDocs} isPersian={isPersian} />
         <Drawer
           className="tenant-media-drawer"
           slug={drawerSlug}

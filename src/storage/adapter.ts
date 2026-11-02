@@ -128,7 +128,13 @@ export const s3ObjectStorageAdapter: Adapter = ({ collection, prefix = '' }) => 
       if (head.ETag) responseHeaders.append('ETag', head.ETag)
 
       if (head.ContentType === 'image/svg+xml') {
-        responseHeaders.append('Content-Security-Policy', "script-src 'none'")
+        // Same defence-in-depth policy as Payload's local `/api/media/file/*`
+        // handler. An accepted animated SVG still cannot run script, frame or
+        // embed another document from the customer's own origin.
+        responseHeaders.append(
+          'Content-Security-Policy',
+          "script-src 'none'; frame-src 'none'; object-src 'none'",
+        )
       }
 
       const incomingEtag = req.headers.get('etag') ?? req.headers.get('if-none-match')

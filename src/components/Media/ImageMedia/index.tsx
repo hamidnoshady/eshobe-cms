@@ -10,6 +10,7 @@ import type { Props as MediaProps } from '../types'
 
 import { cssVariables } from '@/cssVariables'
 import { getMediaUrl } from '@/utilities/getMediaUrl'
+import { isSvgMedia, type PreviewMedia } from '@/lib/mediaPreview'
 
 const { breakpoints } = cssVariables
 
@@ -41,14 +42,15 @@ const placeholderBlur =
  *   B) Provide a **custom loader** for CDN-specific transforms:
  *      const imageLoader: ImageLoader = ({ src, width, quality }) =>
  *        `https://cdn.example.com${src}?w=${width}&q=${quality ?? 75}`
- *      <Image loader={imageLoader} src="/media/hero.jpg" width={1200} height={600} alt="" />
  *   C) Skip optimization:
  *      <Image unoptimized src="https://cdn.example.com/hero.jpg" width={1200} height={600} alt="" />
  *
- * TL;DR: Template uses relative URLs + getMediaUrl() to construct full URLs, then relies on
- * remotePatterns for optimization. Only add `loader` if using external CDNs with custom transforms.
+ * SVG is the deliberate exception. Next.js' optimizer either refuses it or turns it into
+ * a static raster, which freezes a CSS-animated logo. An `<img>` pointing at the original
+ * upload URL keeps its `@keyframes` running; scripts cannot run in that context, and the
+ * file route answers with `script-src 'none'`. The URL is the same one `GET /api/site`
+ * publishes to deployed themes, so branding settings and the public site agree.
  */
-
 export const ImageMedia: React.FC<MediaProps> = (props) => {
   const {
     alt: altFromProps,
@@ -83,6 +85,38 @@ export const ImageMedia: React.FC<MediaProps> = (props) => {
 
   // NOTE: this is used by the browser to determine which image to download at different screen sizes
   const sizes = sizeFromProps ? sizeFromProps : defaultSizes
+
+  const rawSrc = typeof src === 'string' ? src : src.src
+  const isSvg =
+    (resource && typeof resource === 'object'
+      ? isSvgMedia(resource as unknown as PreviewMedia)
+      : false) || /\.svg(?:$|[?#])/i.test(rawSrc)
+
+  if (isSvg) {
+    return (
+      <picture
+        className={cn(pictureClassName)}
+        style={fill ? { position: 'relative' } : undefined}
+      >
+        <img
+          alt={alt || ''}
+          className={cn(imgClassName)}
+          data-animated-svg="true"
+          decoding="async"
+          height={!fill ? height : undefined}
+          loading={loading}
+          sizes={sizes}
+          src={rawSrc}
+          style={
+            fill
+              ? { height: '100%', inset: 0, objectFit: 'contain', position: 'absolute', width: '100%' }
+              : undefined
+          }
+          width={!fill ? width : undefined}
+        />
+      </picture>
+    )
+  }
 
   return (
     <picture className={cn(pictureClassName)}>

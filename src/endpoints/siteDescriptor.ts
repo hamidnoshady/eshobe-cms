@@ -171,6 +171,8 @@ export const siteDescriptor: Endpoint = {
         id: String(media.id ?? ''),
         mimeType: typeof media.mimeType === 'string' ? media.mimeType : null,
         updatedAt: typeof media.updatedAt === 'string' ? media.updatedAt : null,
+        // The original upload URL, never an `imageSizes` variant: a deployed theme
+        // renders this in an `<img>` so an animated SVG's CSS keyframes keep running.
         url: typeof media.url === 'string' ? media.url : null,
         width: typeof media.width === 'number' ? media.width : null,
       }
