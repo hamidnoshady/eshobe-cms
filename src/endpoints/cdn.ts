@@ -15,7 +15,7 @@ import {
   testCdnConnection,
   writeCdnOperationalState,
 } from '@/cdn/service'
-import { diffCdnZone, type CdnDiffResult } from '@/cdn/diff'
+import { adoptRemoteRecords, diffCdnZone, type CdnDiffResult } from '@/cdn/diff'
 import { providerCapabilities } from '@/cdn/capabilities'
 import { planZoneProbes, runZoneProbes, summarizeProbeResults } from '@/cdn/probe'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
@@ -461,6 +461,64 @@ export const cdnZoneHealth: Endpoint['handler'] = async (req) => {
     req.payload.logger.warn({
       err: error as Error,
       msg: `CDN health probe failed for ${zone.provider}:${zone.zoneName}`,
+    })
+    return response(
+      { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/adopt { id, providerRecordIds: string[] }
+ *
+ * Explicitly adopt foreign remote records into CMS management before sync will
+ * reconcile them. A remote record is only mutated by sync when the CMS owns it;
+ * adoption is the step that records ownership. Records whose remote id is not
+ * present, or that would collide, are refused. Platform staff only.
+ */
+export const cdnZoneAdopt: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const id = zoneId(data)
+  if (!id) return response({ message: 'id must be a UUID', ok: false }, 400)
+
+  const ids =
+    Array.isArray(data.providerRecordIds) &&
+    data.providerRecordIds.every((item) => typeof item === 'string')
+      ? (data.providerRecordIds as string[])
+      : null
+  if (data.providerRecordIds !== undefined && !ids)
+    return response({ message: 'providerRecordIds must be an array of strings', ok: false }, 400)
+
+  const raw = await zoneById(req, id)
+  if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
+  const zone = cdnZoneInput(raw)
+
+  try {
+    const credentialsZone = await withCdnCredentials(req, raw)
+    const discovered = await discoverCdnZone(credentialsZone)
+    const result = adoptRemoteRecords(credentialsZone, discovered.remote, ids ?? [])
+
+    await req.payload.update({
+      id: zone.id,
+      collection: 'cdn-zones',
+      data: { dnsRecords: result.zone.dnsRecords } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+    return response({
+      adopted: result.adopted,
+      ok: true,
+      refused: result.refused,
+      zone: zone.zoneName,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN adoption failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN adoption failed for ${zone.provider}:${zone.zoneName}`,
     })
     return response(
       { message, ok: false, zone: zone.zoneName },
@@ -936,6 +994,7 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnZoneDiscover, method: 'post', path: '/cdn/zones/discover' },
   { handler: cdnZoneDiff, method: 'post', path: '/cdn/zones/diff' },
   { handler: cdnZoneHealth, method: 'post', path: '/cdn/zones/health' },
+  { handler: cdnZoneAdopt, method: 'post', path: '/cdn/zones/adopt' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },

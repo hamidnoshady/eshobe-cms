@@ -158,8 +158,9 @@ Three staff-only endpoints complement the mutating `POST /api/cdn/sync`:
 | `POST /api/cdn/zones/discover` `{ id }` | Reads the authoritative remote state — zone, nameservers, DNS records and settings — without mutating anything. The "import existing state" step before adoption or reconciliation. |
 | `POST /api/cdn/zones/diff` `{ id }` | Dry-run preview: reads remote state and diffs it against the zone's desired state. Reports which records would be created (`new`), updated (`drifted`), already match (`in-sync`), are foreign and untouched (`external`), and which settings the provider does not support (`unsupported`). Read-only; the apply step is still `POST /api/cdn/sync`. |
 | `POST /api/cdn/zones/health` `{ id, allowPrivateOrigin? }` | Runs the bounded origin/edge probe pipeline and returns an origin-vs-public readiness verdict. Catches a site answering 200 locally while the public CDN path is broken — in particular an origin serving a default Traefik certificate. Only probes the zone's own origin target and zone name; private origin addresses are refused unless `allowPrivateOrigin: true`. |
+| `POST /api/cdn/zones/adopt` `{ id, providerRecordIds: string[] }` | Explicitly adopts foreign remote records into CMS management before sync will reconcile them. A remote record is only mutated by sync when the CMS owns it; adoption records that ownership. Records whose remote id is not present, or that would collide, are refused. |
 
-All four are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+All five are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
 
 #### Origin/edge probe pipeline
 
