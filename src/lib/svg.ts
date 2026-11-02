@@ -250,6 +250,9 @@ const SAFE_PAINT_VALUE = /^[\p{L}\p{N}\s#%.,()+\-/]+$/u
 const SAFE_CSS_VALUE = /^[\p{L}\p{N}\s#%.,:+\-_()/"'!*]+$/u
 const SAFE_SELECTOR = /^[\p{L}\p{N}\s#%.,:+\-_()\[\]="'~>*!|$^]+$/u
 const KEYFRAMES_AT_RULE = /^@(?:-webkit-)?keyframes\s+([A-Za-z_][A-Za-z0-9_-]*)\s*$/i
+// Only the reduced-motion accessibility override is permitted as an @media rule.
+const REDUCED_MOTION_AT_RULE = /^@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*$/i
+const SAFE_INSET = /^inset\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%)?(?:\s+-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|%)?){0,3}\s*\)$/i
 const KEYFRAME_SELECTOR =
   /^(?:from|to|\d+(?:\.\d+)?%)(?:\s*,\s*(?:from|to|\d+(?:\.\d+)?%))*$/i
 const CSS_DECLARATION = /^\s*(--[A-Za-z0-9_-]+|[A-Za-z][A-Za-z0-9-]*)\s*:\s*([\s\S]*?)\s*$/
@@ -269,6 +272,8 @@ const CSS_PROPERTIES = new Set([
   'stroke-dashoffset',
   'opacity',
   'color',
+  'color-scheme',
+  'r',
   'display',
   'visibility',
   'clip-path',
@@ -349,6 +354,7 @@ const CSS_FUNCTIONS = new Set([
   'matrix',
   'matrix3d',
   'perspective',
+  'inset',
 ])
 
 type RefKind = 'any' | 'filter' | 'clippath' | 'mask' | 'paint'
@@ -443,20 +449,44 @@ const splitDeclarations = (text: string): string[] | null => {
 const validateCssValue = (property: string, value: string, state: CssState): boolean => {
   if (value.length > 512 || !SAFE_CSS_VALUE.test(value)) return false
   if (BAD_VALUE.test(value) || /@/.test(value)) return false
-  const refs = localUrlRefs(value)
+  // A trailing !important is legitimate in a reduced-motion override.
+  // Always validate its underlying value against the normal property allowlist.
+  const cleanValue = value.replace(/\s*!important\s*$/i, '').trim()
+  if (!cleanValue || cleanValue.includes('!')) return false
+  const refs = localUrlRefs(cleanValue)
   if (!refs) return false
 
+  if (property === 'color-scheme') {
+    return /^(?:normal|light|dark|light dark|dark light|only light|only dark)$/i.test(cleanValue)
+  }
+  if (property === 'r') {
+    return /^(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/.test(cleanValue) &&
+      Number.parseFloat(cleanValue) <= 10_000
+  }
+
   if (property === 'filter') {
-    if (NONE_ONLY.test(value)) return true
-    const single = URL_REF_ONLY.exec(value)
+    if (NONE_ONLY.test(cleanValue)) return true
+    // Static local CSS blur: one nonnegative pixel radius within the same cap
+    // as <feGaussianBlur>. No filter chains or dynamic/external blur values.
+    const blur = /^blur\(\s*(0|(?:\d+(?:\.\d+)?|\.\d+)px)\s*\)$/i.exec(cleanValue)
+    if (blur) return Number.parseFloat(blur[1]!) <= maxStdDeviation
+    const single = URL_REF_ONLY.exec(cleanValue)
     if (!single || refs.length !== 1) return false
     if (++state.filterUses > maxFilterReferences) return false
     state.refs.push({ expects: 'filter', id: single[2]! })
     return true
   }
 
+  if (/\binset\s*\(/i.test(cleanValue)) {
+    if (property !== 'clip-path' && !property.startsWith('--')) return false
+    if (!SAFE_INSET.test(cleanValue)) return false
+    // Only bounded numeric edges, never external references or nested CSS.
+    const edges = cleanValue.slice(cleanValue.indexOf('(') + 1, -1).trim().split(/\s+/)
+    if (edges.some((edge) => Math.abs(Number.parseFloat(edge)) > 1_000)) return false
+  }
+
   if (refs.length) {
-    const single = URL_REF_ONLY.exec(value)
+    const single = URL_REF_ONLY.exec(cleanValue)
     if (!single || refs.length !== 1) return false
     const expects: RefKind =
       property === 'clip-path'
@@ -469,9 +499,9 @@ const validateCssValue = (property: string, value: string, state: CssState): boo
     state.refs.push({ expects, id: single[2]! })
   }
 
-  // Every function call in a CSS value is named. `url` was handled above; a name
-  // outside this set is a network-fetching / legacy-execution risk, not a value.
-  for (const match of value.matchAll(/([A-Za-z][A-Za-z0-9-]*)\s*\(/g)) {
+  // Unknown CSS functions remain forbidden. inset() passed its strict grammar
+  // above; blur() is permitted only by the dedicated filter branch.
+  for (const match of cleanValue.matchAll(/([A-Za-z][A-Za-z0-9-]*)\s*\(/g)) {
     const fn = match[1]!.toLowerCase()
     if (fn !== 'url' && !CSS_FUNCTIONS.has(fn)) return false
   }
@@ -502,22 +532,34 @@ const validateCssDeclarations = (
 /** A `<style>` body or `style=""` value: declarations + `@keyframes`, nothing that fetches. */
 const cssIsSafe = (css: string, state: CssState): boolean => {
   if (/[&<\\\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(css)) return false
-  // A CSS comment could hide a brace, a keyword or a second rule from this scanner.
-  if (/\/\*|\*\//.test(css)) return false
   if (BAD_VALUE.test(css)) return false
   if (localUrlRefs(css) === null) return false
 
-  type Frame = 'keyframe' | 'keyframes' | 'root' | 'rule'
+  type Frame = 'keyframe' | 'keyframes' | 'media' | 'root' | 'rule'
   const frames: Frame[] = ['root']
   let buffer = ''
   let quote: null | string = null
+  let commentCount = 0
+  let mediaCount = 0
 
-  for (const character of css) {
+  for (let i = 0; i < css.length; i++) {
+    const character = css[i]!
     if (quote) {
       buffer += character
       if (character === quote) quote = null
       continue
     }
+    // Allow only standalone comments between top-level rules. Ignore them
+    // for parsing, preserving their exact bytes in the validated/stored SVG.
+    // Comments inside selectors or declarations could change tokenization.
+    if (css.startsWith('/*', i)) {
+      if (frames.length !== 1 || buffer.trim() || ++commentCount > 32) return false
+      const end = css.indexOf('*/', i + 2)
+      if (end < 0 || end - i > 512) return false
+      i = end + 1
+      continue
+    }
+    if (css.startsWith('*/', i)) return false
     if (character === '"' || character === "'") {
       quote = character
       buffer += character
@@ -530,11 +572,17 @@ const cssIsSafe = (css: string, state: CssState): boolean => {
         if (KEYFRAMES_AT_RULE.test(prelude)) {
           if (++state.keyframes > maxKeyframes) return false
           frames.push('keyframes')
+        } else if (REDUCED_MOTION_AT_RULE.test(prelude)) {
+          if (++mediaCount > 4) return false
+          frames.push('media')
         } else if (isSafeSelector(prelude)) {
           frames.push('rule')
         } else {
           return false
         }
+      } else if (parent === 'media') {
+        if (!isSafeSelector(prelude)) return false
+        frames.push('rule')
       } else if (parent === 'keyframes') {
         if (!KEYFRAME_SELECTOR.test(prelude) || prelude.length > 128) return false
         frames.push('keyframe')
