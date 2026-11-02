@@ -132,6 +132,33 @@ A proxied record is limited to `A`, `AAAA` and `CNAME`, which carry HTTP/HTTPS o
 - A whole-zone purge is `POST /api/cdn/purge` with `{ "id": "<zone UUID>" }`; URL purge adds `"urls": ["https://example.com/media/a.jpg"]`. These responses are `Cache-Control: no-store`. Every sync/purge leaves a safe, immutable outcome in **رویدادهای CDN**; it contains action summaries only, never provider tokens or upstream response bodies.
 - General TLS, HTTP redirect, Cloudflare zone security level, Arvan WAF mode and Arvan DDoS challenge mode are reconciled as configured. Custom firewall/WAF rules are owned by CMS only when the relevant entitlement is explicitly confirmed.
 
+#### ArvanCloud origin TLS — `ssl.mode` is not a zone field
+
+ArvanCloud has **no** zone-level `ssl.mode` field. Its `/ssl` endpoint carries only `https_redirect`, `tls_version` (edge) and HSTS. The origin side of TLS is realised **per DNS record** via `upstream_https`. The CMS therefore maps the provider-neutral desired mode onto `upstream_https` and never claims a zone-level field it does not have:
+
+| desired `ssl.mode` | ArvanCloud `upstream_https` |
+| --- | --- |
+| `flexible` | `off` (edge HTTPS, HTTP to origin) |
+| `full` | `on` (HTTPS to origin) |
+| `strict` | `on` — **strict certificate validation is not exposed by the ArvanCloud API**, so it is reported as not fully verifiable rather than silently claimed |
+
+An explicit **ArvanCloud → مقصد origin و TLS → HTTPS تا origin (`upstream_https`)** control wins over `ssl.mode`. The same panel can set an origin port and an origin Host header / SNI. The edge minimum TLS (`ssl.minimumTls`) is normalised to ArvanCloud's `TLSv1.2` form before it is sent. Each sync records an `origin-tls-mode` action so the mapping is visible rather than a silent no-op.
+
+#### Per-zone origin override
+
+The shared `cdn-accounts.originTarget` is the default origin for a zone's proxied records, but a zone may set its own **مقصد origin** (with a reason and timestamp) so two sites on different physical deployments (Srv1 Traefik → Srv2 theme, multi-server) do not share one IP. A tenant never chooses its origin: the self-service flow always resolves the account's target, and a per-zone override is operator-only.
+
+#### Read-only discovery and connection test (staff)
+
+Two staff-only endpoints complement the mutating `POST /api/cdn/sync`:
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/cdn/zones/test-connection` `{ id }` | Validates the zone's credentials with a single read and records the outcome. Distinguishes a rejected token from a token that authenticates but cannot see the zone. Read-only at the provider. |
+| `POST /api/cdn/zones/discover` `{ id }` | Reads the authoritative remote state — zone, nameservers, DNS records and settings — without mutating anything. The "import existing state" step before adoption or reconciliation. |
+
+Both are platform-staff only; no API key qualifies. Their results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+
 ### Plans, premium capabilities and origin protection
 
 Provider plans and token permissions vary. The **قابلیت‌ها و entitlement پلن** checkboxes are deliberately opt-in evidence that the platform has purchased/confirmed a capability. Without the relevant entitlement, advanced cache behavior that ignores cookies and custom WAF/firewall rules are reported as **blocked**, not silently attempted or claimed successful. This lets future platform premium plans use the same capability model without granting a paid provider feature by mistake.

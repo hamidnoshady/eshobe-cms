@@ -8,9 +8,11 @@ import { isUuid } from '@/lib/ids'
 import {
   cdnZoneInput,
   CdnConfigurationError,
+  discoverCdnZone,
   formatCdnActions,
   purgeCdnZone,
   syncCdnZone,
+  testCdnConnection,
   writeCdnOperationalState,
 } from '@/cdn/service'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
@@ -19,6 +21,7 @@ import {
   assertZoneBelongsToSite,
   mergeTenantRecords,
   parseTenantRecords,
+  resolveOriginTarget,
   templateRecords,
   TenantCdnRefusal,
   type ZoneRecord,
@@ -232,10 +235,14 @@ export const cdnStatus: Endpoint['handler'] = async (req) => {
     req,
     select: {
       active: true,
+      lastConnectionTestAt: true,
+      lastConnectionTestOk: true,
+      lastDiscoverAt: true,
       lastPurgeAt: true,
       lastSyncAt: true,
       lastSyncDetail: true,
       lastSyncOk: true,
+      originTarget: true,
       provider: true,
       providerStatus: true,
       providerZoneId: true,
@@ -244,6 +251,102 @@ export const cdnStatus: Endpoint['handler'] = async (req) => {
     },
   })
   return response({ ok: true, zones: found.docs })
+}
+
+/**
+ * POST /api/cdn/zones/test-connection { id }
+ *
+ * Validate a zone's provider credentials with a single read, and record the
+ * outcome on the row. Read-only at the provider: it never creates, edits or
+ * deletes a zone, record or setting. This is the "is this token still good, and
+ * can it see this zone?" check an operator runs before a sync — separate from
+ * `POST /api/cdn/sync`, which mutates. Platform staff only; no API key qualifies.
+ */
+export const cdnZoneTestConnection: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const id = zoneId(await body(req))
+  if (!id) return response({ message: 'id must be a UUID', ok: false }, 400)
+
+  const raw = await zoneById(req, id)
+  if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
+  const zone = cdnZoneInput(raw)
+
+  try {
+    const result = await testCdnConnection(await withCdnCredentials(req, raw))
+    await req.payload.update({
+      id: zone.id,
+      collection: 'cdn-zones',
+      data: {
+        lastConnectionTestAt: result.checkedAt,
+        lastConnectionTestDetail: result.message.slice(0, 1000),
+        lastConnectionTestOk: result.ok,
+      },
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+    return response({ ...result, zone: zone.zoneName }, result.ok ? 200 : 502)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN connection test failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN connection test failed for ${zone.provider}:${zone.zoneName}`,
+    })
+    return response(
+      { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/discover { id }
+ *
+ * Read the authoritative remote state of a zone — zone, nameservers, DNS records
+ * and settings — without mutating anything. This is the "import existing state"
+ * step: the admin sees what is already at the provider (including which records
+ * carry the CMS marker) before adopting or reconciling it. Platform staff only.
+ */
+export const cdnZoneDiscover: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const id = zoneId(await body(req))
+  if (!id) return response({ message: 'id must be a UUID', ok: false }, 400)
+
+  const raw = await zoneById(req, id)
+  if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
+  const zone = cdnZoneInput(raw)
+
+  try {
+    const result = await discoverCdnZone(await withCdnCredentials(req, raw))
+    await req.payload.update({
+      id: zone.id,
+      collection: 'cdn-zones',
+      data: {
+        lastDiscoverAt: result.remote.readAt,
+        ...(result.remote.providerZoneId ? { providerZoneId: result.remote.providerZoneId } : {}),
+        ...(result.remote.status ? { providerStatus: result.remote.status } : {}),
+        ...(result.remote.nameservers.length
+          ? {
+              providerNameservers: result.remote.nameservers.map((hostname) => ({ hostname })),
+            }
+          : {}),
+      },
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+    return response({ actions: result.actions, ok: true, remote: result.remote, zone: zone.zoneName })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN discovery failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN discovery failed for ${zone.provider}:${zone.zoneName}`,
+    })
+    return response(
+      { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -564,7 +667,10 @@ export const siteCdnCreateZone: Endpoint['handler'] = async (req) => {
       candidate,
       candidate ? await otherSitesHostnames(req, String(site.id), candidate) : [],
     )
-    dnsRecords = templateRecords(site, zoneName, String(account.originTarget ?? ''))
+    // A tenant never chooses its origin; the shared account's target is resolved
+    // (and validated) here. A per-zone override is operator-only and is set on the
+    // row directly, never from tenant input.
+    dnsRecords = templateRecords(site, zoneName, resolveOriginTarget(null, account.originTarget).originTarget)
   } catch (error) {
     const refused = refusal(error)
     if (refused) return refused
@@ -706,6 +812,8 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnStatus, method: 'get', path: '/cdn/status' },
   { handler: cdnSync, method: 'post', path: '/cdn/sync' },
   { handler: cdnPurge, method: 'post', path: '/cdn/purge' },
+  { handler: cdnZoneTestConnection, method: 'post', path: '/cdn/zones/test-connection' },
+  { handler: cdnZoneDiscover, method: 'post', path: '/cdn/zones/discover' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },

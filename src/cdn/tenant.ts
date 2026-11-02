@@ -86,6 +86,30 @@ export const assertZoneBelongsToSite = (
 const relativeName = (hostname: string, zone: string): string =>
   hostname === zone ? '@' : hostname.slice(0, -(zone.length + 1))
 
+/** The effective origin a zone's proxied records should point at, and where it
+ * came from. A zone's own `originTarget` wins over the shared account's: two
+ * sites running on different physical deployments (Srv1 Traefik → Srv2 theme,
+ * multi-server) must not share one global IP. The provenance is returned so the
+ * caller can record an auditable override rather than silently reusing the
+ * account value. */
+export type OriginResolution = {
+  originTarget: string
+  reason?: string | null
+  source: 'zone' | 'account'
+}
+
+export const resolveOriginTarget = (
+  zoneOrigin: unknown,
+  accountOrigin: unknown,
+  zoneReason?: string | null,
+): OriginResolution => {
+  const zone = typeof zoneOrigin === 'string' ? zoneOrigin.trim() : ''
+  const account = typeof accountOrigin === 'string' ? accountOrigin.trim() : ''
+  if (zone) return { originTarget: zone, reason: zoneReason ?? null, source: 'zone' }
+  if (account) return { originTarget: account, source: 'account' }
+  throw new TenantCdnRefusal('مقصد origin پلتفرم تنظیم نشده است.', 409)
+}
+
 /** The platform's proxied records: every hostname of this site inside the zone,
  * pointing at the operator's origin. */
 export const templateRecords = (
