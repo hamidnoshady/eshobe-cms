@@ -157,8 +157,13 @@ Three staff-only endpoints complement the mutating `POST /api/cdn/sync`:
 | `POST /api/cdn/zones/test-connection` `{ id }` | Validates the zone's credentials with a single read and records the outcome. Distinguishes a rejected token from a token that authenticates but cannot see the zone. Read-only at the provider. |
 | `POST /api/cdn/zones/discover` `{ id }` | Reads the authoritative remote state — zone, nameservers, DNS records and settings — without mutating anything. The "import existing state" step before adoption or reconciliation. |
 | `POST /api/cdn/zones/diff` `{ id }` | Dry-run preview: reads remote state and diffs it against the zone's desired state. Reports which records would be created (`new`), updated (`drifted`), already match (`in-sync`), are foreign and untouched (`external`), and which settings the provider does not support (`unsupported`). Read-only; the apply step is still `POST /api/cdn/sync`. |
+| `POST /api/cdn/zones/health` `{ id, allowPrivateOrigin? }` | Runs the bounded origin/edge probe pipeline and returns an origin-vs-public readiness verdict. Catches a site answering 200 locally while the public CDN path is broken — in particular an origin serving a default Traefik certificate. Only probes the zone's own origin target and zone name; private origin addresses are refused unless `allowPrivateOrigin: true`. |
 
-All three are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+All four are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+
+#### Origin/edge probe pipeline
+
+`src/cdn/probe.ts` runs bounded, SSRF-guarded probes (DNS delegation, origin TCP, origin TLS with correct SNI, public CDN TLS) and classifies a default origin certificate (e.g. `TRAEFIK DEFAULT CERT`) as a failure rather than a healthy handshake. A site is `live` only when origin and public paths are healthy and no default certificate is served — the `graphitearc.com` regression fixture (Arvan edge → Srv1 Traefik → Srv2 theme) asserts this end to end.
 
 #### Provider capability matrix
 

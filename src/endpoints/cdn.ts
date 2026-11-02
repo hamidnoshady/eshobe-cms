@@ -17,6 +17,7 @@ import {
 } from '@/cdn/service'
 import { diffCdnZone, type CdnDiffResult } from '@/cdn/diff'
 import { providerCapabilities } from '@/cdn/capabilities'
+import { planZoneProbes, runZoneProbes, summarizeProbeResults } from '@/cdn/probe'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
 import { findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
 import {
@@ -386,6 +387,80 @@ export const cdnZoneDiff: Endpoint['handler'] = async (req) => {
     req.payload.logger.warn({
       err: error as Error,
       msg: `CDN diff failed for ${zone.provider}:${zone.zoneName}`,
+    })
+    return response(
+      { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/health { id, allowPrivateOrigin? }
+ *
+ * Run the bounded origin/edge probe pipeline and return an origin-vs-public
+ * readiness verdict. This is the diagnostic that catches a site answering 200
+ * locally while the public CDN path is broken — in particular an origin serving
+ * a default Traefik certificate. Platform staff only.
+ *
+ * The pipeline only probes the zone's own origin target and zone name, never a
+ * request-supplied URL. Private origin addresses are refused unless the caller
+ * explicitly passes `allowPrivateOrigin: true` (operator opt-in for staging).
+ */
+export const cdnZoneHealth: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const id = zoneId(data)
+  if (!id) return response({ message: 'id must be a UUID', ok: false }, 400)
+
+  const raw = await zoneById(req, id)
+  if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
+  const zone = cdnZoneInput(raw)
+
+  try {
+    const credentialsZone = await withCdnCredentials(req, raw)
+
+    // Resolve the shared account's origin target for the probe planner.
+    const accountRef = (raw as unknown as Record<string, unknown>).account as
+      | { id?: string }
+      | string
+      | null
+      | undefined
+    const accountId = typeof accountRef === 'string' ? accountRef : accountRef?.id
+    let accountOrigin: string | null = null
+    if (accountId) {
+      const account = (await req.payload.findByID({
+        collection: 'cdn-accounts',
+        depth: 0,
+        disableErrors: true,
+        id: accountId,
+        overrideAccess: true,
+        req,
+      })) as null | { originTarget?: string | null }
+      accountOrigin = account?.originTarget ?? null
+    }
+
+    const discovered = await discoverCdnZone(credentialsZone)
+    const probes = planZoneProbes(credentialsZone, discovered.remote, accountOrigin)
+    const results = await runZoneProbes(probes, {
+      allowPrivateOrigin: data.allowPrivateOrigin === true,
+    })
+    const verdict = summarizeProbeResults(results)
+
+    await req.payload.update({
+      id: zone.id,
+      collection: 'cdn-zones',
+      data: { lastDiscoverAt: discovered.remote.readAt },
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+    return response({ ok: true, probes: results, verdict, zone: zone.zoneName })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN health probe failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN health probe failed for ${zone.provider}:${zone.zoneName}`,
     })
     return response(
       { message, ok: false, zone: zone.zoneName },
@@ -860,6 +935,7 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnZoneTestConnection, method: 'post', path: '/cdn/zones/test-connection' },
   { handler: cdnZoneDiscover, method: 'post', path: '/cdn/zones/discover' },
   { handler: cdnZoneDiff, method: 'post', path: '/cdn/zones/diff' },
+  { handler: cdnZoneHealth, method: 'post', path: '/cdn/zones/health' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },
