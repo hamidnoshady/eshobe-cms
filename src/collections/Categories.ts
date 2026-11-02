@@ -8,6 +8,8 @@ import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
+import { migrationSourceField } from './fields/migrationSource'
+import { validateCategoryParent } from './hooks/validateCategoryParent'
 
 export const Categories: CollectionConfig = {
   slug: 'categories',
@@ -42,10 +44,20 @@ export const Categories: CollectionConfig = {
       position: undefined,
       slugify: slugifyField,
     }),
+    {
+      name: 'parent',
+      type: 'relationship',
+      label: 'دسته والد',
+      admin: {
+        description: 'درخت دسته‌های وردپرس در مهاجرت همین‌جا حفظ می‌شود؛ دسته بدون والد، ریشه است.',
+      },
+      relationTo: 'categories',
+    },
+    migrationSourceField({ optional: true }),
   ],
   hooks: {
     afterChange: [revalidateSiteGlobal('category')],
     afterDelete: [revalidateSiteGlobalDelete('category')],
-    beforeValidate: [uniqueSlugPerSite],
+    beforeValidate: [uniqueSlugPerSite, validateCategoryParent],
   },
 }

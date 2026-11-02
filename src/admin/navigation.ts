@@ -138,6 +138,8 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
       // list is the first destination here.
       collection('products'),
       collection('orders'),
+      collection('customers'),
+      collection('coupons'),
       collection('payment-gateways', 'پرداخت'),
       collection('store', 'تنظیمات فروشگاه'),
     ],
@@ -162,6 +164,18 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     // mapping). Design options live inside «طراحی سایت». A top-level route, never a tab.
     label: 'تنظیمات',
     entities: [view('theme-settings', 'تنظیمات پوسته'), collection('sites', 'تنظیمات سایت')],
+  },
+  {
+    // The WordPress/WooCommerce Migration Center (issue #166) is a settings
+    // surface of its own: the wizard view first (it owns every action), then
+    // the job/source ledgers it writes. The bookkeeping collections are
+    // operator support detail, not customer nav (`hiddenFromCustomers`).
+    label: 'مهاجرت',
+    entities: [
+      view('migration-center', 'مرکز مهاجرت'),
+      collection('migration-jobs'),
+      collection('migration-sources'),
+    ],
   },
 ]
 
@@ -256,6 +270,15 @@ export const INTERNAL_SUPPORT_COLLECTIONS = new Set([
   'site-theme-settings',
   'theme-artifacts',
   'theme-bindings',
+  // The migration importer's working ledgers: reached from a job's context
+  // or by support deep link, never assembled by hand from the sidebar.
+  'migration-batches',
+  'migration-mappings',
+  'migration-records',
+  'migration-events',
+  'migration-errors',
+  'migration-redirects',
+  'migration-audits',
 ])
 
 /** Group name for any visible entity this map did not place — see the file header. */

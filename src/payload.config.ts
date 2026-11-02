@@ -35,6 +35,17 @@ import { ContentTypeDefinitions } from './collections/ContentTypeDefinitions'
 import { EntryTermRelations } from './collections/EntryTermRelations'
 import { TaxonomyDefinitions } from './collections/TaxonomyDefinitions'
 import { TaxonomyTerms } from './collections/TaxonomyTerms'
+import { Coupons } from './collections/Coupons'
+import { Customers } from './collections/Customers'
+import { MigrationAudits } from './collections/MigrationAudits'
+import { MigrationBatches } from './collections/MigrationBatches'
+import { MigrationErrors } from './collections/MigrationErrors'
+import { MigrationEvents } from './collections/MigrationEvents'
+import { MigrationJobs } from './collections/MigrationJobs'
+import { MigrationMappings } from './collections/MigrationMappings'
+import { MigrationRecords } from './collections/MigrationRecords'
+import { MigrationRedirects } from './collections/MigrationRedirects'
+import { MigrationSources } from './collections/MigrationSources'
 import { Orders } from './collections/Orders'
 import { PaymentGateways } from './collections/PaymentGateways'
 import { Plans } from './collections/Plans'
@@ -71,10 +82,12 @@ import { billingIntegrationTask } from './billing/task'
 import { advanceDeploymentsTask } from './deploy/task'
 import { storageHealthCheckTask } from './storage/task'
 import { cdnZoneSyncTask } from './cdn/task'
+import { migrationJobsTask } from './lib/migration/task'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
 import { checkoutEndpoints } from './endpoints/checkout'
+import { migrationCenterEndpoints } from './endpoints/migrationCenter'
 import { cdnEndpoints } from './endpoints/cdn'
 import { domainCheck } from './endpoints/domainCheck'
 import { domainResellerEndpoints } from './endpoints/domainReseller'
@@ -133,6 +146,10 @@ export default buildConfig({
     handoffEndpoint,
     handoffPostEndpoint,
     ...checkoutEndpoints,
+    // Migration Center owner API (`/api/site/migration…`): session-only and
+    // site-membership checked per request; `/site/*` is not a collection
+    // slug, so these top-level endpoints are reachable (see migrationCenter.ts).
+    ...migrationCenterEndpoints,
     // The api-keys lifecycle trio (`/issue`, `/list`, `/revoke`) and
     // `/storage-connections/self-test` are **not** here — they are collection
     // endpoints, on `ApiKeys` and `StorageConnections` respectively. Payload
@@ -225,6 +242,11 @@ export default buildConfig({
        * left behind a document tab — see CLAUDE.md, «Settings placement».
        */
       views: {
+        migrationCenter: {
+          Component: '@/admin/MigrationCenterPageView',
+          meta: { title: 'مرکز مهاجرت' },
+          path: '/migration-center',
+        },
         themeSettings: {
           Component: '@/deploy/admin/ThemeSettingsPageView',
           meta: { title: 'تنظیمات پوسته' },
@@ -313,7 +335,23 @@ export default buildConfig({
     // plugin's `collections` map (src/plugins/index.ts) — see the rule in CLAUDE.md.
     Products,
     Orders,
+    Customers,
+    Coupons,
     Store,
+    // Issue #166 — the WordPress/WooCommerce Migration Center's working
+    // schema: the connector row, one job per (site, source), and its
+    // batches/mappings/idempotency-ledger/events/errors/redirects/audits.
+    // Every row belongs to exactly one site and is registered in the
+    // multi-tenant plugin's map in the same change.
+    MigrationSources,
+    MigrationJobs,
+    MigrationBatches,
+    MigrationMappings,
+    MigrationRecords,
+    MigrationEvents,
+    MigrationErrors,
+    MigrationRedirects,
+    MigrationAudits,
     // Wave 10 — one row per (site, gateway), holding the AES-encrypted credentials a
     // platform admin typed and the tenant's own on/off switch. In the multi-tenant
     // plugin's `collections` map for the reason CLAUDE.md states: unregistered means
@@ -559,6 +597,9 @@ export default buildConfig({
       billingIntegrationTask,
       // Tenant CDN self-service: provider calls run here, never in the request.
       cdnZoneSyncTask,
+      // Migration Center: drains queued WordPress/WooCommerce jobs; the
+      // wizard request only stamps `runRequestedAt`.
+      migrationJobsTask,
     ],
   },
   /**

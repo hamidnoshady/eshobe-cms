@@ -30,7 +30,7 @@ const NAMED_ENTITIES: Record<string, string> = {
   zwnj: '‌',
 }
 
-const decodeEntities = (text: string): string =>
+export const decodeHtmlEntities = (text: string): string =>
   text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (whole, body: string) => {
     if (body.startsWith('#')) {
       const codePoint = body.startsWith('#x') || body.startsWith('#X')
@@ -60,7 +60,7 @@ export const htmlToPlainText = (html?: null | string): string => {
     .replace(/<li\b[^>]*>/gi, '• ')
     .replace(/<[^>]+>/g, ' ')
 
-  return decodeEntities(text)
+  return decodeHtmlEntities(text)
     .replace(/[ \t\f\v]+/g, ' ')
     .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

@@ -147,6 +147,22 @@ const isUnscopedAnonymousRequest = async (req: PayloadRequest): Promise<boolean>
 }
 
 /**
+ * Redirect routing only: staff over HTTP, plus the built-in renderer's
+ * Local-API lookup.
+ *
+ * Redirect rules are not a public list — an anonymous REST caller must not be
+ * able to enumerate a site's retired URLs — but the anonymous page request
+ * still needs the one rule for its current path. `findForSite` makes that
+ * Local-API call with no request of its own, so Payload synthesizes empty
+ * headers; every real HTTP request carries `Host`. The no-Host branch is
+ * therefore reachable only from trusted server code, and `findForSite` still
+ * supplies the exact tenant constraint. Do not reuse this for a collection
+ * whose documents themselves are content or customer data.
+ */
+export const redirectRoutingRead: Access = ({ req }) =>
+  Boolean(req.user) || !req.headers?.get?.('host')
+
+/**
  * For public collections **without** drafts (media, categories, the per-site
  * singletons): the tenant, or whatever the collection already allowed.
  */

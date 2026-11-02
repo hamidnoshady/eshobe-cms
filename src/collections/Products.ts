@@ -16,6 +16,8 @@ import { revalidateSiteDoc, revalidateSiteDocDelete } from '../hooks/revalidateS
 import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { validatePriceMinor } from '../lib/money'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
+import { migrationSourceField } from './fields/migrationSource'
+import { validateProductCommerce } from './hooks/validateProductCommerce'
 
 /**
  * The catalogue of a `store` site: one product, one price, buyable straight from
@@ -163,6 +165,163 @@ export const Products: CollectionConfig<'products'> = {
       // is what the checkbox is for.
       required: true,
     },
+    {
+      name: 'body',
+      type: 'richText',
+      label: 'توضیح کامل',
+      localized: true,
+    },
+    {
+      name: 'productType',
+      type: 'select',
+      label: 'گونه محصول',
+      admin: {
+        description:
+          'ساده مستقیم خریده می‌شود؛ متغیر از روی تنوع‌ها؛ گروهی چند محصول را کنار هم می‌گذارد؛ خارجی به نشانی بیرونی می‌رود و در سبد ای‌شوب فروخته نمی‌شود.',
+      },
+      defaultValue: 'simple',
+      options: [
+        { label: 'ساده', value: 'simple' },
+        { label: 'متغیر (با تنوع)', value: 'variable' },
+        { label: 'گروهی', value: 'grouped' },
+        { label: 'خارجی/وابسته', value: 'external' },
+      ],
+    },
+    {
+      type: 'row',
+      fields: [
+        { name: 'virtual', type: 'checkbox', label: 'مجازی (بدون ارسال)', admin: { width: '50' }, defaultValue: false },
+        { name: 'downloadable', type: 'checkbox', label: 'دانلودی', admin: { width: '50' }, defaultValue: false },
+      ],
+    },
+    {
+      name: 'externalUrl',
+      type: 'text',
+      label: 'نشانی محصول خارجی',
+      admin: { condition: (_data, siblingData) => siblingData?.productType === 'external' },
+    },
+    {
+      name: 'buttonText',
+      type: 'text',
+      label: 'متن دکمه خارجی',
+      admin: { condition: (_data, siblingData) => siblingData?.productType === 'external' },
+      localized: true,
+    },
+    {
+      name: 'groupedProducts',
+      type: 'relationship',
+      label: 'محصول‌های گروه',
+      admin: { condition: (_data, siblingData) => siblingData?.productType === 'grouped' },
+      hasMany: true,
+      relationTo: 'products',
+    },
+    {
+      name: 'gallery',
+      type: 'upload',
+      label: 'نگارخانه',
+      hasMany: true,
+      relationTo: 'media',
+    },
+    {
+      name: 'attributes',
+      type: 'array',
+      label: 'ویژگی‌ها',
+      labels: { plural: 'ویژگی‌ها', singular: 'ویژگی' },
+      fields: [
+        { name: 'key', type: 'text', label: 'کلید', required: true },
+        { name: 'name', type: 'text', label: 'نام', localized: true, required: true },
+        { name: 'visible', type: 'checkbox', label: 'نمایش در صفحه محصول', defaultValue: true },
+        { name: 'usedForVariation', type: 'checkbox', label: 'استفاده در تنوع', defaultValue: false },
+        {
+          name: 'options',
+          type: 'array',
+          label: 'گزینه‌ها',
+          labels: { plural: 'گزینه‌ها', singular: 'گزینه' },
+          fields: [{ name: 'value', type: 'text', label: 'مقدار', localized: true, required: true }],
+        },
+      ],
+    },
+    {
+      name: 'variations',
+      type: 'array',
+      label: 'تنوع‌ها',
+      admin: {
+        condition: (_data, siblingData) => siblingData?.productType === 'variable',
+        description: 'خرید با «کلید» هر تنوع انجام می‌شود و سطر سفارش همان کلید و قیمت زمان خرید را نگه می‌دارد.',
+      },
+      labels: { plural: 'تنوع‌ها', singular: 'تنوع' },
+      fields: [
+        { name: 'key', type: 'text', label: 'کلید پایدار', index: true },
+        { name: 'label', type: 'text', label: 'برچسب', localized: true },
+        { name: 'sku', type: 'text', label: 'کد کالا', index: true },
+        { name: 'price', type: 'number', label: 'قیمت', min: 0, required: true, validate: validatePriceMinor },
+        { name: 'compareAtPrice', type: 'number', label: 'قیمت پیشین', min: 0, validate: validatePriceMinor },
+        { name: 'trackInventory', type: 'checkbox', label: 'موجودی جدا بشمار', defaultValue: false },
+        {
+          name: 'inventory',
+          type: 'number',
+          label: 'موجودی تنوع',
+          admin: { condition: (_data, siblingData) => Boolean(siblingData?.trackInventory) },
+          min: 0,
+        },
+        { name: 'image', type: 'upload', label: 'تصویر تنوع', relationTo: 'media' },
+        {
+          name: 'attributeValues',
+          type: 'json',
+          label: 'مقادیر ویژگی‌ها',
+          admin: { description: 'نگاشت کلید ویژگی به گزینه انتخاب‌شده؛ مثل {"color":"قرمز"}.' },
+        },
+        { name: 'active', type: 'checkbox', label: 'فعال', defaultValue: true },
+        { name: 'weight', type: 'text', label: 'وزن' },
+        { name: 'sourceId', type: 'text', label: 'شناسه تنوع در مبدأ', index: true },
+        { name: 'sourceStatus', type: 'text', label: 'وضعیت در مبدأ' },
+      ],
+    },
+    {
+      name: 'terms',
+      type: 'relationship',
+      label: 'واژه‌های طبقه‌بندی',
+      admin: {
+        description: 'دسته/برچسب محصول و دیگر طبقه‌بندی‌ها؛ هر واژه طبقه‌بندی خودش را دارد و با دسته نوشته‌ها قاطی نمی‌شود.',
+      },
+      hasMany: true,
+      relationTo: 'taxonomy-terms',
+    },
+    {
+      type: 'row',
+      fields: [
+        {
+          name: 'upsells',
+          type: 'relationship',
+          label: 'فروش مکمل (upsell)',
+          admin: { width: '50' },
+          hasMany: true,
+          relationTo: 'products',
+        },
+        {
+          name: 'crossSells',
+          type: 'relationship',
+          label: 'فروش جانبی (cross-sell)',
+          admin: { width: '50' },
+          hasMany: true,
+          relationTo: 'products',
+        },
+      ],
+    },
+    {
+      type: 'row',
+      fields: [
+        { name: 'weight', type: 'text', label: 'وزن', admin: { width: '25' } },
+        { name: 'length', type: 'text', label: 'طول', admin: { width: '25' } },
+        { name: 'width', type: 'text', label: 'عرض', admin: { width: '25' } },
+        { name: 'height', type: 'text', label: 'ارتفاع', admin: { width: '25' } },
+      ],
+    },
+    { name: 'metaTitle', type: 'text', label: 'عنوان سئو', localized: true },
+    { name: 'metaDescription', type: 'textarea', label: 'توضیح سئو', localized: true },
+    { name: 'canonicalUrl', type: 'text', label: 'نشانی کانونی' },
+    { name: 'noindex', type: 'checkbox', label: 'در موتور جست‌وجو نمایه نشود', defaultValue: false },
+    migrationSourceField({ optional: true }),
   ],
   versions: {
     drafts: {
@@ -177,6 +336,6 @@ export const Products: CollectionConfig<'products'> = {
     // Access only checked that a site key exists — never trust the payload's own
     // `site` value on a key-authorized write.
     beforeChange: [forceApiKeySite],
-    beforeValidate: [enforceQuota('products'), uniqueSlugPerSite],
+    beforeValidate: [enforceQuota('products'), uniqueSlugPerSite, validateProductCommerce],
   },
 }

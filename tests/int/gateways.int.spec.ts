@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import type { Field } from 'payload'
 
@@ -609,20 +609,34 @@ describe('callback state signature', () => {
 
   it('refuses a signature that has expired', () => {
     const original = process.env.PAYMENT_GATEWAY_STATE_TTL_MS
-    const state = signGatewayState(claims)
 
-    // Shrinking the window after signing is the same thing as waiting: the deadline is
-    // inside the token, not inside the verifier's memory.
-    process.env.PAYMENT_GATEWAY_STATE_TTL_MS = '1'
+    // `issuedAt` is deliberately second-granular, so the un-faked version of
+    // this assertion is a race with the wall clock: sign in the first
+    // millisecond of a second, verify immediately with a 1ms TTL, and the
+    // token is legitimately still inside its window. Fake only `Date` (the
+    // signer and verifier use no timers) and move time forward explicitly.
+    vi.useFakeTimers({ toFake: ['Date'] })
 
     try {
+      const issuedAt = new Date('2026-01-01T00:00:00.000Z')
+
+      vi.setSystemTime(issuedAt)
+      const state = signGatewayState(claims)
+
+      // Shrinking the window after signing is the same thing as waiting: the deadline is
+      // inside the token, not inside the verifier's memory.
+      process.env.PAYMENT_GATEWAY_STATE_TTL_MS = '1'
+      vi.setSystemTime(issuedAt.getTime() + 2)
+
       expect(verifyGatewayState(state, claims)).toBe(false)
+
+      // Read per call, so restoring it makes the same token valid again.
+      process.env.PAYMENT_GATEWAY_STATE_TTL_MS = original
+      expect(verifyGatewayState(state, claims)).toBe(true)
     } finally {
       process.env.PAYMENT_GATEWAY_STATE_TTL_MS = original
+      vi.useRealTimers()
     }
-
-    // Read per call, so restoring it makes the same token valid again.
-    expect(verifyGatewayState(state, claims)).toBe(true)
   })
 
   it('refuses a token whose shape is wrong before it compares anything', () => {

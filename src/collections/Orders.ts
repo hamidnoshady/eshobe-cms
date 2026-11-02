@@ -4,23 +4,26 @@ import { authenticated } from '../access/authenticated'
 import { platformAdmin } from '../access/platformAdmin'
 import { hiddenFromOperators } from '@/admin/visibility'
 import { apiKeyAware } from '../access/siteApiKey'
-import { MAX_ORDER_QUANTITY } from '../lib/checkout'
 import { currencyCodes, validatePriceMinor } from '../lib/money'
+import { isMigrationWrite } from '../lib/migration-context'
+import { idOf } from '../lib/ids'
 import { isGatewayProvider, paymentProviderOptions } from '../payments'
 import { restrictApiKeyOrderWrite } from './hooks/restrictApiKeyOrderWrite'
 import { snapshotOrder } from './hooks/snapshotOrder'
 import { emitOrderPaid } from './hooks/emitOrderPaid'
 import { emitOrderReversal } from './hooks/emitOrderReversal'
 import { settleStock } from './hooks/settleStock'
+import { migrationSourceField } from './fields/migrationSource'
+import { validateOrderCommerce } from './hooks/validateOrderCommerce'
 
 /**
- * One line-item order: a buyer asked to buy a product, and the money either arrived
- * or it did not.
- *
- * No cart. The catalogue's buy button turns one product and a quantity into this
- * row, which is the whole of what PLAN §6 decision #5 asked for ("catalog + checkout
- * first, cart later") and the shape the Wave 7 spike landed on. A `cart` document
- * would only be worth its keep once a store can hold more than one line.
+ * An order. The storefront's buy button still creates the original
+ * one-product order, but the row is now genuinely multi-line (`items`) so a
+ * WooCommerce order is never flattened into its first product (issue #166).
+ * The historic `product`/`quantity`/`unitPrice` fields remain as a mirror of
+ * the first line: checkout, receipts, the theme API and pre-existing rows
+ * keep the shape they have always read, while totals, coupons, shipping,
+ * tax, refunds and payment history live in the expanded fields below.
  *
  * Prices are **snapshots**, in the site's minor currency unit: a product's price
  * changes next season, the order must still say what was paid. Same for `currency`
@@ -111,7 +114,11 @@ export const Orders: CollectionConfig<'orders'> = {
           type: 'number',
           label: 'تعداد',
           defaultValue: 1,
-          max: MAX_ORDER_QUANTITY,
+          // The storefront still caps a fresh purchase at `MAX_ORDER_QUANTITY`
+          // in the checkout endpoint. The stored row must also be able to say
+          // what a historical Woo order actually contained, so the schema
+          // ceiling is a sanity bound, not the purchasable limit.
+          max: 1000000,
           min: 1,
           required: true,
           admin: { width: '50' },
@@ -180,8 +187,21 @@ export const Orders: CollectionConfig<'orders'> = {
           admin: {
             description: 'برای هماهنگی ارسال. فقط رقم.',
           },
-          validate: (value: string | null | undefined) => {
+          validate: (value: string | null | undefined, options?: unknown) => {
             if (!value) return true
+
+            // A historical import preserves the phone the source order
+            // actually carried (landline, foreign, legacy formatting). That
+            // is archived business data under an audited migration context,
+            // not a new buyer typing at checkout — checkout keeps the
+            // Iranian-mobile rule below.
+            const root = options as
+              | undefined
+              | { data?: { site?: unknown }; req?: Parameters<typeof isMigrationWrite>[0] }
+            if (root?.req && isMigrationWrite(root.req, idOf(root.data?.site) ?? undefined)) {
+              return true
+            }
+
             const digits = String(value).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
 
             return /^0?9\d{9}$/.test(digits)
@@ -266,11 +286,170 @@ export const Orders: CollectionConfig<'orders'> = {
         },
       ],
     },
+    {
+      name: 'items',
+      type: 'array',
+      label: 'سطرهای سفارش',
+      admin: {
+        description: 'سطر اول در فیلدهای قدیمی «محصول/تعداد/قیمت» هم بازتاب می‌یابد تا API و رسیدهای قبلی همان بمانند.',
+      },
+      labels: { plural: 'سطرها', singular: 'سطر' },
+      fields: [
+        { name: 'product', type: 'relationship', label: 'محصول', relationTo: 'products', required: true },
+        { name: 'productTitle', type: 'text', label: 'عنوان هنگام خرید', required: true },
+        { name: 'variationKey', type: 'text', label: 'کلید تنوع', index: true },
+        { name: 'variationLabel', type: 'text', label: 'برچسب تنوع هنگام خرید' },
+        { name: 'sku', type: 'text', label: 'کد کالا هنگام خرید' },
+        { name: 'quantity', type: 'number', label: 'تعداد', max: 1000000, min: 1, required: true },
+        { name: 'unitPrice', type: 'number', label: 'قیمت واحد', min: 0, required: true, validate: validatePriceMinor },
+        { name: 'subtotal', type: 'number', label: 'جمع پیش از تخفیف', min: 0, required: true, validate: validatePriceMinor },
+        { name: 'taxTotal', type: 'number', label: 'مالیات سطر', defaultValue: 0, min: 0, validate: validatePriceMinor },
+        { name: 'total', type: 'number', label: 'جمع سطر پس از تخفیف', min: 0, required: true, validate: validatePriceMinor },
+        { name: 'sourceLineId', type: 'text', label: 'شناسه سطر در مبدأ', index: true },
+      ],
+    },
+    {
+      name: 'customer',
+      type: 'relationship',
+      label: 'مشتری فروشگاه',
+      relationTo: 'customers',
+    },
+    { name: 'customerNote', type: 'textarea', label: 'یادداشت مشتری' },
+    {
+      name: 'billingAddress',
+      type: 'group',
+      label: 'نشانی صورت‌حساب',
+      fields: [
+        { name: 'firstName', type: 'text', label: 'نام' },
+        { name: 'lastName', type: 'text', label: 'نام خانوادگی' },
+        { name: 'company', type: 'text', label: 'شرکت' },
+        { name: 'address1', type: 'text', label: 'نشانی ۱' },
+        { name: 'address2', type: 'text', label: 'نشانی ۲' },
+        { name: 'city', type: 'text', label: 'شهر' },
+        { name: 'state', type: 'text', label: 'استان' },
+        { name: 'postcode', type: 'text', label: 'کد پستی' },
+        { name: 'country', type: 'text', label: 'کشور' },
+        { name: 'phone', type: 'text', label: 'تلفن' },
+        { name: 'email', type: 'email', label: 'ایمیل' },
+      ],
+    },
+    {
+      name: 'shippingAddress',
+      type: 'group',
+      label: 'نشانی ارسال',
+      fields: [
+        { name: 'firstName', type: 'text', label: 'نام' },
+        { name: 'lastName', type: 'text', label: 'نام خانوادگی' },
+        { name: 'company', type: 'text', label: 'شرکت' },
+        { name: 'address1', type: 'text', label: 'نشانی ۱' },
+        { name: 'address2', type: 'text', label: 'نشانی ۲' },
+        { name: 'city', type: 'text', label: 'شهر' },
+        { name: 'state', type: 'text', label: 'استان' },
+        { name: 'postcode', type: 'text', label: 'کد پستی' },
+        { name: 'country', type: 'text', label: 'کشور' },
+        { name: 'phone', type: 'text', label: 'تلفن' },
+        { name: 'email', type: 'email', label: 'ایمیل' },
+      ],
+    },
+    {
+      type: 'row',
+      fields: [
+        { name: 'subtotal', type: 'number', label: 'جمع سطرها', admin: { width: '25' }, min: 0, validate: validatePriceMinor },
+        { name: 'discountTotal', type: 'number', label: 'تخفیف', admin: { width: '25' }, defaultValue: 0, min: 0, validate: validatePriceMinor },
+        { name: 'shippingTotal', type: 'number', label: 'هزینه ارسال', admin: { width: '25' }, defaultValue: 0, min: 0, validate: validatePriceMinor },
+        { name: 'taxTotal', type: 'number', label: 'مالیات', admin: { width: '25' }, defaultValue: 0, min: 0, validate: validatePriceMinor },
+      ],
+    },
+    {
+      name: 'coupons',
+      type: 'array',
+      label: 'کوپن‌های اعمال‌شده',
+      labels: { plural: 'کوپن‌ها', singular: 'کوپن' },
+      fields: [
+        { name: 'coupon', type: 'relationship', label: 'کوپن', relationTo: 'coupons' },
+        { name: 'code', type: 'text', label: 'کد هنگام خرید', required: true },
+        { name: 'discount', type: 'number', label: 'مبلغ تخفیف', defaultValue: 0, min: 0, validate: validatePriceMinor },
+      ],
+    },
+    {
+      name: 'shippingLines',
+      type: 'array',
+      label: 'سطرهای ارسال',
+      labels: { plural: 'سطرهای ارسال', singular: 'سطر ارسال' },
+      fields: [
+        { name: 'methodId', type: 'text', label: 'شناسه روش' },
+        { name: 'methodTitle', type: 'text', label: 'عنوان روش', required: true },
+        { name: 'total', type: 'number', label: 'هزینه', defaultValue: 0, min: 0, validate: validatePriceMinor },
+        { name: 'taxTotal', type: 'number', label: 'مالیات ارسال', defaultValue: 0, min: 0, validate: validatePriceMinor },
+      ],
+    },
+    {
+      name: 'taxLines',
+      type: 'array',
+      label: 'سطرهای مالیات',
+      labels: { plural: 'سطرهای مالیات', singular: 'سطر مالیات' },
+      fields: [
+        { name: 'label', type: 'text', label: 'عنوان', required: true },
+        { name: 'rateCode', type: 'text', label: 'کد نرخ' },
+        { name: 'ratePercent', type: 'number', label: 'درصد', min: 0 },
+        { name: 'taxTotal', type: 'number', label: 'مالیات کالا', defaultValue: 0, min: 0, validate: validatePriceMinor },
+        { name: 'shippingTaxTotal', type: 'number', label: 'مالیات ارسال', defaultValue: 0, min: 0, validate: validatePriceMinor },
+      ],
+    },
+    {
+      name: 'fees',
+      type: 'array',
+      label: 'هزینه‌های دیگر',
+      labels: { plural: 'هزینه‌ها', singular: 'هزینه' },
+      fields: [
+        { name: 'name', type: 'text', label: 'عنوان', required: true },
+        {
+          name: 'total',
+          type: 'number',
+          label: 'مبلغ (منفی یعنی کسر از سفارش)',
+          required: true,
+          validate: (value: number | null | undefined) =>
+            value === null || value === undefined || Number.isInteger(value)
+              ? true
+              : 'مبلغ هزینه باید عدد صحیح در واحد خرد باشد.',
+        },
+        { name: 'taxTotal', type: 'number', label: 'مالیات', defaultValue: 0, min: 0, validate: validatePriceMinor },
+      ],
+    },
+    {
+      name: 'refunds',
+      type: 'array',
+      label: 'بازپرداخت‌ها',
+      labels: { plural: 'بازپرداخت‌ها', singular: 'بازپرداخت' },
+      fields: [
+        { name: 'sourceId', type: 'text', label: 'شناسه در مبدأ', index: true },
+        { name: 'amount', type: 'number', label: 'مبلغ', min: 0, required: true, validate: validatePriceMinor },
+        { name: 'reason', type: 'textarea', label: 'دلیل' },
+        { name: 'refundedAt', type: 'date', label: 'زمان بازپرداخت' },
+        { name: 'transactionId', type: 'text', label: 'شناسه تراکنش' },
+      ],
+    },
+    {
+      name: 'paymentHistory',
+      type: 'array',
+      label: 'تاریخچه پرداخت',
+      labels: { plural: 'رویدادهای پرداخت', singular: 'رویداد پرداخت' },
+      fields: [
+        { name: 'methodId', type: 'text', label: 'شناسه روش مبدأ' },
+        { name: 'methodTitle', type: 'text', label: 'عنوان روش' },
+        { name: 'transactionId', type: 'text', label: 'شناسه تراکنش' },
+        { name: 'status', type: 'text', label: 'وضعیت' },
+        { name: 'amount', type: 'number', label: 'مبلغ', min: 0, validate: validatePriceMinor },
+        { name: 'paidAt', type: 'date', label: 'زمان' },
+        { name: 'note', type: 'textarea', label: 'یادداشت' },
+      ],
+    },
+    migrationSourceField({ optional: true }),
   ],
   hooks: {
     afterChange: [settleStock, emitOrderPaid, emitOrderReversal],
     beforeChange: [restrictApiKeyOrderWrite],
-    beforeValidate: [snapshotOrder],
+    beforeValidate: [validateOrderCommerce, snapshotOrder],
   },
   timestamps: true,
 }

@@ -75,7 +75,7 @@ const metaKeysOf = (record: Record<string, unknown>): string[] => {
  * tax + fees ≡ total, in exact minor units at the source's decimals. A
  * mismatch is not "close enough" — it is listed, and it blocks.
  */
-const checkOrderMoney = (
+export const reconcileWooOrderMoney = (
   order: Record<string, unknown>,
   sourceDecimals: number,
 ): { message: string; ok: boolean; orderSourceId: string } => {
@@ -182,7 +182,7 @@ export const buildDryRunReport = ({
       else if (known === contentHashOf(record)) report.unchanged += 1
       else report.wouldUpdate += 1
 
-      if (resource === 'orders') moneyChecks.push(checkOrderMoney(record, sourceDecimals))
+      if (resource === 'orders') moneyChecks.push(reconcileWooOrderMoney(record, sourceDecimals))
     }
 
     if (unknown.size) unknownMetaKeysByResource[resource] = [...unknown].sort()

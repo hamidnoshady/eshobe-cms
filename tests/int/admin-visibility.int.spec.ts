@@ -240,6 +240,7 @@ describe('admin nav resolution against the real config', () => {
       'طراحی و انتشار',
       'تیم',
       'تنظیمات',
+      'مهاجرت',
     ])
     // A customer sees every website group and nothing falls through to «سایر».
     expect(labels).not.toContain(OTHER_GROUP_LABEL)

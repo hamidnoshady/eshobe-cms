@@ -3,7 +3,7 @@ import type { Endpoint, PayloadRequest } from 'payload'
 import { addDataAndFileToRequest } from 'payload'
 
 import type { PaymentProvider } from '@/payments'
-import type { Product, Site } from '@/payload-types'
+import type { Coupon, Product, Site } from '@/payload-types'
 
 import { isGatewayId, listEnabledGateways, verifyGatewayState } from '@/payments/gateways'
 
@@ -157,6 +157,77 @@ const confirmationUrl = ({
     signOrderReceipt({ orderId, siteId }),
   )}`
 
+const relationId = (value: unknown): string =>
+  value && typeof value === 'object' ? String((value as { id: unknown }).id) : String(value ?? '')
+
+/**
+ * Resolve one buyer-supplied coupon code against this site's own coupon book.
+ *
+ * The code is the only thing the body contributes; the amount, window, usage
+ * ceiling and product restriction all come from the row — the same rule as
+ * the product's price. A refund restores usage in `settleStock`, and a
+ * coupon is only *spent* when its order crosses into paid, so an abandoned
+ * checkout cannot burn a limited code.
+ */
+const resolveCheckoutCoupon = async ({
+  code,
+  productId,
+  quantity,
+  req,
+  siteId,
+  subtotal,
+}: {
+  code: string
+  productId: string
+  quantity: number
+  req: PayloadRequest
+  siteId: string
+  subtotal: number
+}): Promise<null | { coupon: Coupon; discount: number }> => {
+  const { docs } = await req.payload.find({
+    collection: 'coupons',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    req,
+    where: {
+      and: [{ site: { equals: siteId } }, { code: { equals: code.trim().toUpperCase() } }],
+    },
+  })
+  const coupon = docs[0] as Coupon | undefined
+
+  if (!coupon || coupon.active === false) return null
+
+  const now = Date.now()
+  const starts = coupon.startsAt ? Date.parse(coupon.startsAt) : Number.NaN
+  const expires = coupon.expiresAt ? Date.parse(coupon.expiresAt) : Number.NaN
+  if (Number.isFinite(starts) && now < starts) return null
+  if (Number.isFinite(expires) && now > expires) return null
+
+  const usageLimit = Number(coupon.usageLimit ?? 0)
+  if (usageLimit > 0 && Number(coupon.usageCount ?? 0) >= usageLimit) return null
+
+  const minimum = Number(coupon.minimumAmount ?? 0)
+  const maximum = Number(coupon.maximumAmount ?? 0)
+  if (minimum > 0 && subtotal < minimum) return null
+  if (maximum > 0 && subtotal > maximum) return null
+
+  const included = (coupon.products ?? []).map(relationId)
+  const excluded = (coupon.excludedProducts ?? []).map(relationId)
+  if (included.length > 0 && !included.includes(productId)) return null
+  if (excluded.includes(productId)) return null
+
+  const amount = Number(coupon.amount ?? 0)
+  const discount =
+    coupon.discountType === 'percent'
+      ? Math.floor((subtotal * amount) / 100)
+      : coupon.discountType === 'fixed-product'
+        ? Math.min(subtotal, Math.trunc(amount) * quantity)
+        : Math.min(subtotal, Math.trunc(amount))
+
+  return discount > 0 ? { coupon, discount } : null
+}
+
 export const startCheckout: Endpoint['handler'] = async (req) => {
   await addDataAndFileToRequest(req)
 
@@ -228,25 +299,55 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
 
   if (!product) return refused(req, `product ${productId} not purchasable on ${site.domain}`)
 
-  if (product.trackInventory && typeof product.inventory === 'number') {
-    if (product.inventory < quantity) {
-      return Response.json(
-        {
-          available: product.inventory,
-          message:
-            product.inventory === 0
-              ? 'این محصول تمام شده است.'
-              : `تنها ${product.inventory} عدد از این محصول موجود است.`,
-          ok: false,
-        },
-        { headers: noStore, status: 409 },
-      )
-    }
+  // A grouped catalogue entry and an external/affiliate link are not things
+  // this endpoint sells. A variable product is sold *by variation key*: the
+  // key chooses, the row just read prices and stocks it, and the order line
+  // snapshots both so a later price edit cannot rewrite the sale.
+  const productType = product.productType ?? 'simple'
+  const variationKey = typeof data.variation === 'string' ? data.variation.trim() : ''
+
+  if (productType === 'grouped' || productType === 'external') {
+    return refused(req, `product ${productId} is ${productType} and not directly purchasable`)
+  }
+
+  const variation =
+    productType === 'variable'
+      ? (product.variations ?? []).find(
+          (candidate) => candidate.key === variationKey && candidate.active !== false,
+        )
+      : undefined
+
+  if (productType === 'variable' && !variation) {
+    return badRequest('a purchasable variation key is required')
+  }
+  if (productType !== 'variable' && variationKey) {
+    return badRequest('variation supplied for a non-variable product')
+  }
+
+  const available =
+    variation?.trackInventory && typeof variation.inventory === 'number'
+      ? variation.inventory
+      : product.trackInventory && typeof product.inventory === 'number'
+        ? product.inventory
+        : null
+
+  if (available !== null && available < quantity) {
+    return Response.json(
+      {
+        available,
+        message:
+          available === 0
+            ? 'این محصول تمام شده است.'
+            : `تنها ${available} عدد از این محصول موجود است.`,
+        ok: false,
+      },
+      { headers: noStore, status: 409 },
+    )
   }
 
   // Every number comes from the row just read. A body carrying `total: 1` buys
   // nothing at that price, because the client is not asked what the price is.
-  const unitPrice = Number(product.price ?? 0)
+  const unitPrice = Number(variation?.price ?? product.price ?? 0)
 
   if (!Number.isInteger(unitPrice) || unitPrice < 1) {
     return refused(req, `product ${productId} has no usable price`)
@@ -286,7 +387,28 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     locale: site.defaultLocale ?? undefined,
   })
 
-  const total = unitPrice * quantity
+  const subtotal = unitPrice * quantity
+  const couponCode = typeof data.couponCode === 'string' ? data.couponCode.trim() : ''
+  const appliedCoupon = couponCode
+    ? await resolveCheckoutCoupon({
+        code: couponCode,
+        productId: String(product.id),
+        quantity,
+        req,
+        siteId: String(site.id),
+        subtotal,
+      })
+    : null
+
+  if (couponCode && !appliedCoupon) {
+    return Response.json(
+      { message: 'کد تخفیف معتبر نیست یا برای این خرید قابل استفاده نمی‌باشد.', ok: false },
+      { headers: noStore, status: 400 },
+    )
+  }
+
+  const discountTotal = appliedCoupon?.discount ?? 0
+  const total = subtotal - discountTotal
   const locale = site.defaultLocale ?? 'fa'
 
   /**
@@ -347,13 +469,44 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     data: {
       buyer,
       currency,
+      // The multi-line shape, with the legacy single-product fields kept as
+      // the mirror older receipts/integrations read.
+      items: [
+        {
+          product: product.id,
+          productTitle: product.title,
+          quantity,
+          ...(variation?.sku ? { sku: variation.sku } : product.sku ? { sku: product.sku } : {}),
+          subtotal,
+          taxTotal: 0,
+          total: subtotal,
+          unitPrice,
+          ...(variation?.key ? { variationKey: variation.key } : {}),
+          ...(variation?.label ? { variationLabel: variation.label } : {}),
+        },
+      ],
+      discountTotal,
+      ...(appliedCoupon
+        ? {
+            coupons: [
+              {
+                code: appliedCoupon.coupon.code,
+                coupon: appliedCoupon.coupon.id,
+                discount: discountTotal,
+              },
+            ],
+          }
+        : {}),
       payment: { provider: provider.name },
       reference: newOrderReference(),
       product: product.id,
       quantity,
+      shippingTotal: 0,
       // The tenant, from the Host — see the header comment.
       site: site.id,
       status: 'pending',
+      subtotal,
+      taxTotal: 0,
       total,
       unitPrice,
     },

@@ -32,6 +32,7 @@ import * as migration_20261005_190000_project_metadata_localized from './2026100
 import * as migration_20261028_090000_cdn_shared_accounts from './20261028_090000_cdn_shared_accounts';
 import * as migration_20261031_120000_custom_content_types from './20261031_120000_custom_content_types';
 import * as migration_20261101_000000_cdn_arvan_origin_discovery from './20261101_000000_cdn_arvan_origin_discovery';
+import * as migration_20261101_120000_wordpress_migration_center from './20261101_120000_wordpress_migration_center';
 
 export const migrations = [
   {
@@ -203,5 +204,10 @@ export const migrations = [
     up: migration_20261101_000000_cdn_arvan_origin_discovery.up,
     down: migration_20261101_000000_cdn_arvan_origin_discovery.down,
     name: '20261101_000000_cdn_arvan_origin_discovery'
+  },
+  {
+    up: migration_20261101_120000_wordpress_migration_center.up,
+    down: migration_20261101_120000_wordpress_migration_center.down,
+    name: '20261101_120000_wordpress_migration_center'
   },
 ];
