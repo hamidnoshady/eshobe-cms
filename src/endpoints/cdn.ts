@@ -15,6 +15,8 @@ import {
   testCdnConnection,
   writeCdnOperationalState,
 } from '@/cdn/service'
+import { diffCdnZone, type CdnDiffResult } from '@/cdn/diff'
+import { providerCapabilities } from '@/cdn/capabilities'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
 import { findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
 import {
@@ -341,6 +343,49 @@ export const cdnZoneDiscover: Endpoint['handler'] = async (req) => {
     req.payload.logger.warn({
       err: error as Error,
       msg: `CDN discovery failed for ${zone.provider}:${zone.zoneName}`,
+    })
+    return response(
+      { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/diff { id }
+ *
+ * Dry-run preview: read the authoritative remote state and diff it against the
+ * zone's desired state, without mutating anything. This is the "inspect/diff"
+ * step of sync — the admin sees exactly which records would be created, which
+ * would drift, which are foreign (not touched), and which settings the provider
+ * does not support — before running `POST /api/cdn/sync` to apply. Platform
+ * staff only; no API key qualifies.
+ */
+export const cdnZoneDiff: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const id = zoneId(await body(req))
+  if (!id) return response({ message: 'id must be a UUID', ok: false }, 400)
+
+  const raw = await zoneById(req, id)
+  if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
+  const zone = cdnZoneInput(raw)
+
+  try {
+    const discovered = await discoverCdnZone(await withCdnCredentials(req, raw))
+    const result: CdnDiffResult = diffCdnZone(zone, discovered.remote)
+    return response({
+      actions: discovered.actions,
+      capabilities: providerCapabilities(zone.provider),
+      diff: result,
+      ok: true,
+      remote: discovered.remote,
+      zone: zone.zoneName,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN diff failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN diff failed for ${zone.provider}:${zone.zoneName}`,
     })
     return response(
       { message, ok: false, zone: zone.zoneName },
@@ -814,6 +859,7 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnPurge, method: 'post', path: '/cdn/purge' },
   { handler: cdnZoneTestConnection, method: 'post', path: '/cdn/zones/test-connection' },
   { handler: cdnZoneDiscover, method: 'post', path: '/cdn/zones/discover' },
+  { handler: cdnZoneDiff, method: 'post', path: '/cdn/zones/diff' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },
