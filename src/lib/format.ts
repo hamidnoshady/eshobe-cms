@@ -23,6 +23,11 @@ const PLATFORM_TIME_ZONE = 'Asia/Tehran'
 const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
 const numberFormatCache = new Map<string, Intl.NumberFormat>()
 
+// ⚡ Bolt: Cache key must be deterministic so object property order doesn't cause cache misses
+const getDeterministicCacheKey = (locale: string, options?: Record<string, unknown>): string => {
+  const safeOptions = options || {}
+  return `${locale}-${JSON.stringify(safeOptions, Object.keys(safeOptions).sort())}`
+}
 
 export const formatDate = (
   date: Date | string | number | null | undefined,
@@ -31,7 +36,7 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  const cacheKey = `${locale}-${JSON.stringify(options)}`
+  const cacheKey = getDeterministicCacheKey(locale, options as Record<string, unknown>)
   let formatter = dateTimeFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.DateTimeFormat(intlLocale(locale), {
@@ -51,7 +56,7 @@ export const formatNumber = (
   locale: string,
   options?: Intl.NumberFormatOptions,
 ): string => {
-  const cacheKey = `${locale}-${JSON.stringify(options || {})}`
+  const cacheKey = getDeterministicCacheKey(locale, options as Record<string, unknown> | undefined)
   let formatter = numberFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.NumberFormat(intlLocale(locale), options)
