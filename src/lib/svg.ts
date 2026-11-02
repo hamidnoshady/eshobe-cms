@@ -31,9 +31,12 @@
  *   declared in this document. Every `url(#id)` is local and its target is checked for
  *   both existence and the kind of element the property expects. Remote `url(...)`,
  *   `href` outside a local `#id`, `javascript:`/`data:`/CSS escapes and entities stay out.
- * - CSS: a declaration-property allowlist with `@keyframes`, transforms, opacity, timing
- *   and custom properties. `@import`, `@font-face`, network-fetching properties,
- *   `expression()`, `-moz-binding`, CSS escapes and comments are refused — not stripped.
+ * - CSS: a declaration-property allowlist with `@keyframes`, transforms, opacity, timing,
+ *   bounded static `blur()`/`inset()`, and custom properties. Only the reduced-motion
+ *   accessibility `@media` query is accepted. Standalone CSS documentation comments
+ *   between top-level rules are validated and preserved. Comments within selectors
+ *   or declarations, `@import`, `@font-face`, network-fetching properties, CSS escapes,
+ *   and executable values remain forbidden.
  * - Bounds: blur radius, filter region, filter count, primitive/merge-node counts,
  *   filter references, keyframes and declarations (see `src/lib/svgLimits.ts`). Filter
  *   primitives must be direct children of a `<filter>`, merge nodes of `<feMerge>`, and
@@ -529,7 +532,7 @@ const validateCssDeclarations = (
   return true
 }
 
-/** A `<style>` body or `style=""` value: declarations + `@keyframes`, nothing that fetches. */
+/** A `<style>` body or `style=""`: bounded CSS animation and reduced-motion rules only. */
 const cssIsSafe = (css: string, state: CssState): boolean => {
   if (/[&<\\\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(css)) return false
   if (BAD_VALUE.test(css)) return false
