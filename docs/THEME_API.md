@@ -538,8 +538,32 @@ defaults. Access is authenticated staff only and the collection is PII, so a
 theme must not list it or treat it as a public account API.
 `claimTokenHash` is never readable/writable through the collection API, and
 an imported customer starts `claimStatus:"unclaimed"` — account access is
-established by a later invitation/reset flow, never by importing a WordPress
-password hash. `orders.customer` links an order to this same-site profile;
+established by the Migration Center's one-time email claim, never by
+importing a WordPress password hash. The claim email links to the owner-
+configured storefront claim page (or `/account/claim` on the site domain)
+with `?token=…`; the theme exchanges it exactly once:
+
+```http
+POST /api/site/customer-claims/exchange
+Content-Type: application/json
+
+{"token":"<opaque claim token>"}
+# → 200 { ok:true, claimedAt, customer:{ id, displayName, email, firstName, lastName } }
+```
+
+Call it from the storefront server when possible, with the tenant resolved
+either from a `role:"site"` API key or from the customer-domain `Host`.
+Do not exchange it merely because the claim page received a GET — mail
+scanners and link prefetchers follow links too. Render the claim form first
+and exchange only when the customer explicitly submits it. The
+response is proof that the claimant controls the imported email address:
+bind `customer.id`/email/name to the **theme-owned** storefront account and
+then set that theme's own password/session. This endpoint never accepts a
+password, never creates a CMS `user` and never returns a CMS session; a
+token is single-use, expires (7 days by default, 1–30 configurable), only
+its hash is stored, and replay/expired/unknown tokens all return a generic
+`400`. It is rate-limited to 10 requests per site+client per 10 minutes.
+`orders.customer` links an order to this same-site profile;
 native one-page checkout still stores its buyer snapshot in `orders.buyer`
 and does not need a customer row.
 
@@ -1632,7 +1656,7 @@ Payload REST errors are JSON `{ message, errors?: PayloadValidationError[] }` wi
 - `403` — needs platform key / platformAdmin (provision-site, api-keys).
 - `404` — `unknown-host`, missing page/post/product, or slug not found in this site+locale.
 - `409` — inventory `"این محصول تمام شده"` or duplicate order.
-- `429` — checkout throttled, `retry-after` seconds.
+- `429` — checkout or customer-claim exchange throttled, `retry-after` seconds.
 - `503` — PSP initiate failed, order stays pending → show `confirmationUrl`.
 
 ### Rate Limits

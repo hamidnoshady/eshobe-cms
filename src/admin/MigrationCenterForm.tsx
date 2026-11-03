@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Banner, Button, useTranslation } from '@payloadcms/ui'
 
+import { formatNumber } from '@/lib/format'
 import type { MigrationCenterView } from '@/lib/migration/center'
 
 /**
@@ -92,6 +93,10 @@ export const MigrationCenterForm: React.FC<{
   const { i18n } = useTranslation()
   const english = i18n?.language === 'en'
   const t = useCallback((fa: string, en: string) => (english ? en : fa), [english])
+  const numberText = useCallback(
+    (value: unknown) => formatNumber(Number(value ?? 0) || 0, english ? 'en' : 'fa'),
+    [english],
+  )
   const [view, setView] = useState<View>(initial)
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<null | string>(null)
@@ -107,6 +112,14 @@ export const MigrationCenterForm: React.FC<{
     wpApplicationPassword: '',
     wpUsername: '',
   })
+  const [claimCustomerId, setClaimCustomerId] = useState('')
+  const [claimUrl, setClaimUrl] = useState('')
+  const [staffCandidates, setStaffCandidates] = useState<Loose[]>([])
+  const [staffLoading, setStaffLoading] = useState(false)
+  const [staffResendExisting, setStaffResendExisting] = useState(false)
+  const [staffSelections, setStaffSelections] = useState<
+    Record<string, { role: string; selected: boolean }>
+  >({})
   const settingsFor = useCallback(
     (candidate?: Job): Loose => ({
       allowCommerceOnNonStoreSite: false,
@@ -241,6 +254,141 @@ export const MigrationCenterForm: React.FC<{
   const reconciliation = asRecord(job?.reconciliationReport)
   const blockers = Array.isArray(job?.blockers) ? job.blockers.map(textOf).filter(Boolean) : []
   const counts = asRecord(job?.counts)
+  const claimCounts = view.customerClaims.counts
+  const claimCustomers = view.customerClaims.customers.filter(
+    (customer) =>
+      customer.status === 'active' && ['invited', 'unclaimed'].includes(customer.claimStatus),
+  )
+  const selectedClaimCustomer =
+    claimCustomers.find((customer) => customer.id === claimCustomerId) ?? claimCustomers[0]
+
+  const loadStaffCandidates = async () => {
+    if (!source) return
+    setStaffLoading(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const params = new URLSearchParams({ site: siteId, sourceId: source.id })
+      const response = await fetch(`/api/site/migration/staff-candidates?${params.toString()}`, {
+        credentials: 'same-origin',
+      })
+      const data = (await response.json().catch(() => ({}))) as Loose
+      if (!response.ok) {
+        setError(textOf(data.message) || t('خواندن کارکنان وردپرس انجام نشد.', 'Could not read WordPress staff.'))
+        return
+      }
+      const rows = asArray(data.staffCandidates)
+      setStaffCandidates(rows)
+      setStaffSelections(
+        Object.fromEntries(
+          rows.map((row) => [
+            textOf(row.sourceRecordId),
+            { role: textOf(row.suggestedRole) || 'editor', selected: false },
+          ]),
+        ),
+      )
+      setMessage(
+        `${t(
+          `${numberText(rows.length)} کاربر کارکنان وردپرس برای نگاشت صریح یافت شد.`,
+          `Found ${numberText(rows.length)} WordPress staff users for explicit mapping.`,
+        )}${
+          data.truncated === true
+            ? ` ${t('فهرست به نخستین نتیجه‌ها محدود شده است.', 'The list is limited to the first results.')}`
+            : ''
+        }`,
+      )
+    } catch {
+      setError(t('ارتباط با سرور برقرار نشد.', 'Could not reach the server.'))
+    } finally {
+      setStaffLoading(false)
+    }
+  }
+
+  const inviteSelectedStaff = async () => {
+    if (!source || !job) return
+    const invites = staffCandidates.flatMap((candidate) => {
+      const sourceRecordId = textOf(candidate.sourceRecordId)
+      const selection = staffSelections[sourceRecordId]
+      return selection?.selected
+        ? [{ resend: staffResendExisting, role: selection.role, sourceRecordId }]
+        : []
+    })
+    if (!invites.length) {
+      setError(t('دست‌کم یک کاربر کارکنان را انتخاب کنید.', 'Select at least one staff user.'))
+      return
+    }
+    if (invites.length > 100) {
+      setError(
+        t(
+          `در هر نوبت حداکثر ${numberText(100)} کاربر را دعوت کنید.`,
+          `Invite at most ${numberText(100)} staff users at a time.`,
+        ),
+      )
+      return
+    }
+    if (job.sourceId !== source.id) {
+      setError(
+        t(
+          'کار انتخاب‌شده به این مبدأ تعلق ندارد؛ ابتدا کار همان مبدأ را انتخاب کنید.',
+          'The selected job does not belong to this source; select a job for this source first.',
+        ),
+      )
+      return
+    }
+    if (
+      !window.confirm(
+        t(
+          'برای کاربران تازه، ایمیل تعیین گذرواژه ای‌شوب ارسال می‌شود؛ گذرواژه وردپرس کپی نمی‌شود. ادامه می‌دهید؟',
+          'New users receive an Eshobe set-password email; no WordPress password is copied. Continue?',
+        ),
+      )
+    ) {
+      return
+    }
+    const data = await post(
+      '/api/site/migration/staff/invite',
+      { invites, jobId: job.id, site: siteId, sourceId: source.id },
+      t('دعوت/انتساب کارکنان انجام شد.', 'Staff invitations were processed.'),
+    )
+    const summary = asRecord(asRecord(data?.staffInvites).summary)
+    if (Object.keys(summary).length) {
+      setMessage(
+        `${t('نتیجه دعوت کارکنان:', 'Staff invitation result:')} ${Object.entries(summary)
+          .map(([key, value]) => `${key}: ${numberText(value)}`)
+          .join(' · ')}`,
+      )
+    }
+  }
+
+  const inviteCustomers = async (all: boolean) => {
+    if (!all && !selectedClaimCustomer) return
+    if (
+      all &&
+      !window.confirm(
+        t(
+          'برای حداکثر ۱۰۰ مشتری مطالبه‌نشده ایمیل دعوت ارسال می‌شود. ادامه می‌دهید؟',
+          'Send claim invitations to up to 100 unclaimed customers?',
+        ),
+      )
+    ) {
+      return
+    }
+    const data = await post(
+      '/api/site/migration/customer-claims/invite',
+      {
+        ...(all ? { all: true } : { customerId: selectedClaimCustomer?.id }),
+        ...(claimUrl.trim() ? { claimUrl: claimUrl.trim() } : {}),
+        site: siteId,
+      },
+      t('دعوت مطالبه حساب ارسال شد.', 'The account-claim invitation was sent.'),
+    )
+    const bulk = asRecord(data?.customerClaimInvitations)
+    if (all && Object.keys(bulk).length) {
+      setMessage(
+        `${t('دعوت مشتریان:', 'Customer invitations:')} ${numberText(asArray(bulk.invited).length)} ${t('ارسال‌شده', 'sent')} · ${numberText(asArray(bulk.failures).length)} ${t('ناموفق', 'failed')}`,
+      )
+    }
+  }
 
   return (
     <div style={{ padding: '1.5rem 0 3rem' }}>
@@ -270,7 +418,11 @@ export const MigrationCenterForm: React.FC<{
         {view.sources.length > 0 && (
           <Field label={t('مبدأ ذخیره‌شده', 'Saved source')}>
             <select
-              onChange={(event) => setSourceId(event.target.value)}
+              onChange={(event) => {
+                setSourceId(event.target.value)
+                setStaffCandidates([])
+                setStaffSelections({})
+              }}
               style={inputStyle}
               value={source?.id ?? ''}
             >
@@ -700,6 +852,198 @@ export const MigrationCenterForm: React.FC<{
               ))}
             </ul>
           </>
+        )}
+      </section>
+
+      <section style={box}>
+        <h2>{t('۵) افراد و حساب‌ها', '5) People & accounts')}</h2>
+        <p>
+          {t(
+            'گذرواژه یا هش وردپرس هرگز کپی نمی‌شود. مشتری با پیوند یک‌بارمصرف مالکیت رایانامه را ثابت می‌کند و قالب فروشگاه آن نشانه را با حساب خودش مبادله می‌کند؛ کارکنان نیز فقط با انتخاب صریح مالک و ایمیل تعیین گذرواژه ای‌شوب وارد می‌شوند.',
+            'No WordPress password or hash is copied. A customer proves email ownership with a one-time link that the storefront theme exchanges for its own account; staff are added only by explicit owner selection and an Eshobe set-password email.',
+          )}
+        </p>
+
+        <h3>{t('مطالبه حساب مشتریان مهاجر', 'Migrated customer account claims')}</h3>
+        <p>
+          {t('مطالبه‌نشده:', 'Unclaimed:')} {numberText(claimCounts.unclaimed)} ·{' '}
+          {t('دعوت‌شده:', 'Invited:')} {numberText(claimCounts.invited)} ·{' '}
+          {t('مطالبه‌شده:', 'Claimed:')} {numberText(claimCounts.claimed)} ·{' '}
+          {t('غیرفعال:', 'Disabled:')} {numberText(claimCounts.disabled)}
+        </p>
+        <div style={grid}>
+          <Field label={t('مشتری', 'Customer')}>
+            <select
+              disabled={!canManage || pending || !claimCustomers.length}
+              onChange={(event) => setClaimCustomerId(event.target.value)}
+              style={inputStyle}
+              value={selectedClaimCustomer?.id ?? ''}
+            >
+              {claimCustomers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.displayName || customer.email || customer.id}
+                  {customer.email ? ` — ${customer.email}` : ''} ({customer.claimStatus})
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('نشانی صفحه مطالبه در قالب (اختیاری)', 'Theme claim-page URL (optional)')}>
+            <input
+              disabled={!canManage || pending}
+              onChange={(event) => setClaimUrl(event.target.value)}
+              placeholder="https://shop.example/account/claim"
+              style={inputStyle}
+              type="url"
+              value={claimUrl}
+            />
+          </Field>
+        </div>
+        <p>
+          {t(
+            'اگر خالی بماند از دامنه سایت و مسیر /account/claim استفاده می‌شود. قالب باید نشانه را به POST /api/site/customer-claims/exchange بدهد.',
+            'Blank uses the site domain plus /account/claim. The theme must POST the token to /api/site/customer-claims/exchange.',
+          )}
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <Button
+            disabled={!canManage || pending || !selectedClaimCustomer}
+            onClick={() => void inviteCustomers(false)}
+          >
+            {t('ارسال دعوت این مشتری', 'Send this customer an invitation')}
+          </Button>
+          <Button
+            buttonStyle="secondary"
+            disabled={!canManage || pending || !claimCounts.unclaimed}
+            onClick={() => void inviteCustomers(true)}
+          >
+            {t('ارسال برای حداکثر ۱۰۰ مشتری مطالبه‌نشده', 'Send to up to 100 unclaimed customers')}
+          </Button>
+        </div>
+
+        <h3>{t('کارکنان و نویسندگان وردپرس', 'WordPress staff & authors')}</h3>
+        <p>
+          {t(
+            'فهرست از endpoint احراز‌شده کاربران وردپرس خوانده می‌شود. فقط administrator می‌تواند مالک سایت شود؛ بقیه نقش‌های کارکنان ویرایشگر می‌شوند. مشتریان ووکامرس و مشترکان در این فهرست نیستند.',
+            'The list comes from the authenticated WordPress users endpoint. Only an administrator may become site owner; other staff roles become editors. Woo customers and subscribers are excluded.',
+          )}
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <Button
+            buttonStyle="secondary"
+            disabled={!canManage || pending || staffLoading || !source}
+            onClick={() => void loadStaffCandidates()}
+          >
+            {staffLoading
+              ? t('در حال خواندن…', 'Loading…')
+              : t('خواندن کارکنان وردپرس', 'Load WordPress staff')}
+          </Button>
+          <Button
+            disabled={!canManage || pending || staffLoading || !source || !job || !staffCandidates.length}
+            onClick={() => void inviteSelectedStaff()}
+          >
+            {t('دعوت کارکنان انتخاب‌شده', 'Invite selected staff')}
+          </Button>
+        </div>
+        <label style={{ alignItems: 'center', display: 'flex', gap: '0.5rem' }}>
+          <input
+            checked={staffResendExisting}
+            disabled={!canManage || pending || staffLoading}
+            onChange={(event) => setStaffResendExisting(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            {t(
+              'برای کاربران موجودِ انتخاب‌شده هم ایمیل تعیین/بازنشانی گذرواژه را دوباره بفرست',
+              'Also resend the set/reset-password email to selected existing users',
+            )}
+          </span>
+        </label>
+        {staffCandidates.length > 0 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead>
+                <tr>
+                  {[
+                    t('انتخاب', 'Select'),
+                    t('کاربر وردپرس', 'WordPress user'),
+                    t('نقش‌های وردپرس', 'WordPress roles'),
+                    t('نقش در این سایت', 'Role on this site'),
+                  ].map((head) => (
+                    <th
+                      key={head}
+                      style={{
+                        borderBottom: '1px solid var(--theme-elevation-150)',
+                        padding: '0.4rem',
+                        textAlign: 'start',
+                      }}
+                    >
+                      {head}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {staffCandidates.map((candidate) => {
+                  const sourceRecordId = textOf(candidate.sourceRecordId)
+                  const selection = staffSelections[sourceRecordId] ?? {
+                    role: textOf(candidate.suggestedRole) || 'editor',
+                    selected: false,
+                  }
+                  return (
+                    <tr key={sourceRecordId}>
+                      <td style={{ padding: '0.4rem' }}>
+                        <input
+                          checked={selection.selected}
+                          disabled={!canManage || pending}
+                          onChange={(event) =>
+                            setStaffSelections((current) => ({
+                              ...current,
+                              [sourceRecordId]: {
+                                ...selection,
+                                selected: event.target.checked,
+                              },
+                            }))
+                          }
+                          type="checkbox"
+                        />
+                      </td>
+                      <td style={{ padding: '0.4rem' }}>
+                        {textOf(candidate.name)}
+                        <br />
+                        {textOf(candidate.email)}
+                      </td>
+                      <td style={{ padding: '0.4rem' }}>
+                        {Array.isArray(candidate.roles)
+                          ? candidate.roles.map(textOf).filter(Boolean).join('، ')
+                          : ''}
+                      </td>
+                      <td style={{ padding: '0.4rem' }}>
+                        <select
+                          disabled={!canManage || pending}
+                          onChange={(event) =>
+                            setStaffSelections((current) => ({
+                              ...current,
+                              [sourceRecordId]: {
+                                ...selection,
+                                role: event.target.value,
+                              },
+                            }))
+                          }
+                          style={inputStyle}
+                          value={selection.role}
+                        >
+                          <option value="editor">{t('ویرایشگر', 'Editor')}</option>
+                          <option disabled={candidate.canBeOwner !== true} value="owner">
+                            {t('مالک', 'Owner')}
+                          </option>
+                        </select>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>

@@ -1,7 +1,7 @@
 import { isMachineKey, isValidArchiveSlug } from '@/lib/content-paths'
 import { CUSTOM_FIELD_RELATION_COLLECTIONS } from '@/lib/custom-fields'
 import { idOf } from '@/lib/ids'
-import { WordPressApiError } from '@/lib/wordpress/client'
+import { WordPressApiError, type RestClient } from '@/lib/wordpress/client'
 import { paymentProviders } from '@/payments'
 import { slugify } from '@/lib/slug'
 import { classifyCptCapability, type DiscoveredPostType, type DiscoveredTaxonomy } from '@/lib/wordpress/discovery'
@@ -39,6 +39,7 @@ import {
 import { wordpressContentToLexical } from './gutenberg'
 import { redactRawPayload } from './redact'
 import {
+  findMigrationRecord,
   recordMigrationError,
   recordMigrationEvent,
   resolveMigrationErrors,
@@ -259,6 +260,39 @@ export const inferFieldSchema = (samples: RawRecord[]): Loose[] => {
   return rows
 }
 
+/**
+ * A durable copy of the destination field schema an import actually used.
+ *
+ * The interesting fields here are usually not inference: they are the
+ * operator's later decisions, especially ACF `relationship` + `relationTo`.
+ * A re-import after such an edit refreshes the definition's ledger timestamp,
+ * which correctly makes the definition eligible for rollback — but deleting
+ * the document must not delete the human mapping with it. `importDefinitions`
+ * stores this snapshot in the definition ledger row's metadata (which
+ * rollback preserves) and uses it as the base schema when the destination
+ * definition is gone on a later import.
+ */
+export const fieldSchemaSnapshot = (value: unknown): Loose[] =>
+  (asArray(value) as Loose[]).flatMap((field) => {
+    if (!str(field.key)) return []
+    const copy = { ...field }
+    delete copy.id
+    return [copy]
+  })
+
+const preservedFieldSchema = async (ctx: Ctx, typeSlug: string): Promise<Loose[]> => {
+  const record = await findMigrationRecord(ctx.req, {
+    installation: ctx.installation,
+    jobId: ctx.jobId,
+    resource: 'content-type-definition',
+    siteId: ctx.siteId,
+    sourceId: ctx.sourceId,
+    sourceRecordId: typeSlug,
+  })
+
+  return fieldSchemaSnapshot(asRecord(record?.metadata).fieldSchema)
+}
+
 // --- Definitions -------------------------------------------------------------
 
 export const importDefinitions = async (ctx: Ctx): Promise<void> => {
@@ -359,10 +393,16 @@ export const importDefinitions = async (ctx: Ctx): Promise<void> => {
       }
 
       const existing = await findByFields(ctx, 'content-type-definitions', { key: type.slug })
-      const existingSchema = asArray(existing?.fieldSchema) as Loose[]
-      const existingKeys = new Set(existingSchema.map((field) => str(field.key)))
+      const existingSchema = fieldSchemaSnapshot(existing?.fieldSchema)
+      // A live destination definition always wins, including an operator's
+      // deliberate empty schema. The ledger snapshot is only the resurrection
+      // path after rollback deleted the migration-created definition.
+      const baseSchema = existing
+        ? existingSchema
+        : await preservedFieldSchema(ctx, type.slug)
+      const existingKeys = new Set(baseSchema.map((field) => str(field.key)))
       const fieldSchema = [
-        ...existingSchema,
+        ...baseSchema,
         ...inferred.filter((field) => !existingKeys.has(str(field.key))),
       ]
       const archiveSlug =
@@ -393,6 +433,7 @@ export const importDefinitions = async (ctx: Ctx): Promise<void> => {
             system: 'wordpress',
           }),
         },
+        metadata: { fieldSchema: fieldSchemaSnapshot(fieldSchema) },
         raw,
         resource: 'content-type-definition',
         sourceRecordId: type.slug,
@@ -1543,12 +1584,41 @@ export const importCustomers = async (ctx: Ctx): Promise<void> => {
 
       const email = str(raw.email).trim().toLowerCase()
       const adopt = email ? await findByFields(ctx, 'customers', { email }) : null
+      const ledgerDestinationId = adopt
+        ? null
+        : await destinationIdFor(ctx, {
+            collection: 'customers',
+            resource: 'customers',
+            sourceRecordId,
+          })
+      const existingCustomer =
+        adopt ??
+        (ledgerDestinationId
+          ? await findDestinationDoc(ctx, 'customers', ledgerDestinationId)
+          : null)
+      const existingEmail = str(existingCustomer?.email).trim().toLowerCase()
+      const existingClaimStatus = str(existingCustomer?.claimStatus)
+      // Claim state is destination-owned identity state, not Woo profile
+      // data: a delta sync must not un-claim a customer who already proved
+      // ownership. The one exception is an outstanding invitation whose
+      // source email changed — that token was delivered to the old address,
+      // so it is revoked rather than allowed to claim the renamed profile.
+      const invitationStale =
+        existingClaimStatus === 'invited' && existingEmail !== '' && existingEmail !== email
+      const claimStatus = invitationStale
+        ? 'unclaimed'
+        : ['claimed', 'disabled', 'invited', 'unclaimed'].includes(existingClaimStatus)
+          ? existingClaimStatus
+          : 'unclaimed'
       const result = await upsertDestination(ctx, {
         ...(adopt ? { adoptId: String(adopt.id) } : {}),
         collection: 'customers',
         data: {
           addresses,
-          claimStatus: 'unclaimed',
+          claimStatus,
+          ...(invitationStale
+            ? { claimExpiresAt: null, claimTokenHash: null, invitedAt: null }
+            : {}),
           displayName: str(raw.name) || `${str(raw.first_name)} ${str(raw.last_name)}`.trim(),
           email,
           firstName: str(raw.first_name),
@@ -2757,6 +2827,45 @@ const commentTargetData = async (
 }
 
 /**
+ * Every Woo product-review rating, keyed by the shared WP comment ID.
+ * Woo's `status=all` inherits WP's approved+held meaning, so spam/trash
+ * ratings only arrive when each moderation status is scanned explicitly.
+ * Import uses this to stamp destinations; reconciliation uses the same
+ * independent read to prove those destinations still carry the number.
+ */
+export const collectWooReviewRatings = async (
+  woo: RestClient,
+): Promise<Map<string, number>> => {
+  const ratings = new Map<string, number>()
+
+  for (const status of WOO_REVIEW_STATUSES) {
+    const rows = await woo.collect<RawRecord>(WOO_PRODUCT_REVIEWS_PATH, {
+      order: 'asc',
+      orderby: 'id',
+      status,
+    })
+
+    for (const row of rows) {
+      const sourceRecordId = sourceRecordIdOf(row)
+      const rating = commentRatingOf(row)
+      if (!sourceRecordId || rating === null) continue
+
+      const existing = ratings.get(sourceRecordId)
+      if (existing !== undefined && existing !== rating) {
+        throw new MigrationImportError(
+          'WOO_REVIEW_RATING_CONFLICT',
+          `ووکامرس برای بازخورد ${sourceRecordId} دو امتیاز ناسازگار برگرداند.`,
+          'blocked',
+        )
+      }
+      ratings.set(sourceRecordId, rating)
+    }
+  }
+
+  return ratings
+}
+
+/**
  * WooCommerce stores a product review's rating in comment meta, but core's
  * comments endpoint only returns meta a plugin explicitly registers for REST;
  * WooCommerce does not register `rating`, so the WP rows above arrive with an
@@ -2787,40 +2896,30 @@ const applyWooReviewRatings = async (ctx: Ctx, sawReview: boolean): Promise<void
   }
 
   try {
-    for (const status of WOO_REVIEW_STATUSES) {
-      const rows = await woo.collect<RawRecord>(WOO_PRODUCT_REVIEWS_PATH, {
-        order: 'asc',
-        orderby: 'id',
-        status,
+    const ratings = await collectWooReviewRatings(woo)
+
+    for (const [sourceRecordId, rating] of ratings) {
+      const destinationId = await destinationIdFor(ctx, {
+        collection: 'comments',
+        resource: 'comments',
+        sourceRecordId,
       })
+      if (!destinationId) continue
 
-      for (const row of rows) {
-        const sourceRecordId = sourceRecordIdOf(row)
-        const rating = commentRatingOf(row)
-        if (!sourceRecordId || rating === null) continue
+      const doc = await findDestinationDoc(ctx, 'comments', destinationId)
+      if (!doc || doc.commentType !== 'review' || doc.parent || doc.rating === rating) continue
 
-        const destinationId = await destinationIdFor(ctx, {
-          collection: 'comments',
-          resource: 'comments',
-          sourceRecordId,
-        })
-        if (!destinationId) continue
-
-        const doc = await findDestinationDoc(ctx, 'comments', destinationId)
-        if (!doc || doc.commentType !== 'review' || doc.parent || doc.rating === rating) continue
-
-        const updated = await updateDestinationDoc(ctx, {
-          collection: 'comments',
-          data: { rating },
-          id: destinationId,
-        })
-        await refreshRecordDestination(
-          ctx,
-          'comments',
-          sourceRecordId,
-          isoOf(updated.updatedAt) || null,
-        )
-      }
+      const updated = await updateDestinationDoc(ctx, {
+        collection: 'comments',
+        data: { rating },
+        id: destinationId,
+      })
+      await refreshRecordDestination(
+        ctx,
+        'comments',
+        sourceRecordId,
+        isoOf(updated.updatedAt) || null,
+      )
     }
 
     await resolveMigrationErrors(ctx.req, {

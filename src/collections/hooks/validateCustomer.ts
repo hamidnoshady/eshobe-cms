@@ -23,6 +23,28 @@ export const validateCustomer: CollectionBeforeValidateHook = async ({
   if (typeof row.phone === 'string') row.phone = row.phone.trim()
   if (typeof row.username === 'string') row.username = row.username.trim()
 
+  // A claim token proves control of the address it was emailed to, not of
+  // whatever address the profile happens to carry later. Any email change —
+  // a staff edit as much as a Woo delta sync — therefore revokes an
+  // outstanding invitation instead of letting the old inbox claim the
+  // renamed profile.
+  const storedEmail =
+    typeof stored.email === 'string' ? stored.email.trim().toLowerCase() : ''
+  const nextEmail =
+    row.email === undefined
+      ? storedEmail
+      : typeof row.email === 'string'
+        ? row.email
+        : ''
+  if (stored.claimStatus === 'invited' && nextEmail !== storedEmail) {
+    row.claimTokenHash = null
+    row.claimExpiresAt = null
+    row.invitedAt = null
+    if ((row.claimStatus ?? stored.claimStatus) === 'invited') {
+      row.claimStatus = 'unclaimed'
+    }
+  }
+
   const email =
     typeof row.email === 'string' && row.email ? row.email : (stored.email as string | undefined)
   const phone =
