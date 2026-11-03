@@ -10,11 +10,13 @@ import {
   CdnConfigurationError,
   discoverCdnZone,
   formatCdnActions,
+  listRemoteZones,
   purgeCdnZone,
   syncCdnZone,
   testCdnConnection,
   writeCdnOperationalState,
 } from '@/cdn/service'
+import type { CdnProvider, CdnZoneInput } from '@/cdn/types'
 import {
   adoptRemoteRecords,
   diffCdnZone,
@@ -24,7 +26,7 @@ import {
 import { providerCapabilities } from '@/cdn/capabilities'
 import { planZoneProbes, runZoneProbes, summarizeProbeResults } from '@/cdn/probe'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
-import { findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
+import { findCdnAccountWithSecret, findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
 import {
   assertZoneBelongsToSite,
   mergeTenantRecords,
@@ -556,6 +558,49 @@ export const cdnZoneAdopt: Endpoint['handler'] = async (req) => {
   }
 }
 
+/**
+ * POST /api/cdn/zones/find { account }
+ *
+ * List the zones the provider account already holds, for the "find existing
+ * zone" step of the connection workflow. Read-only: no zone is created or
+ * mutated, and no credentials or records are returned — only id/name/status.
+ * Platform staff only.
+ */
+export const cdnZoneFind: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const accountId = typeof data.account === 'string' ? data.account : null
+  if (!accountId) return response({ message: 'account must be a string', ok: false }, 400)
+
+  try {
+    const account = await findCdnAccountWithSecret(req, accountId)
+    if (!account) return response({ message: 'account not found', ok: false }, 404)
+    if (account.enabled === false)
+      return response({ message: 'account disabled', ok: false }, 409)
+
+    const provider = String(account.provider) as CdnProvider
+    const input = {
+      provider,
+      zoneName: '',
+      credentials: {
+        apiToken: (account.credentials as { apiToken?: string } | undefined)?.apiToken as string,
+      },
+    } as CdnZoneInput
+    const zones = await listRemoteZones(input)
+    return response({ ok: true, provider, zones })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN zone listing failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN zone listing failed for account ${accountId}`,
+    })
+    return response(
+      { message, ok: false },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Site-scoped — what a tenant may see and do about its own zone        */
 /* ------------------------------------------------------------------ */
@@ -1024,6 +1069,7 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnZoneDiff, method: 'post', path: '/cdn/zones/diff' },
   { handler: cdnZoneHealth, method: 'post', path: '/cdn/zones/health' },
   { handler: cdnZoneAdopt, method: 'post', path: '/cdn/zones/adopt' },
+  { handler: cdnZoneFind, method: 'post', path: '/cdn/zones/find' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },

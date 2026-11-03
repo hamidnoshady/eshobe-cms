@@ -167,3 +167,12 @@ export interface CdnDiscoveryResult {
   actions: CdnAction[]
   remote: CdnRemoteState
 }
+
+/** A zone the provider account already holds, surfaced by the "find existing
+ * zone" step of the connection workflow. Only id/name/status — no credentials
+ * and no records. */
+export interface CdnRemoteZone {
+  id: string
+  status: string | null
+  zoneName: string
+}
