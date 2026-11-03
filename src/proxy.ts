@@ -93,12 +93,17 @@ const admin = (req: NextRequest): NextResponse => {
     for (const cookie of embedExitCookies('payload-token', isSecure(req))) {
       res.headers.append('set-cookie', cookie)
     }
-    res.headers.set('cache-control', 'no-store')
+    res.headers.set('cache-control', 'private, no-store, max-age=0')
+    res.headers.set('X-Eshobe-Build', process.env.ESHOBE_BUILD_SHA || 'unknown')
     return res
   }
 
   const res = adminLanguage(req)
   res.headers.set('Content-Security-Policy', adminFrameAncestors())
+  // Admin HTML must never be cached across deployments (or authenticated tenants).
+  // Next's hashed static assets are cached independently and remain immutable.
+  res.headers.set('Cache-Control', 'private, no-store, max-age=0')
+  res.headers.set('X-Eshobe-Build', process.env.ESHOBE_BUILD_SHA || 'unknown')
   return res
 }
 
