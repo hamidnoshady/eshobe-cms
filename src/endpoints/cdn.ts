@@ -601,6 +601,85 @@ export const cdnZoneFind: Endpoint['handler'] = async (req) => {
   }
 }
 
+/**
+ * POST /api/cdn/zones/connect { account, remoteZoneId, site, zoneName }
+ *
+ * Connect an existing provider zone to a site: creates the CMS zone record
+ * that references the remote zone by its provider id, so the next sync reads
+ * (rather than creates) it. The zone name must be a hostname of the named
+ * site. `provisionIfMissing` is false — the zone already exists at the
+ * provider. Platform staff only.
+ */
+export const cdnZoneConnect: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const accountId = typeof data.account === 'string' ? data.account : null
+  const remoteZoneId = typeof data.remoteZoneId === 'string' ? data.remoteZoneId : null
+  const siteId = typeof data.site === 'string' ? data.site : null
+  const candidate = typeof data.zoneName === 'string' ? data.zoneName : ''
+  if (!accountId || !remoteZoneId || !siteId)
+    return response(
+      { message: 'account, remoteZoneId and site are required', ok: false },
+      400,
+    )
+
+  const account = await findCdnAccountWithSecret(req, accountId)
+  if (!account) return response({ message: 'account not found', ok: false }, 404)
+  if (account.enabled === false)
+    return response({ message: 'account disabled', ok: false }, 409)
+
+  const site = await req.payload.findByID({
+    id: siteId,
+    collection: 'sites',
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  if (!site) return response({ message: 'site not found', ok: false }, 404)
+
+  let zoneName: string
+  try {
+    zoneName = assertZoneBelongsToSite(
+      site as never,
+      candidate,
+      candidate ? await otherSitesHostnames(req, siteId, candidate) : [],
+    )
+  } catch (error) {
+    const refused = refusal(error)
+    if (refused) return refused
+    throw error
+  }
+
+  try {
+    await req.payload.create({
+      collection: 'cdn-zones',
+      data: {
+        account: accountId,
+        active: true,
+        dnsRecords: [],
+        managedBy: 'operator',
+        provider: account.provider,
+        provisionIfMissing: false,
+        providerZoneId: remoteZoneId,
+        site: siteId,
+        syncRequestedAt: new Date().toISOString(),
+        zoneName,
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+  } catch (error) {
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN zone connect refused for ${zoneName}`,
+    })
+    return response({ message: 'این دامنه از قبل در CDN ثبت شده است.', ok: false }, 409)
+  }
+
+  return response({ ok: true, provider: account.provider, state: 'queued', zoneName }, 202)
+}
+
 /* ------------------------------------------------------------------ */
 /* Site-scoped — what a tenant may see and do about its own zone        */
 /* ------------------------------------------------------------------ */
@@ -1070,6 +1149,7 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnZoneHealth, method: 'post', path: '/cdn/zones/health' },
   { handler: cdnZoneAdopt, method: 'post', path: '/cdn/zones/adopt' },
   { handler: cdnZoneFind, method: 'post', path: '/cdn/zones/find' },
+  { handler: cdnZoneConnect, method: 'post', path: '/cdn/zones/connect' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },
