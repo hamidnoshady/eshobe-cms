@@ -282,6 +282,11 @@ export const plugins: Plugin[] = [
       'content-entries': {},
       'entry-term-relations': {},
       'content-relations': {},
+      // Issue #166 — menus and comments are site content exactly like posts:
+      // unregistered, one tenant's navigation and its readers' comment PII
+      // would be shared across every customer.
+      menus: {},
+      comments: {},
       forms: {},
       'form-submissions': {},
       media: {},

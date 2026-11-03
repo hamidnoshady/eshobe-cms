@@ -43,10 +43,19 @@ const treeOf = (groups: { entities: { slug: string }[]; label: string }[]) =>
  */
 const CUSTOMER_TARGET = [
   {
-    entities: ['pages', 'header', 'footer', 'forms', 'form-submissions', 'search', 'redirects'],
+    entities: [
+      'pages',
+      'header',
+      'footer',
+      'menus',
+      'forms',
+      'form-submissions',
+      'search',
+      'redirects',
+    ],
     label: 'وب‌سایت',
   },
-  { entities: ['posts', 'categories', 'media'], label: 'محتوا' },
+  { entities: ['posts', 'categories', 'media', 'comments'], label: 'محتوا' },
   {
     entities: [
       'content-entries',

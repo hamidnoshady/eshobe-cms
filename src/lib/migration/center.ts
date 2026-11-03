@@ -25,10 +25,12 @@ const BOOLEAN_SETTINGS = [
   'allowCommerceOnNonStoreSite',
   'applyRedirects',
   'confirmedRialToToman',
+  'includeComments',
   'includeContent',
   'includeCoupons',
   'includeCustomers',
   'includeMedia',
+  'includeMenus',
   'includeOrders',
   'includeProducts',
 ] as const

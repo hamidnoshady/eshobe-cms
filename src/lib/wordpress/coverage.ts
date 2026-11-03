@@ -188,6 +188,22 @@ export const coverageMatrix = (
     resource: 'wp-users',
   })
   push({
+    destination: 'menus',
+    disposition: 'requires-mapping',
+    label: 'منوهای ناوبری',
+    reason:
+      'منو و درخت آیتم‌هایش با جایگاه، ترتیب، والد و سند مقصد وارد menus می‌شود؛ این‌که قالب زنده کدام جایگاه را در سربرگ/پابرگ نشان دهد باید در قالب مقصد دیده شود.',
+    resource: 'menus',
+  })
+  push({
+    destination: 'comments',
+    disposition: 'requires-mapping',
+    label: 'دیدگاه‌ها و بازخوردها',
+    reason:
+      'دیدگاه و بازخورد محصول با وضعیت بررسی، پاسخ والد و سند مقصد وارد comments می‌شود؛ رایانامهٔ نویسنده فقط برای کارکنان است و وضعیت هرزنامه/در انتظار بدون تغییر معنا حفظ می‌شود.',
+    resource: 'comments',
+  })
+  push({
     destination: 'customers (جدا از کاربران CMS)',
     disposition: 'requires-mapping',
     label: 'مشتریان فروشگاه و حساب مشتری',

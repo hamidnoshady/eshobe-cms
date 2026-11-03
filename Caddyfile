@@ -56,7 +56,7 @@ https://{$CONTROL_PLANE_HOST} {
 
     @anonymous_control_plane_api_reads {
         method GET HEAD
-        path /api/site /api/pages /api/pages/* /api/posts /api/posts/* /api/products /api/products/* /api/categories /api/categories/* /api/media /api/media/* /api/theme /api/theme/* /api/header /api/header/* /api/footer /api/footer/* /api/store /api/store/* /api/search /api/search/* /api/redirects /api/redirects/* /api/forms /api/forms/* /api/content-type-definitions /api/content-type-definitions/* /api/content-entries /api/content-entries/* /api/taxonomy-definitions /api/taxonomy-definitions/* /api/taxonomy-terms /api/taxonomy-terms/* /api/entry-term-relations /api/entry-term-relations/* /api/content-relations /api/content-relations/* /api/payments/methods
+        path /api/site /api/pages /api/pages/* /api/posts /api/posts/* /api/products /api/products/* /api/categories /api/categories/* /api/media /api/media/* /api/theme /api/theme/* /api/header /api/header/* /api/footer /api/footer/* /api/store /api/store/* /api/search /api/search/* /api/redirects /api/redirects/* /api/forms /api/forms/* /api/content-type-definitions /api/content-type-definitions/* /api/content-entries /api/content-entries/* /api/taxonomy-definitions /api/taxonomy-definitions/* /api/taxonomy-terms /api/taxonomy-terms/* /api/entry-term-relations /api/entry-term-relations/* /api/content-relations /api/content-relations/* /api/menus /api/menus/* /api/comments /api/comments/* /api/payments/methods
     }
     handle @anonymous_control_plane_api_reads {
         respond 403
@@ -176,7 +176,7 @@ https:// {
     # key's own site; `src/access/siteRead.ts` does the same for an anonymous read),
     # not this proxy — the same trust split /api/site above already makes.
     @cms_content {
-        path /api/pages /api/pages/* /api/posts /api/posts/* /api/categories /api/categories/* /api/products /api/products/* /api/store /api/store/* /api/orders /api/orders/* /api/content-type-definitions /api/content-type-definitions/* /api/content-entries /api/content-entries/* /api/taxonomy-definitions /api/taxonomy-definitions/* /api/taxonomy-terms /api/taxonomy-terms/* /api/entry-term-relations /api/entry-term-relations/* /api/content-relations /api/content-relations/*
+        path /api/pages /api/pages/* /api/posts /api/posts/* /api/categories /api/categories/* /api/products /api/products/* /api/store /api/store/* /api/orders /api/orders/* /api/content-type-definitions /api/content-type-definitions/* /api/content-entries /api/content-entries/* /api/taxonomy-definitions /api/taxonomy-definitions/* /api/taxonomy-terms /api/taxonomy-terms/* /api/entry-term-relations /api/entry-term-relations/* /api/content-relations /api/content-relations/* /api/menus /api/menus/* /api/comments /api/comments/*
     }
     handle @cms_content {
         reverse_proxy web:3000

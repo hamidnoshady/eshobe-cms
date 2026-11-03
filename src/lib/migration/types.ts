@@ -22,10 +22,12 @@ export type MigrationOperation =
 export type MigrationSettings = {
   applyRedirects: boolean
   confirmedRialToToman: boolean
+  includeComments: boolean
   includeContent: boolean
   includeCoupons: boolean
   includeCustomers: boolean
   includeMedia: boolean
+  includeMenus: boolean
   includeOrders: boolean
   includeProducts: boolean
   locale: string
