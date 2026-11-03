@@ -150,7 +150,7 @@ The shared `cdn-accounts.originTarget` is the default origin for a zone's proxie
 
 #### Read-only discovery, connection test and diff (staff)
 
-Three staff-only endpoints complement the mutating `POST /api/cdn/sync`:
+Several staff-only endpoints complement the mutating `POST /api/cdn/sync`:
 
 | Route | What it does |
 | --- | --- |
@@ -159,12 +159,24 @@ Three staff-only endpoints complement the mutating `POST /api/cdn/sync`:
 | `POST /api/cdn/zones/diff` `{ id }` | Dry-run preview: reads remote state and diffs it against the zone's desired state. Reports which records would be created (`new`), updated (`drifted`), already match (`in-sync`), are foreign and untouched (`external`), and which settings the provider does not support (`unsupported`). Read-only; the apply step is still `POST /api/cdn/sync`. |
 | `POST /api/cdn/zones/health` `{ id, allowPrivateOrigin? }` | Runs the bounded origin/edge probe pipeline and returns an origin-vs-public readiness verdict. Catches a site answering 200 locally while the public CDN path is broken — in particular an origin serving a default Traefik certificate. Only probes the zone's own origin target and zone name; private origin addresses are refused unless `allowPrivateOrigin: true`. |
 | `POST /api/cdn/zones/adopt` `{ id, providerRecordIds: string[] }` | Explicitly adopts foreign remote records into CMS management before sync will reconcile them. A remote record is only mutated by sync when the CMS owns it; adoption records that ownership. Records whose remote id is not present, or that would collide, are refused. Adoption writes an audit event (`operation: adopt`) to `cdn-events` recording what was adopted and what was refused. |
+| `POST /api/cdn/zones/find` `{ account }` | Lists the zones the provider account already holds — the "find existing zone" step of the connection workflow. Read-only; returns only id/name/status, never credentials or records. |
+| `POST /api/cdn/zones/connect` `{ account, remoteZoneId, site, zoneName }` | Connects an existing provider zone to a site: creates the CMS zone record that references the remote zone by its provider id, so the next sync reads (rather than creates) it. The zone name must be a hostname of the named site. `provisionIfMissing` is false — the zone already exists at the provider. |
+| `POST /api/cdn/accounts/test` `{ provider, apiToken }` | Validates provider credentials before saving an account — the account wizard's "test" step. Lists the zones the token can see; a bad/expired token returns 409. Never persists anything. |
+| `POST /api/cdn/accounts` `{ provider, apiToken, name, originTarget?, tenantSelfService? }` | Creates a platform CDN account; the collection's beforeChange hook encrypts the token on save and locks the provider. |
 
-All five are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
+All are platform-staff only; no API key qualifies. Test/discover results are written to the zone's read-only operational fields (`lastConnectionTest*`, `lastDiscoverAt`) and surfaced in `GET /api/cdn/status`.
 
 #### Origin/edge probe pipeline
 
 `src/cdn/probe.ts` runs bounded, SSRF-guarded probes (DNS delegation, origin TCP, origin TLS with correct SNI, public CDN TLS) and classifies a default origin certificate (e.g. `TRAEFIK DEFAULT CERT`) as a failure rather than a healthy handshake. A site is `live` only when origin and public paths are healthy and no default certificate is served — the `graphitearc.com` regression fixture (Arvan edge → Srv1 Traefik → Srv2 theme) asserts this end to end.
+
+#### Deployment readiness gate
+
+`src/cdn/readiness.ts` joins the sync result and the probe verdict into a single ready/blocked decision. A deployment is not live until the desired state was applied (no blocked sync actions) and both origin and public paths answer with a real certificate — the gate surfaces which condition blocked it (sync not applied, origin invalid, public down, or a default certificate).
+
+#### Traefik DNS-01 provisioning
+
+`src/cdn/traefik.ts` generates the Traefik dynamic-config fragment for an ACME certificate issued via DNS-01 against the zone's own DNS provider. `zoneCertificateDomains` derives the cert domains from the zone apex and record names; `traefikDns01Config` wires the resolver and certificate. Pure config generation — the deployment pipeline writes it to the Traefik dynamic directory.
 
 #### Provider capability matrix
 
