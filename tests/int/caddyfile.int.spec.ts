@@ -81,6 +81,8 @@ describe('Caddyfile control-plane API guard', () => {
       '/api/taxonomy-terms',
       '/api/entry-term-relations',
       '/api/content-relations',
+      '/api/menus',
+      '/api/comments',
       '/api/payments/methods',
     ]
 
@@ -114,6 +116,8 @@ describe('Caddyfile control-plane API guard', () => {
       '/api/taxonomy-terms',
       '/api/entry-term-relations',
       '/api/content-relations',
+      '/api/menus',
+      '/api/comments',
     ]) {
       expect(cmsContent).toContain(surface)
     }

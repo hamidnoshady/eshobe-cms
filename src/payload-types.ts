@@ -78,6 +78,8 @@ export interface Config {
     'content-entries': ContentEntry;
     'entry-term-relations': EntryTermRelation;
     'content-relations': ContentRelation;
+    menus: Menu;
+    comments: Comment;
     users: User;
     sites: Site;
     'api-keys': ApiKey;
@@ -174,6 +176,8 @@ export interface Config {
     'content-entries': ContentEntriesSelect<false> | ContentEntriesSelect<true>;
     'entry-term-relations': EntryTermRelationsSelect<false> | EntryTermRelationsSelect<true>;
     'content-relations': ContentRelationsSelect<false> | ContentRelationsSelect<true>;
+    menus: MenusSelect<false> | MenusSelect<true>;
+    comments: CommentsSelect<false> | CommentsSelect<true>;
     users: UsersSelect<false> | UsersSelect<true>;
     sites: SitesSelect<false> | SitesSelect<true>;
     'api-keys': ApiKeysSelect<false> | ApiKeysSelect<true>;
@@ -2495,6 +2499,311 @@ export interface ArchiveBlock {
   blockType: 'archive';
 }
 /**
+ * درخت‌های ناوبری نام‌دار سایت، از جمله منوهای واردشده از وردپرس. آیتم‌ها با کلید و والدشان در یک فهرست مرتب نگه داشته می‌شوند.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "menus".
+ */
+export interface Menu {
+  id: string;
+  site?: (string | null) | Site;
+  name: string;
+  /**
+   * کلید پایدار منو برای قالب و مهاجرت؛ در هر سایت یکتا است.
+   */
+  slug: string;
+  isActive?: boolean | null;
+  /**
+   * جایگاهی که قالب با آن منو را پیدا می‌کند؛ مثل primary یا footer.
+   */
+  location?: string | null;
+  /**
+   * فهرست JSON نام جایگاه‌هایی که این منو در مبدأ به آن‌ها وصل بوده است.
+   */
+  locations?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  description?: string | null;
+  /**
+   * آیتم‌ها به ترتیب نمایش‌اند. «کلید والد» باید کلید یکی از آیتم‌های همین منو باشد؛ عمق از همان رابطه ساخته می‌شود.
+   */
+  items?:
+    | {
+        key: string;
+        parentKey?: string | null;
+        label: string;
+        description?: string | null;
+        type: 'reference' | 'custom';
+        newTab?: boolean | null;
+        reference?:
+          | ({
+              relationTo: 'pages';
+              value: string | Page;
+            } | null)
+          | ({
+              relationTo: 'posts';
+              value: string | Post;
+            } | null)
+          | ({
+              relationTo: 'products';
+              value: string | Product;
+            } | null)
+          | ({
+              relationTo: 'content-entries';
+              value: string | ContentEntry;
+            } | null)
+          | ({
+              relationTo: 'categories';
+              value: string | Category;
+            } | null)
+          | ({
+              relationTo: 'taxonomy-terms';
+              value: string | TaxonomyTerm;
+            } | null)
+          | ({
+              relationTo: 'media';
+              value: string | Media;
+            } | null);
+        url?: string | null;
+        menuOrder?: number | null;
+        depth?: number | null;
+        status: 'published' | 'draft' | 'pending' | 'private' | 'scheduled' | 'trash';
+        cssClasses?: string | null;
+        sourceObjectType?: string | null;
+        sourceObjectId?: string | null;
+        sourceUrl?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * دیدگاه‌ها و بازخوردهای خوانندگان و مشتریان. فقط دیدگاه تأییدشده روی سند منتشرشده برای بازدیدکننده دیده می‌شود؛ رایانامهٔ نویسنده هرگز عمومی نیست.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "comments".
+ */
+export interface Comment {
+  id: string;
+  site?: (string | null) | Site;
+  body: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  };
+  status: 'approved' | 'pending' | 'spam' | 'trash';
+  /**
+   * برای دیدگاه مهاجر، زمان ثبت در وردپرس است.
+   */
+  submittedAt?: string | null;
+  /**
+   * comment برای دیدگاه عادی و review برای بازخورد محصول ووکامرس.
+   */
+  commentType?: string | null;
+  /**
+   * فقط برای بازخورد محصول؛ میان ۰ تا ۵.
+   */
+  rating?: number | null;
+  targetCollection: 'posts' | 'pages' | 'products' | 'content-entries';
+  targetPost?: (string | null) | Post;
+  targetPage?: (string | null) | Page;
+  targetProduct?: (string | null) | Product;
+  targetEntry?: (string | null) | ContentEntry;
+  /**
+   * پاسخ، فقط زیر دیدگاهی روی همان سند مقصد می‌نشیند.
+   */
+  parent?: (string | null) | Comment;
+  authorName?: string | null;
+  authorUrl?: string | null;
+  /**
+   * دادهٔ شخصی است و در API عمومی یا با کلید سایت برنمی‌گردد.
+   */
+  authorEmail?: string | null;
+  authorUser?: (string | null) | User;
+  authorCustomer?: (string | null) | Customer;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "customers".
+ */
+export interface Customer {
+  id: string;
+  site?: (string | null) | Site;
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+  phone?: string | null;
+  /**
+   * فقط برای شناسایی در تطبیق مهاجرت؛ گذرواژه وردپرس هرگز وارد نمی‌شود.
+   */
+  username?: string | null;
+  status: 'active' | 'inactive' | 'blocked';
+  claimStatus: 'unclaimed' | 'invited' | 'claimed' | 'disabled';
+  claimTokenHash?: string | null;
+  claimExpiresAt?: string | null;
+  invitedAt?: string | null;
+  claimedAt?: string | null;
+  addresses?:
+    | {
+        label?: string | null;
+        firstName?: string | null;
+        lastName?: string | null;
+        company?: string | null;
+        address1?: string | null;
+        address2?: string | null;
+        city?: string | null;
+        state?: string | null;
+        postcode?: string | null;
+        country?: string | null;
+        phone?: string | null;
+        email?: string | null;
+        isDefaultBilling?: boolean | null;
+        isDefaultShipping?: boolean | null;
+        id?: string | null;
+      }[]
+    | null;
+  notes?: string | null;
+  /**
+   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
+   */
+  source?: {
+    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
+    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
+    /**
+     * دامنه یا شناسه نصب وردپرس مبدأ.
+     */
+    installation?: string | null;
+    sourceId?: string | null;
+    /**
+     * مثل post_type یا نام طبقه‌بندی وردپرس.
+     */
+    sourceType?: string | null;
+    sourceStatus?: string | null;
+    sourceAuthorId?: string | null;
+    /**
+     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
+     */
+    permalink?: string | null;
+    modifiedAt?: string | null;
+    /**
+     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
+     */
+    contentHash?: string | null;
+    /**
+     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
+     */
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * اتصال S3-compatible برای رسانهٔ همهٔ سایت‌ها. فقط یک اتصال می‌تواند فعال باشد؛ Secret Key رمزنگاری‌شده ذخیره می‌شود و هرگز از API برنمی‌گردد.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -2850,90 +3159,6 @@ export interface Order {
         id?: string | null;
       }[]
     | null;
-  /**
-   * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
-   */
-  source?: {
-    system?: ('eshobe' | 'wordpress' | 'woocommerce' | 'other') | null;
-    mappingStatus?: ('manual' | 'imported' | 'archived' | 'blocked') | null;
-    /**
-     * دامنه یا شناسه نصب وردپرس مبدأ.
-     */
-    installation?: string | null;
-    sourceId?: string | null;
-    /**
-     * مثل post_type یا نام طبقه‌بندی وردپرس.
-     */
-    sourceType?: string | null;
-    sourceStatus?: string | null;
-    sourceAuthorId?: string | null;
-    /**
-     * نشانی کامل رکورد روی سایت قدیمی؛ مبنای نقشه تغییر مسیر.
-     */
-    permalink?: string | null;
-    modifiedAt?: string | null;
-    /**
-     * برای تشخیص «بدون تغییر» در هم‌گام‌سازی بعدی.
-     */
-    contentHash?: string | null;
-    /**
-     * رکورد کامل مبدأ برای حسابرسی و نگاشت دیرهنگام. در API عمومی و کلید سایت هرگز برنمی‌گردد.
-     */
-    rawPayload?:
-      | {
-          [k: string]: unknown;
-        }
-      | unknown[]
-      | string
-      | number
-      | boolean
-      | null;
-  };
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "customers".
- */
-export interface Customer {
-  id: string;
-  site?: (string | null) | Site;
-  email?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  displayName?: string | null;
-  phone?: string | null;
-  /**
-   * فقط برای شناسایی در تطبیق مهاجرت؛ گذرواژه وردپرس هرگز وارد نمی‌شود.
-   */
-  username?: string | null;
-  status: 'active' | 'inactive' | 'blocked';
-  claimStatus: 'unclaimed' | 'invited' | 'claimed' | 'disabled';
-  claimTokenHash?: string | null;
-  claimExpiresAt?: string | null;
-  invitedAt?: string | null;
-  claimedAt?: string | null;
-  addresses?:
-    | {
-        label?: string | null;
-        firstName?: string | null;
-        lastName?: string | null;
-        company?: string | null;
-        address1?: string | null;
-        address2?: string | null;
-        city?: string | null;
-        state?: string | null;
-        postcode?: string | null;
-        country?: string | null;
-        phone?: string | null;
-        email?: string | null;
-        isDefaultBilling?: boolean | null;
-        isDefaultShipping?: boolean | null;
-        id?: string | null;
-      }[]
-    | null;
-  notes?: string | null;
   /**
    * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
    */
@@ -5297,6 +5522,14 @@ export interface PayloadLockedDocument {
         value: string | ContentRelation;
       } | null)
     | ({
+        relationTo: 'menus';
+        value: string | Menu;
+      } | null)
+    | ({
+        relationTo: 'comments';
+        value: string | Comment;
+      } | null)
+    | ({
         relationTo: 'users';
         value: string | User;
       } | null)
@@ -6324,6 +6557,96 @@ export interface ContentRelationsSelect<T extends boolean = true> {
   targetPage?: T;
   targetMedia?: T;
   menuOrder?: T;
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "menus_select".
+ */
+export interface MenusSelect<T extends boolean = true> {
+  site?: T;
+  name?: T;
+  slug?: T;
+  isActive?: T;
+  location?: T;
+  locations?: T;
+  description?: T;
+  items?:
+    | T
+    | {
+        key?: T;
+        parentKey?: T;
+        label?: T;
+        description?: T;
+        type?: T;
+        newTab?: T;
+        reference?: T;
+        url?: T;
+        menuOrder?: T;
+        depth?: T;
+        status?: T;
+        cssClasses?: T;
+        sourceObjectType?: T;
+        sourceObjectId?: T;
+        sourceUrl?: T;
+        id?: T;
+      };
+  source?:
+    | T
+    | {
+        system?: T;
+        mappingStatus?: T;
+        installation?: T;
+        sourceId?: T;
+        sourceType?: T;
+        sourceStatus?: T;
+        sourceAuthorId?: T;
+        permalink?: T;
+        modifiedAt?: T;
+        contentHash?: T;
+        rawPayload?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "comments_select".
+ */
+export interface CommentsSelect<T extends boolean = true> {
+  site?: T;
+  body?: T;
+  status?: T;
+  submittedAt?: T;
+  commentType?: T;
+  rating?: T;
+  targetCollection?: T;
+  targetPost?: T;
+  targetPage?: T;
+  targetProduct?: T;
+  targetEntry?: T;
+  parent?: T;
+  authorName?: T;
+  authorUrl?: T;
+  authorEmail?: T;
+  authorUser?: T;
+  authorCustomer?: T;
   source?:
     | T
     | {

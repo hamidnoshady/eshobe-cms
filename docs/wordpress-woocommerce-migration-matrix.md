@@ -44,7 +44,8 @@ not a substitute for a dry-run against the customer's real source.
 4. **Import** and **Sync** run in dependency order: definitions → terms and
    categories (parents linked after their pages arrive) → media → posts,
    pages and CPT entries → products → customers → coupons → orders/refunds →
-   current stock → redirect inventory/application. WooCommerce may remain
+   current stock → explicitly declared ACF relationships → menus → comments
+   and product reviews → redirect inventory/application. WooCommerce may remain
    the single writer and imports may be repeated; the idempotency key is
    `site + source installation + resource + source record id`.
 5. **Reconcile** rescans the selected source resources and compares source
@@ -81,12 +82,12 @@ errors and audit rows.
 | `category` | `categories` | **Implemented** | Parent chains are linked and guarded by `validateCategoryParent`. |
 | Custom taxonomies, `post_tag`, `product_cat`, `product_tag` | `taxonomy-definitions` + `taxonomy-terms` | **Implemented** | Vocabularies stay separate; flat taxonomies remain flat and hierarchical taxonomies keep parents. CPT assignments become `entry-term-relations`; posts and products also receive direct term relationships used by their existing surfaces. |
 | ACF/public post meta | definition `fieldSchema` → entry `fieldValues` / `unmappedMeta` | **Implemented; mapping review** | The engine infers primitive field types from sampled `acf` and public `meta`, writes proposed `migration-mappings`, resolves media/gallery values when the destination schema names those types, and keeps unmapped/ambiguous values visible. It does not fetch a separate ACF field-group definition endpoint. |
-| ACF relationship/post-object values | `unmappedMeta`; native `content-relations` schema exists | **Archive/manual** | A bare source ID does not safely name its destination collection, so the importer does not guess. A future field-specific adapter can turn reviewed mappings into `content-relations`; the value is not discarded. |
+| ACF relationship/post-object values | entry `fieldValues` + `content-relations` when the schema declares the target; otherwise `unmappedMeta` | **Implemented; explicit mapping required** | A bare source ID still does not name its destination collection, so the importer never guesses. When an operator changes the field schema to `relationship` with an explicit `relationTo`, the post-commerce pass resolves every source ID, writes destination IDs to `fieldValues`, creates/retires deterministic `acf:<field>` edges and removes the key from `unmappedMeta`. Missing targets leave the whole value unmapped with an open migration error. |
 | Gutenberg/HTML | Lexical body/content | **Implemented** | Supported core vocabulary includes paragraph, heading (clamped to h1–h4), list, quote/code, separator, table text, group/columns, image/gallery captions, links and inline formatting. Unknown blocks contribute readable text and named conversion warnings. Scripts, iframes, forms and unsafe link protocols are never executed or embedded. |
 | Elementor/other page builders and shortcodes | readable Lexical text + provenance; CPTs may also store `preservedHtml` | **Archive/manual** | WordPress plugins do not run in Eshobe. A 1:1 builder rebuild remains a theme/manual task. Coverage marks recognized builders archive-only. |
 | Attachments | `media` | **Implemented for platform-supported images** | AVIF, GIF, JPEG, PNG, SVG and WebP are downloaded over the guarded HTTPS path and imported before content/products. Unsupported media types are visibly blocked rather than replaced with a broken remote URL. |
-| Menus (`nav_menu`) | `header` / `footer` navigation | **Not imported** | Rebuild navigation against imported destination URLs. The importer does not translate WordPress menu locations/items. |
-| Comments | — | **Not imported** | There is no native comment destination/importer in this change. Sites whose comments are business records must export/archive them separately before decommissioning WordPress. |
+| Menus (`nav_menu`, menu items and locations) | `menus` | **Implemented; theme location mapping review** | The importer reads `/wp-json/wp/v2/menus` and `/menu-items`, preserving menu slug/name/description, all locations, item order, parent keys/depth, status, CSS classes, new-tab flag and source object metadata. Page/post/product/CPT/category/taxonomy/media targets become same-site references; custom and archive items become rewritten internal paths or safe external URLs. Header/Footer are not overwritten: the destination theme chooses which menu location to render. An old source without the menus REST routes is visibly blocked. |
+| Comments and WooCommerce product reviews | `comments` | **Implemented; moderation/PII review** | The importer reads WP comment types `comment` and `review` in edit context with `status=any` (WP's `all` would omit spam/trash), preserving body, submitted time, threaded parent, moderation status (`approved`/`pending`/`spam`/`trash`) and exactly one post/page/product/CPT target. Core does not expose WooCommerce's unregistered `rating` comment meta, so product-review ratings (0–5) are stamped from `/wp-json/wc/v3/products/reviews` across every moderation status; if that endpoint is unavailable the rating gap is an open migration error, not a silent zero. Registered customer authors link to imported `customers` when resolvable. Author email is staff-only at field level; anonymous reads expose only approved comments on published targets. Importing history does not open a public submission endpoint. |
 | WordPress staff users/authors | CMS `users` | **Manual; requires mapping** | Accounts and roles are not created automatically and WordPress password hashes are never copied. Source author IDs/names survive in provenance (and CPT `authorName` when embedded); owners invite staff through the normal CMS account flow. |
 | Revisions and autosaves | — | **Intentionally excluded** | Editorial history is not published content. Internal WordPress types are labelled in discovery; they are not represented as destination content. |
 
@@ -149,7 +150,10 @@ destination update time, disposition, attempts and whether the migration
 created the destination. A record is considered unchanged only when both
 the source hash and the destination update time still match the ledger; a
 manual destination edit therefore invalidates the shortcut and is visible
-to re-import/rollback logic.
+to re-import/rollback logic. Checkpoint pages are skipped only for an
+unfinished paused/crashed run (the run with no `finishedAt`); queueing the
+same operation after a completed run starts a fresh scan, so later operator
+mapping decisions are actually applied.
 
 Raw payloads pass through secret-shaped key redaction before storage, the
 center's API returns sanitized views only, and importer code picks explicit
@@ -180,12 +184,14 @@ the migration execution context.
 - A read-only WordPress agent or database-export connector for data that is
   not exposed through WP/Woo REST. Today, discovery can block such a source;
   it cannot magically read it.
-- Menu and comment importers, automatic staff-account provisioning, and
-  customer invitation delivery/claim endpoints.
+- Automatic staff-account provisioning and customer invitation
+  delivery/claim endpoints. Those need a separate identity/session and
+  invitation-delivery design; imports do not turn a WordPress role or claim
+  token into a login by implication.
 - Functional adapters for page builders, forms, subscriptions and other
   operational plugins listed as archive-only or blocking in coverage.
-- Field-specific ACF relationship adapters that can safely create
-  `content-relations` without guessing the destination collection.
+- Inference of an ACF relationship's destination collection from field names
+  or bare numeric IDs. Declaring `relationTo` is supported; guessing is not.
 - DNS automation and a post-cutover merge/rollback for writes that occurred
   independently on both WordPress and Eshobe. The supported model is one
   writer at a time: WordPress before the fence, Eshobe after cutover.

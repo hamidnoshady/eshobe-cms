@@ -1,7 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
 import { siteDescriptor } from '@/endpoints/siteDescriptor'
@@ -23,6 +23,28 @@ let payload: Payload
 
 const acmeId = { value: '' }
 const studioId = { value: '' }
+const createdDocs: { collection: string; id: string }[] = []
+const marker = `headless-${Date.now().toString(36)}`
+
+const lexicalText = (text: string) => ({
+  root: {
+    children: [
+      {
+        children: [{ text, type: 'text', version: 1 }],
+        direction: 'rtl',
+        format: '',
+        indent: 0,
+        type: 'paragraph',
+        version: 1,
+      },
+    ],
+    direction: 'rtl',
+    format: '',
+    indent: 0,
+    type: 'root',
+    version: 1,
+  },
+})
 
 const read = <T = Record<string, unknown>>({
   collection,
@@ -61,6 +83,19 @@ beforeAll(async () => {
   for (const site of docs as { domain: string; id: string }[]) {
     if (site.domain === 'acme.localhost') acmeId.value = site.id
     if (site.domain === 'studio.localhost') studioId.value = site.id
+  }
+}, 180_000)
+
+afterAll(async () => {
+  for (const { collection, id } of [...createdDocs].reverse()) {
+    await payload
+      .delete({
+        id,
+        collection: collection as never,
+        depth: 0,
+        overrideAccess: true,
+      })
+      .catch(() => undefined)
   }
 }, 180_000)
 
@@ -171,6 +206,102 @@ describe('public reads on a customer host', () => {
     expect(JSON.stringify(store)).not.toContain('۶۰۳۷')
   })
 
+  it('expose only active menus and approved comments for the host tenant', async () => {
+    const pages = await read({ collection: 'pages', host: 'acme.localhost' })
+    const pageId = String(pages[0]?.id ?? '')
+    expect(pageId).toBeTruthy()
+
+    const activeMenu = await payload.create({
+      collection: 'menus',
+      data: {
+        isActive: true,
+        items: [
+          {
+            key: 'home',
+            label: 'برگه نمونه',
+            menuOrder: 0,
+            reference: { relationTo: 'pages', value: pageId },
+            status: 'published',
+            type: 'reference',
+          },
+        ],
+        location: 'primary',
+        locations: ['primary'],
+        name: `منوی ${marker}`,
+        site: acmeId.value,
+        slug: marker,
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+    createdDocs.push({ collection: 'menus', id: String(activeMenu.id) })
+
+    const inactiveMenu = await payload.create({
+      collection: 'menus',
+      data: {
+        isActive: false,
+        items: [],
+        name: `منوی مخفی ${marker}`,
+        site: acmeId.value,
+        slug: `${marker}-hidden`,
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+    createdDocs.push({ collection: 'menus', id: String(inactiveMenu.id) })
+
+    for (const status of ['approved', 'pending', 'spam'] as const) {
+      const comment = await payload.create({
+        collection: 'comments',
+        data: {
+          authorEmail: `${marker}-${status}@example.ir`,
+          authorName: `${marker}-${status}`,
+          body: lexicalText(`دیدگاه ${status} ${marker}`),
+          commentType: 'comment',
+          site: acmeId.value,
+          status,
+          submittedAt: new Date().toISOString(),
+          targetCollection: 'pages',
+          targetPage: pageId,
+        } as never,
+        depth: 0,
+        overrideAccess: true,
+      })
+      createdDocs.push({ collection: 'comments', id: String(comment.id) })
+    }
+
+    const menus = await read({
+      collection: 'menus',
+      host: 'acme.localhost',
+      where: { slug: { contains: marker } },
+    })
+    expect(menus.map((menu) => menu.slug)).toEqual([marker])
+    expect(new Set(menus.map((menu) => idOf(menu.site)))).toEqual(new Set([acmeId.value]))
+
+    const menusElsewhere = await read({
+      collection: 'menus',
+      host: 'studio.localhost',
+      where: { slug: { contains: marker } },
+    })
+    expect(menusElsewhere).toEqual([])
+
+    const comments = await read({
+      collection: 'comments',
+      host: 'acme.localhost',
+      where: { authorName: { contains: marker } },
+    })
+    expect(comments.map((comment) => comment.status)).toEqual(['approved'])
+    expect(JSON.stringify(comments)).not.toContain(`${marker}-approved@example.ir`)
+    expect(JSON.stringify(comments)).not.toContain('authorEmail')
+
+    const commentsElsewhere = await read({
+      collection: 'comments',
+      host: 'studio.localhost',
+      where: { authorName: { contains: marker } },
+    })
+    expect(commentsElsewhere).toEqual([])
+  })
+
   it('are refused outright on a host that is not a customer', async () => {
     // The control plane (and any domain no customer owns) resolves to no site. An
     // anonymous caller there has no tenant it could be asking about, so access is
@@ -181,7 +312,15 @@ describe('public reads on a customer host', () => {
     // answer with no documents, which is why this asserts a rejection. Over REST
     // that is a 403 — a better answer than an empty list, since it does not
     // pretend the platform holds nothing.
-    for (const collection of ['pages', 'posts', 'products', 'categories', 'media'] as const) {
+    for (const collection of [
+      'pages',
+      'posts',
+      'products',
+      'categories',
+      'media',
+      'menus',
+      'comments',
+    ] as const) {
       await expect(
         read({ collection, host: 'localhost' }),
         `${collection} was readable on a non-customer host`,
@@ -252,6 +391,18 @@ describe('GET /api/site', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'unknown-host' })
+  })
+
+  it('advertises active menu locations without comment PII', async () => {
+    const response = await fetchDescriptor('acme.localhost')
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      menus?: { items?: { slug?: string }[]; locations?: string[] }
+    }
+
+    expect(body.menus?.locations).toContain('primary')
+    expect(body.menus?.items?.some((menu) => menu.slug === marker)).toBe(true)
+    expect(JSON.stringify(body)).not.toContain(`${marker}-approved@example.ir`)
   })
 
   it('exposes branding on every seeded site without deployment secrets', async () => {

@@ -1,5 +1,7 @@
 import { isMachineKey, isValidArchiveSlug } from '@/lib/content-paths'
+import { CUSTOM_FIELD_RELATION_COLLECTIONS } from '@/lib/custom-fields'
 import { idOf } from '@/lib/ids'
+import { WordPressApiError } from '@/lib/wordpress/client'
 import { paymentProviders } from '@/payments'
 import { slugify } from '@/lib/slug'
 import { classifyCptCapability, type DiscoveredPostType, type DiscoveredTaxonomy } from '@/lib/wordpress/discovery'
@@ -13,6 +15,7 @@ import {
 import {
   asArray,
   asRecord,
+  checkControl,
   commerceAllowed,
   destinationIdFor,
   findDestinationDoc,
@@ -20,6 +23,7 @@ import {
   isoOf,
   MigrationImportError,
   money,
+  num,
   plainText,
   processPages,
   provenance,
@@ -34,7 +38,13 @@ import {
 } from './context'
 import { wordpressContentToLexical } from './gutenberg'
 import { redactRawPayload } from './redact'
-import { recordMigrationError, recordMigrationEvent, sourceRecordIdOf } from './records'
+import {
+  recordMigrationError,
+  recordMigrationEvent,
+  resolveMigrationErrors,
+  sourceRecordIdOf,
+  upsertMigrationRecord,
+} from './records'
 import type { MigrationCounts, RawRecord, RecordDisposition } from './types'
 
 /**
@@ -456,12 +466,13 @@ export const importTerms = async (ctx: Ctx): Promise<void> => {
         const slug = preserveWordPressSlug(raw.slug)
         const name = plainText(raw.name) || slug
         const data: Loose = isCategory
-          ? { slug, title: name }
+          ? { parent: null, slug, title: name }
           : {
               description: plainText(raw.description),
               legacyArchiveUrl: str(raw.link) || null,
               meta: raw.meta ? redactRawPayload(raw.meta) : null,
               name,
+              parent: null,
               slug,
               sourceTermTaxonomyId: raw.term_taxonomy_id ? String(raw.term_taxonomy_id) : null,
               taxonomy: String(ctx.taxonomyDefinitions.get(taxonomy.slug)?.id ?? ''),
@@ -711,6 +722,107 @@ const termDestinationIds = async (
   return ids
 }
 
+const relationResourceFor = (collection: string): null | string => {
+  switch (collection) {
+    case 'content-entries':
+      return 'relation-target:content-entries'
+    case 'posts':
+      return 'post-type:post'
+    case 'pages':
+      return 'post-type:page'
+    case 'products':
+      return 'product'
+    case 'media':
+      return 'media'
+    case 'categories':
+      return 'taxonomy:category'
+    case 'taxonomy-terms':
+      return 'relation-target:taxonomy-terms'
+    default:
+      return null
+  }
+}
+
+/** Source identifiers out of an ACF relationship value (ids, WP_Post-shaped objects, nested rows). */
+export const sourceIdsFromRelationValue = (value: unknown, depth = 0): string[] => {
+  if (depth > 3 || value === null || value === undefined) return []
+  if (Array.isArray(value)) return value.flatMap((item) => sourceIdsFromRelationValue(item, depth + 1))
+  if (typeof value === 'number' || typeof value === 'string') {
+    const text = String(value).trim()
+    return text ? [text] : []
+  }
+  if (typeof value === 'object') {
+    const record = asRecord(value)
+    for (const key of ['ID', 'id', 'value']) {
+      const ids = sourceIdsFromRelationValue(record[key], depth + 1)
+      if (ids.length) return ids
+    }
+  }
+  return []
+}
+
+/**
+ * The exact synthetic source rows edge imports hash into the ledger.
+ * Reconciliation rebuilds these from a fresh source scan, so both sides must
+ * construct them through the same helpers rather than merely similar code.
+ */
+export const entryTermRelationRaw = (
+  sourceEntryRecordId: string,
+  taxonomySlug: string,
+  termSourceId: unknown,
+): RawRecord => ({
+  entry: sourceEntryRecordId,
+  id: `${sourceEntryRecordId}:${taxonomySlug}:${String(termSourceId)}`,
+  taxonomy: taxonomySlug,
+  term: termSourceId,
+})
+
+export const acfContentRelationRaw = (
+  sourceEntryRecordId: string,
+  fieldKey: string,
+  relationTo: string,
+  targetSourceId: string,
+): RawRecord => ({
+  entry: sourceEntryRecordId,
+  field: fieldKey,
+  id: `${sourceEntryRecordId}:${fieldKey}:${targetSourceId}`,
+  relationTo,
+  target: targetSourceId,
+})
+
+type ResolvedRelationValue = {
+  pairs: { destinationId: string; sourceId: string }[]
+  unresolved: string[]
+}
+
+const resolveRelationValue = async (
+  ctx: Ctx,
+  collection: string,
+  value: unknown,
+): Promise<ResolvedRelationValue> => {
+  const resource = relationResourceFor(collection)
+  const sourceIds = [...new Set(sourceIdsFromRelationValue(value))]
+  const pairs: ResolvedRelationValue['pairs'] = []
+  const unresolved: string[] = []
+
+  if (!resource) return { pairs, unresolved: sourceIds }
+
+  for (const sourceId of sourceIds) {
+    const destinationId = await destinationIdFor(ctx, {
+      collection,
+      resource,
+      sourceRecordId: sourceId,
+    })
+    if (destinationId) pairs.push({ destinationId, sourceId })
+    else unresolved.push(sourceId)
+  }
+
+  return { pairs, unresolved }
+}
+
+export const relationshipFieldSupported = (field: Loose): boolean =>
+  (CUSTOM_FIELD_RELATION_COLLECTIONS as readonly string[]).includes(str(field.relationTo))
+
 const coerceFieldValues = async (
   ctx: Ctx,
   definition: Loose,
@@ -748,9 +860,29 @@ const coerceFieldValues = async (
       if (ids.length) fieldValues[key] = ids
       else unmapped[key] = redactRawPayload(value)
     } else if (type === 'relationship') {
-      // A bare source id does not name its destination collection; keep it
-      // visible for a later mapping instead of guessing a target.
-      unmapped[key] = redactRawPayload(value)
+      const relationTo = str(field.relationTo)
+      const sourceIds = sourceIdsFromRelationValue(value)
+
+      if (relationTo !== 'media' || ctx.settings.includeMedia) {
+        if (relationshipFieldSupported(field) && sourceIds.length) {
+          const resolved = await resolveRelationValue(ctx, relationTo, value)
+          const ids = resolved.pairs.map((pair) => pair.destinationId)
+
+          // The destination collection is explicit schema, never inferred
+          // from a bare numeric id. A partially resolvable value stays wholly
+          // in unmappedMeta until the post-import pass can finish it, so the
+          // native field never claims a relation it silently truncated.
+          if (resolved.unresolved.length === 0) {
+            fieldValues[key] = Array.isArray(value) ? ids : ids[0]
+          } else {
+            unmapped[key] = redactRawPayload(value)
+          }
+        } else {
+          unmapped[key] = redactRawPayload(value)
+        }
+      } else {
+        unmapped[key] = redactRawPayload(value)
+      }
     } else {
       fieldValues[key] = redactRawPayload(value)
     }
@@ -868,6 +1000,7 @@ export const importContent = async (ctx: Ctx): Promise<void> => {
                 ...(ogImage ? { image: ogImage } : {}),
                 ...(seo.title ? { title: seo.title } : {}),
               },
+              parent: null,
               publishedAt: dateOf(raw),
               slug,
               title,
@@ -933,6 +1066,7 @@ export const importContent = async (ctx: Ctx): Promise<void> => {
             ...(seo.title ? { metaTitle: seo.title } : {}),
             noindex: seo.noindex,
             ...(ogImage ? { ogImage } : {}),
+            parent: null,
             ...(needsArchive ? { preservedHtml: sourceHtml } : {}),
             publishedAt: dateOf(raw),
             slug,
@@ -959,6 +1093,21 @@ export const importContent = async (ctx: Ctx): Promise<void> => {
           })
         }
 
+        // Every explicitly declared relationship field is queued even when
+        // the source value is now empty: the late pass both creates the
+        // current edges and retires edges a delta sync removed.
+        for (const field of asArray(definition.fieldSchema) as Loose[]) {
+          if (str(field.fieldType) !== 'relationship' || !relationshipFieldSupported(field)) continue
+          ctx.pendingContentRelations.push({
+            entryId: result.id,
+            fieldKey: str(field.key),
+            relationTo: str(field.relationTo),
+            sourceEntryRecordId: sourceRecordId,
+            sourceType: type.slug,
+            value: redactRawPayload(customValuesOf(raw)[str(field.key)] ?? null),
+          })
+        }
+
         for (const taxonomy of attachedTaxonomies) {
           if (taxonomy.slug === 'category') continue
           const definitionDoc = ctx.taxonomyDefinitions.get(taxonomy.slug)
@@ -973,7 +1122,8 @@ export const importContent = async (ctx: Ctx): Promise<void> => {
               resource: `taxonomy:${taxonomy.slug}`,
               sourceRecordId: termSourceId as number | string,
             })
-            const syntheticId = `${sourceRecordId}:${taxonomy.slug}:${String(termSourceId)}`
+            const relRaw = entryTermRelationRaw(sourceRecordId, taxonomy.slug, termSourceId)
+            const syntheticId = String(relRaw.id)
 
             if (!termId) {
               await recordMigrationError(ctx.req, {
@@ -988,12 +1138,6 @@ export const importContent = async (ctx: Ctx): Promise<void> => {
               continue
             }
 
-            const relRaw: RawRecord = {
-              entry: sourceRecordId,
-              id: syntheticId,
-              taxonomy: taxonomy.slug,
-              term: termSourceId,
-            }
             await upsertDestination(ctx, {
               collection: 'entry-term-relations',
               data: {
@@ -1812,6 +1956,999 @@ export const importOrders = async (ctx: Ctx): Promise<void> => {
     path: '/wp-json/wc/v3/orders',
     resource: 'orders',
   })
+}
+
+// --- Explicit ACF relationships ----------------------------------------------
+
+export const CONTENT_RELATION_TARGET_FIELDS: Record<string, string> = {
+  'content-entries': 'targetEntry',
+  media: 'targetMedia',
+  pages: 'targetPage',
+  posts: 'targetPost',
+  products: 'targetProduct',
+}
+
+const allMigrationDocs = async (ctx: Ctx, collection: string, where: Loose): Promise<Loose[]> => {
+  const { docs } = await ctx.req.payload.find({
+    collection: collection as never,
+    depth: 0,
+    draft: true,
+    limit: 0,
+    overrideAccess: true,
+    pagination: false,
+    req: ctx.req,
+    where: where as never,
+  })
+
+  return docs as unknown as Loose[]
+}
+
+const retireContentRelation = async (ctx: Ctx, relation: Loose): Promise<void> => {
+  const relationId = String(relation.id ?? '')
+  if (!relationId) return
+
+  const sourceRecordId = str(asRecord(relation.source).sourceId)
+
+  await ctx.req.payload.delete({
+    id: relationId,
+    collection: 'content-relations',
+    depth: 0,
+    overrideAccess: true,
+    req: ctx.req,
+  })
+
+  if (sourceRecordId) {
+    ctx.destinationCache.delete(`content-relation:${sourceRecordId}`)
+    await upsertMigrationRecord(ctx.req, {
+      destinationCollection: null,
+      destinationId: null,
+      destinationUpdatedAt: null,
+      disposition: 'deleted',
+      installation: ctx.installation,
+      jobId: ctx.jobId,
+      resource: 'content-relation',
+      siteId: ctx.siteId,
+      sourceId: ctx.sourceId,
+      sourceRecordId,
+    })
+  }
+}
+
+/**
+ * Finish explicitly mapped ACF relationships after every possible target
+ * exists. `fieldValues` receives destination ids and `content-relations`
+ * receives the navigable edge; taxonomy targets stay field values because
+ * the edge model has entry-term relations for taxonomies instead. A field
+ * with an unresolved target remains in `unmappedMeta` with an open error —
+ * never a partial field value presented as complete.
+ */
+export const syncAcfRelationships = async (ctx: Ctx): Promise<void> => {
+  const pending = ctx.pendingContentRelations.splice(0)
+  if (!pending.length) return
+
+  const byEntry = new Map<string, typeof pending>()
+
+  for (const spec of pending) {
+    const list = byEntry.get(spec.entryId) ?? []
+    list.push(spec)
+    byEntry.set(spec.entryId, list)
+  }
+
+  for (const [entryId, specs] of byEntry) {
+    await checkControl(ctx)
+    const entry = await findDestinationDoc(ctx, 'content-entries', entryId)
+    if (!entry) continue
+
+    const sourceType = specs[0]?.sourceType ?? ''
+    const sourceEntryRecordId = specs[0]?.sourceEntryRecordId ?? ''
+    const nextValues: Loose = { ...asRecord(entry.fieldValues) }
+    const nextUnmapped: Loose = { ...asRecord(entry.unmappedMeta) }
+
+    for (const spec of specs) {
+      const errorRecordId = `${spec.sourceEntryRecordId}:${spec.fieldKey}`
+
+      try {
+        const sourceIds = sourceIdsFromRelationValue(spec.value)
+
+        if (spec.relationTo === 'media' && !ctx.settings.includeMedia) {
+          if (sourceIds.length) {
+            delete nextValues[spec.fieldKey]
+            nextUnmapped[spec.fieldKey] = redactRawPayload(spec.value)
+          }
+          continue
+        }
+
+        if (!sourceIds.length) {
+          delete nextValues[spec.fieldKey]
+          delete nextUnmapped[spec.fieldKey]
+
+          if (CONTENT_RELATION_TARGET_FIELDS[spec.relationTo]) {
+            const existing = await allMigrationDocs(ctx, 'content-relations', {
+              and: [
+                { site: { equals: ctx.siteId } },
+                { fromEntry: { equals: entryId } },
+                { relationKind: { equals: `acf:${spec.fieldKey}` } },
+                { 'source.installation': { equals: ctx.installation } },
+              ],
+            })
+            for (const relation of existing) await retireContentRelation(ctx, relation)
+          }
+          continue
+        }
+
+        const resolved = await resolveRelationValue(ctx, spec.relationTo, spec.value)
+
+        if (resolved.unresolved.length) {
+          delete nextValues[spec.fieldKey]
+          nextUnmapped[spec.fieldKey] = redactRawPayload(spec.value)
+          ctx.counts.errors += 1
+          await recordMigrationError(ctx.req, {
+            code: 'ACF_RELATION_TARGET_MISSING',
+            error: new Error(
+              `مقصد رابطه صریح «${spec.fieldKey}» برای شناسه‌های ${resolved.unresolved.join('، ')} پیدا نشد؛ مقدار در unmappedMeta ماند.`,
+            ),
+            jobId: ctx.jobId,
+            resource: 'content-relation',
+            siteId: ctx.siteId,
+            sourceId: ctx.sourceId,
+            sourceRecordId: errorRecordId,
+          })
+          continue
+        }
+
+        const targetField = CONTENT_RELATION_TARGET_FIELDS[spec.relationTo]
+
+        if (targetField) {
+          const desired = new Map(
+            resolved.pairs.map((pair) => [
+              `${spec.sourceEntryRecordId}:${spec.fieldKey}:${pair.sourceId}`,
+              pair,
+            ]),
+          )
+          const existing = await allMigrationDocs(ctx, 'content-relations', {
+            and: [
+              { site: { equals: ctx.siteId } },
+              { fromEntry: { equals: entryId } },
+              { relationKind: { equals: `acf:${spec.fieldKey}` } },
+              { 'source.installation': { equals: ctx.installation } },
+            ],
+          })
+
+          for (const relation of existing) {
+            const syntheticId = str(asRecord(relation.source).sourceId)
+            if (!desired.has(syntheticId)) await retireContentRelation(ctx, relation)
+          }
+
+          for (const [index, pair] of resolved.pairs.entries()) {
+            const syntheticId = `${spec.sourceEntryRecordId}:${spec.fieldKey}:${pair.sourceId}`
+            const raw = acfContentRelationRaw(
+              spec.sourceEntryRecordId,
+              spec.fieldKey,
+              spec.relationTo,
+              pair.sourceId,
+            )
+
+            await upsertDestination(ctx, {
+              collection: 'content-relations',
+              data: {
+                fromEntry: entryId,
+                relationKind: `acf:${spec.fieldKey}`,
+                menuOrder: index,
+                targetCollection: spec.relationTo,
+                targetEntry: null,
+                targetMedia: null,
+                targetPage: null,
+                targetPost: null,
+                targetProduct: null,
+                [targetField]: pair.destinationId,
+                ...provenance(ctx, {
+                  raw,
+                  sourceRecordId: syntheticId,
+                  sourceType: 'acf_relationship',
+                  system: 'wordpress',
+                }),
+              },
+              raw,
+              resource: 'content-relation',
+              sourceRecordId: syntheticId,
+            })
+          }
+        }
+
+        const ids = resolved.pairs.map((pair) => pair.destinationId)
+        nextValues[spec.fieldKey] = Array.isArray(spec.value) ? ids : ids[0]
+        delete nextUnmapped[spec.fieldKey]
+        await resolveMigrationErrors(ctx.req, {
+          code: 'ACF_RELATION_TARGET_MISSING',
+          jobId: ctx.jobId,
+          resource: 'content-relation',
+          siteId: ctx.siteId,
+          sourceId: ctx.sourceId,
+          sourceRecordId: errorRecordId,
+        })
+      } catch (error) {
+        ctx.counts.errors += 1
+        delete nextValues[spec.fieldKey]
+        nextUnmapped[spec.fieldKey] = redactRawPayload(spec.value)
+        await recordMigrationError(ctx.req, {
+          code: error instanceof MigrationImportError ? error.code : 'ACF_RELATION_SYNC_ERROR',
+          error,
+          jobId: ctx.jobId,
+          resource: 'content-relation',
+          siteId: ctx.siteId,
+          sourceId: ctx.sourceId,
+          sourceRecordId: errorRecordId,
+        }).catch(() => undefined)
+      }
+    }
+
+    const changed =
+      JSON.stringify(nextValues) !== JSON.stringify(asRecord(entry.fieldValues)) ||
+      JSON.stringify(nextUnmapped) !== JSON.stringify(asRecord(entry.unmappedMeta))
+
+    if (changed && sourceEntryRecordId) {
+      const updated = await updateDestinationDoc(ctx, {
+        collection: 'content-entries',
+        data: { fieldValues: nextValues, unmappedMeta: nextUnmapped },
+        id: entryId,
+      })
+      await refreshRecordDestination(
+        ctx,
+        `post-type:${sourceType}`,
+        sourceEntryRecordId,
+        isoOf(updated.updatedAt) || null,
+      )
+    }
+  }
+}
+
+// --- Menus --------------------------------------------------------------------
+
+export const WORDPRESS_MENUS_PATH = '/wp-json/wp/v2/menus'
+export const WORDPRESS_MENU_ITEMS_PATH = '/wp-json/wp/v2/menu-items'
+
+const sortMenuItems = (items: RawRecord[]): RawRecord[] =>
+  [...items].sort((a, b) => {
+    const order = intOf(a.menu_order, 0) - intOf(b.menu_order, 0)
+    return order || String(a.id ?? '').localeCompare(String(b.id ?? ''))
+  })
+
+export const menuIdsOfItem = (item: RawRecord): string[] => {
+  const raw = item.menus ?? item.menu ?? item.menu_id
+  const values = Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw]
+
+  return values
+    .map((value) =>
+      typeof value === 'object' && value !== null ? str(asRecord(value).id ?? asRecord(value).ID) : str(value),
+    )
+    .filter(Boolean)
+}
+
+export type WordPressMenuAggregate = {
+  itemsByMenu: Map<string, RawRecord[]>
+  menus: RawRecord[]
+  orphanItems: RawRecord[]
+}
+
+export const menuItemOrphanRecordId = (item: RawRecord, index = 0): string =>
+  `menu-item:${sourceRecordIdOf(item) ?? `missing-id-${index}`}`
+
+export const collectWordPressMenus = async (ctx: Ctx): Promise<WordPressMenuAggregate> => {
+  const [menus, items] = await Promise.all([
+    ctx.clients.wp.collect<RawRecord>(WORDPRESS_MENUS_PATH, { context: 'edit' }),
+    ctx.clients.wp.collect<RawRecord>(WORDPRESS_MENU_ITEMS_PATH, {
+      context: 'edit',
+      order: 'asc',
+      orderby: 'id',
+      status: 'any',
+    }),
+  ])
+  const itemsByMenu = new Map<string, RawRecord[]>()
+  const knownMenuIds = new Set(menus.map((menu) => sourceRecordIdOf(menu)).filter(Boolean))
+  const orphanItems: RawRecord[] = []
+
+  for (const item of items) {
+    const claimedMenuIds = menuIdsOfItem(item)
+    const knownMenuIdsForItem = claimedMenuIds.filter((menuId) => knownMenuIds.has(menuId))
+
+    // An item with no menu reference, or one pointing at a menu the menus
+    // endpoint did not return, must not disappear merely because the known
+    // menus imported cleanly. Keep it separate for explicit blocked ledger
+    // accounting by import, dry-run and reconciliation.
+    if (!knownMenuIdsForItem.length) {
+      orphanItems.push(item)
+      continue
+    }
+
+    for (const menuId of knownMenuIdsForItem) {
+      const list = itemsByMenu.get(menuId) ?? []
+      list.push(item)
+      itemsByMenu.set(menuId, list)
+    }
+  }
+
+  for (const [menuId, list] of itemsByMenu) itemsByMenu.set(menuId, sortMenuItems(list))
+
+  return { itemsByMenu, menus, orphanItems: sortMenuItems(orphanItems) }
+}
+
+export const menuAggregateRaw = (menu: RawRecord, items: RawRecord[]): RawRecord => ({
+  ...menu,
+  __eshobe_menu_items: sortMenuItems(items),
+})
+
+export type WordPressMenuOrphanRecord = {
+  claimedMenuIds: string[]
+  items: RawRecord[]
+  raw: RawRecord
+  sourceRecordId: string
+}
+
+/**
+ * Ledger shape for menu items whose menu cannot be imported. Items pointing
+ * at a menu ID the menus endpoint omitted are grouped under that claimed ID:
+ * if a later scan returns the menu, its normal import upserts the same
+ * ledger key and supersedes the blocked row. Items with no menu reference at
+ * all get a per-item synthetic key.
+ */
+export const menuOrphanRecords = (orphanItems: RawRecord[]): WordPressMenuOrphanRecord[] => {
+  const groups = new Map<string, { claimedMenuIds: string[]; items: RawRecord[] }>()
+
+  orphanItems.forEach((item, index) => {
+    const claimedMenuIds = menuIdsOfItem(item)
+    const sourceRecordId = claimedMenuIds[0] ?? menuItemOrphanRecordId(item, index)
+    const group = groups.get(sourceRecordId) ?? { claimedMenuIds, items: [] }
+    group.items.push(item)
+    groups.set(sourceRecordId, group)
+  })
+
+  return [...groups.entries()].map(([sourceRecordId, group]) => ({
+    claimedMenuIds: group.claimedMenuIds,
+    items: group.items,
+    raw: group.claimedMenuIds.length
+      ? menuAggregateRaw({ id: sourceRecordId }, group.items)
+      : group.items[0]!,
+    sourceRecordId,
+  }))
+}
+
+const menuLocationsOf = (menu: RawRecord): string[] => {
+  const values: unknown[] = []
+
+  for (const candidate of [menu.locations, menu.location, menu.theme_location]) {
+    if (Array.isArray(candidate)) values.push(...candidate)
+    else if (candidate && typeof candidate === 'object') values.push(...Object.keys(asRecord(candidate)))
+    else if (candidate !== undefined && candidate !== null) values.push(candidate)
+  }
+
+  return [...new Set(values.map((value) => str(value).trim()).filter(Boolean))]
+}
+
+const sameMenuHost = (hostname: string, other: string): boolean =>
+  hostname.replace(/^www\./, '').toLowerCase() === other.replace(/^www\./, '').toLowerCase()
+
+const rewrittenMenuUrl = (ctx: Ctx, value: unknown): string => {
+  const raw = str(value).trim()
+
+  if (/^\/[^/\\]/.test(raw) || raw === '/') return raw
+
+  let parsed: URL
+
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new MigrationImportError(
+      'MENU_ITEM_URL_INVALID',
+      'نشانی یکی از آیتم‌های منو معتبر نیست؛ منو بدون حذف آن آیتم مسدود ماند.',
+      'blocked',
+    )
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new MigrationImportError(
+      'MENU_ITEM_URL_UNSAFE',
+      'نشانی یکی از آیتم‌های منو غیر http(s) است؛ منو مسدود ماند.',
+      'blocked',
+    )
+  }
+
+  const sourceHost = new URL(String(ctx.source.baseUrl)).hostname
+
+  return sameMenuHost(parsed.hostname, sourceHost)
+    ? `${parsed.pathname}${parsed.search}${parsed.hash}`
+    : parsed.toString()
+}
+
+type MenuTarget = { collection: string; resource: string }
+
+const menuTargetFor = (item: RawRecord): MenuTarget | null => {
+  const type = str(item.type).toLowerCase()
+  const object = str(item.object).toLowerCase()
+
+  if (type === 'custom' || type === 'post_type_archive' || object === 'custom') return null
+
+  if (type === 'taxonomy') {
+    if (!object) {
+      throw new MigrationImportError(
+        'MENU_ITEM_OBJECT_MISSING',
+        'گونه طبقه‌بندی یکی از آیتم‌های منو مشخص نیست؛ منو مسدود ماند.',
+        'blocked',
+      )
+    }
+    return object === 'category'
+      ? { collection: 'categories', resource: 'taxonomy:category' }
+      : { collection: 'taxonomy-terms', resource: `taxonomy:${object}` }
+  }
+
+  if (type === 'post_type' || (!type && object)) {
+    if (!object) {
+      throw new MigrationImportError(
+        'MENU_ITEM_OBJECT_MISSING',
+        'گونه محتوای یکی از آیتم‌های منو مشخص نیست؛ منو مسدود ماند.',
+        'blocked',
+      )
+    }
+    if (object === 'post') return { collection: 'posts', resource: 'post-type:post' }
+    if (object === 'page') return { collection: 'pages', resource: 'post-type:page' }
+    if (object === 'product') return { collection: 'products', resource: 'product' }
+    if (object === 'attachment') return { collection: 'media', resource: 'media' }
+    return { collection: 'content-entries', resource: `post-type:${object}` }
+  }
+
+  if (!type && !object) return null
+
+  throw new MigrationImportError(
+    'MENU_ITEM_TYPE_UNSUPPORTED',
+    `گونه آیتم منو «${type || object}» نگاشت بومی ندارد؛ منو مسدود ماند.`,
+    'blocked',
+  )
+}
+
+const menuItemData = async (ctx: Ctx, item: RawRecord): Promise<Loose> => {
+  const itemId = sourceRecordIdOf(item)
+  const status = mapWordPressStatus(str(item.status) || 'publish')
+
+  if (!itemId) {
+    throw new MigrationImportError(
+      'MENU_ITEM_ID_MISSING',
+      'یکی از آیتم‌های منو شناسه مبدأ ندارد و بدون حذفش منو مسدود ماند.',
+      'blocked',
+    )
+  }
+  if (!status.target) {
+    throw new MigrationImportError(
+      'MENU_ITEM_STATUS_UNSUPPORTED',
+      `وضعیت آیتم منو «${status.original}» نگاشت بومی ندارد؛ منو مسدود ماند.`,
+      'blocked',
+    )
+  }
+
+  const classes = Array.isArray(item.classes)
+    ? item.classes.map((value) => str(value)).filter(Boolean).join(' ')
+    : plainText(item.classes)
+  const target = menuTargetFor(item)
+  const label =
+    plainText(item.title) || plainText(item.attr_title) || plainText(item.url) || `آیتم ${itemId}`
+  const data: Loose = {
+    ...(classes ? { cssClasses: classes } : {}),
+    ...(plainText(item.description) ? { description: plainText(item.description) } : {}),
+    key: itemId,
+    label,
+    menuOrder: intOf(item.menu_order, 0),
+    newTab: str(item.target).toLowerCase() === '_blank',
+    ...(intOf(item.parent, 0) > 0 ? { parentKey: String(item.parent) } : {}),
+    sourceObjectId: item.object_id ? String(item.object_id) : undefined,
+    sourceObjectType: str(item.object) || str(item.type) || undefined,
+    sourceUrl: str(item.url) || undefined,
+    status: status.target,
+  }
+
+  if (!target) {
+    if (!str(item.url)) {
+      throw new MigrationImportError(
+        'MENU_ITEM_URL_MISSING',
+        'آیتم دل‌خواه منو نشانی ندارد؛ منو مسدود ماند.',
+        'blocked',
+      )
+    }
+    Object.assign(data, { type: 'custom', url: rewrittenMenuUrl(ctx, item.url) })
+    return data
+  }
+
+  const objectId = item.object_id as number | string | undefined
+
+  if (objectId === undefined || objectId === null || String(objectId).trim() === '') {
+    throw new MigrationImportError(
+      'MENU_ITEM_TARGET_MISSING',
+      'شناسه مقصد یکی از آیتم‌های منو در مبدأ نیست؛ منو بدون حذف آیتم مسدود ماند.',
+      'blocked',
+    )
+  }
+
+  const destinationId = await destinationIdFor(ctx, {
+    collection: target.collection,
+    resource: target.resource,
+    sourceRecordId: objectId,
+  })
+
+  if (!destinationId) {
+    throw new MigrationImportError(
+      'MENU_ITEM_TARGET_MISSING',
+      `مقصد آیتم منو «${String(objectId)}» در ${target.collection} پیدا نشد؛ منو مسدود ماند.`,
+      'blocked',
+    )
+  }
+
+  Object.assign(data, {
+    reference: { relationTo: target.collection, value: destinationId },
+    type: 'reference',
+  })
+
+  return data
+}
+
+const menusEndpointUnavailable = (error: unknown): boolean =>
+  error instanceof WordPressApiError &&
+  (error.status === 404 || /no_route|not_found/i.test(error.code ?? ''))
+
+export const importMenus = async (ctx: Ctx): Promise<void> => {
+  if (!ctx.settings.includeMenus) return
+
+  let aggregate: WordPressMenuAggregate
+
+  try {
+    aggregate = await collectWordPressMenus(ctx)
+  } catch (error) {
+    if (!menusEndpointUnavailable(error)) throw error
+
+    ctx.counts.seen += 1
+    ctx.counts.blocked += 1
+    const raw: RawRecord = { endpoint: WORDPRESS_MENUS_PATH, id: 'menus' }
+    await recordDisposition(ctx, {
+      disposition: 'blocked',
+      raw,
+      resource: 'menus',
+      sourceRecordId: 'menus',
+    }).catch(() => undefined)
+    await recordMigrationError(ctx.req, {
+      code: 'MENUS_ENDPOINT_UNAVAILABLE',
+      error: new Error(
+        'این مبدأ وردپرس مسیر REST منوها را ارائه نمی‌کند؛ منوها مسدود ماندند و از کشف حذف نمی‌شوند.',
+      ),
+      jobId: ctx.jobId,
+      resource: 'menus',
+      siteId: ctx.siteId,
+      sourceId: ctx.sourceId,
+      sourceRecordId: 'menus',
+    }).catch(() => undefined)
+    return
+  }
+
+  const menus = [...aggregate.menus].sort((a, b) =>
+    String(a.id ?? '').localeCompare(String(b.id ?? '')),
+  )
+
+  for (const menu of menus) {
+    await checkControl(ctx)
+    const sourceRecordId = sourceRecordIdOf(menu)
+    ctx.counts.seen += 1
+    const items = sourceRecordId ? (aggregate.itemsByMenu.get(sourceRecordId) ?? []) : []
+    const raw = menuAggregateRaw(menu, items)
+
+    try {
+      if (!sourceRecordId) {
+        throw new MigrationImportError(
+          'MENU_ID_MISSING',
+          'منوی مبدأ شناسه ندارد و به‌صورت مسدود ثبت شد.',
+          'blocked',
+        )
+      }
+      if (items.length > 1_000) {
+        throw new MigrationImportError(
+          'MENU_TOO_LARGE',
+          'منو بیش از سقف ۱۰۰۰ آیتم دارد و برای تقسیم دستی مسدود ماند.',
+          'blocked',
+        )
+      }
+
+      const slug = preserveWordPressSlug(menu.slug ?? `menu-${sourceRecordId}`)
+      const itemRows: Loose[] = []
+
+      for (const item of items) itemRows.push(await menuItemData(ctx, item))
+
+      const locations = menuLocationsOf(menu)
+      const result = await upsertDestination(ctx, {
+        collection: 'menus',
+        data: {
+          ...(plainText(menu.description) ? { description: plainText(menu.description) } : {}),
+          isActive: true,
+          items: itemRows,
+          ...(locations[0] ? { location: locations[0] } : {}),
+          locations,
+          name: plainText(menu.name) || slug,
+          slug,
+          ...provenance(ctx, {
+            raw,
+            sourceRecordId,
+            sourceType: 'menu',
+            system: 'wordpress',
+          }),
+        },
+        metadata: { itemCount: itemRows.length, locations },
+        raw,
+        resource: 'menus',
+        sourceRecordId,
+      })
+
+      if (result.action === 'created') ctx.counts.imported += 1
+      else if (result.action === 'updated') ctx.counts.updated += 1
+      else ctx.counts.unchanged += 1
+    } catch (error) {
+      const disposition = error instanceof MigrationImportError ? error.disposition : 'error'
+      if (disposition === 'blocked') ctx.counts.blocked += 1
+      else ctx.counts.errors += 1
+      const recordId = sourceRecordId ?? 'menu-missing-id'
+      await recordDisposition(ctx, {
+        disposition,
+        raw,
+        resource: 'menus',
+        sourceRecordId: recordId,
+      }).catch(() => undefined)
+      await recordMigrationError(ctx.req, {
+        code: error instanceof MigrationImportError ? error.code : 'MENU_IMPORT_ERROR',
+        error,
+        jobId: ctx.jobId,
+        resource: 'menus',
+        retryable: disposition !== 'blocked',
+        siteId: ctx.siteId,
+        sourceId: ctx.sourceId,
+        sourceRecordId: recordId,
+      }).catch(() => undefined)
+    }
+  }
+
+  for (const orphan of menuOrphanRecords(aggregate.orphanItems)) {
+    await checkControl(ctx)
+    ctx.counts.seen += 1
+    ctx.counts.blocked += 1
+    await recordDisposition(ctx, {
+      disposition: 'blocked',
+      metadata: {
+        claimedMenuIds: orphan.claimedMenuIds,
+        menuItemIds: orphan.items.map((item) => sourceRecordIdOf(item)),
+        orphanReason: orphan.claimedMenuIds.length ? 'unknown-menu' : 'missing-menu',
+      },
+      raw: orphan.raw,
+      resource: 'menus',
+      sourceRecordId: orphan.sourceRecordId,
+    }).catch(() => undefined)
+    await recordMigrationError(ctx.req, {
+      code: 'MENU_ITEM_MENU_MISSING',
+      error: new Error(
+        orphan.claimedMenuIds.length
+          ? `آیتم منو به منویی اشاره می‌کند که endpoint منوها برنگرداند (${orphan.claimedMenuIds.join('، ')}).`
+          : 'آیتم منو هیچ منوی مبدأ قابل کشف ندارد.',
+      ),
+      jobId: ctx.jobId,
+      resource: 'menus',
+      retryable: false,
+      siteId: ctx.siteId,
+      sourceId: ctx.sourceId,
+      sourceRecordId: orphan.sourceRecordId,
+    }).catch(() => undefined)
+  }
+}
+
+// --- Comments -----------------------------------------------------------------
+
+export const WORDPRESS_COMMENTS_PATH = '/wp-json/wp/v2/comments'
+export const WORDPRESS_COMMENT_TYPES = ['comment', 'review'] as const
+export const WOO_PRODUCT_REVIEWS_PATH = '/wp-json/wc/v3/products/reviews'
+const WOO_REVIEW_STATUSES = ['approved', 'hold', 'spam', 'trash'] as const
+// WordPress's `status=all` means only approved + held comments; spam and
+// trashed comments are excluded. `any` is the WP_Comment_Query value that
+// really returns every moderation state, which is what preserving comment
+// history (rather than silently dropping its spam/trash) requires.
+export const WORDPRESS_COMMENTS_STATUS = 'any'
+
+export const commentStatusOf = (raw: RawRecord): 'approved' | 'pending' | 'spam' | 'trash' => {
+  const status = str(raw.status || 'approved').toLowerCase()
+
+  switch (status) {
+    case '1':
+    case 'approve':
+    case 'approved':
+      return 'approved'
+    case '0':
+    case 'hold':
+    case 'pending':
+    case 'unapproved':
+      return 'pending'
+    case 'spam':
+      return 'spam'
+    case 'post-trashed':
+    case 'trash':
+    case 'trashed':
+      return 'trash'
+    default:
+      throw new MigrationImportError(
+        'COMMENT_STATUS_UNSUPPORTED',
+        `وضعیت دیدگاه «${status}» نگاشت بومی ندارد و دیدگاه مسدود ماند.`,
+        'blocked',
+      )
+  }
+}
+
+export const commentRatingOf = (raw: RawRecord): null | number => {
+  const meta = asRecord(raw.meta)
+  const value = num(raw.rating ?? meta.rating ?? meta._rating)
+
+  if (value === null) return null
+  if (value < 0 || value > 5) {
+    throw new MigrationImportError(
+      'COMMENT_RATING_INVALID',
+      'امتیاز بازخورد بیرون بازه ۰ تا ۵ است؛ دیدگاه بدون گرد کردن امتیاز مسدود ماند.',
+      'blocked',
+    )
+  }
+
+  return value
+}
+
+const commentTargetData = async (
+  ctx: Ctx,
+  raw: RawRecord,
+): Promise<{ collection: string; field: string; id: string }> => {
+  const targetSourceId = raw.post ?? raw.post_id ?? raw.product_id
+
+  if (
+    targetSourceId === undefined ||
+    targetSourceId === null ||
+    String(targetSourceId).trim() === '' ||
+    Number(targetSourceId) === 0
+  ) {
+    throw new MigrationImportError(
+      'COMMENT_TARGET_MISSING',
+      'دیدگاه سند مقصد در مبدأ ندارد و بدون مقصد مسدود ماند.',
+      'blocked',
+    )
+  }
+
+  const candidates: { collection: string; field: string; resource: string; type?: string }[] = [
+    { collection: 'posts', field: 'targetPost', resource: 'post-type:post', type: 'post' },
+    { collection: 'pages', field: 'targetPage', resource: 'post-type:page', type: 'page' },
+    { collection: 'products', field: 'targetProduct', resource: 'product', type: 'product' },
+    {
+      collection: 'content-entries',
+      field: 'targetEntry',
+      resource: 'comment-target:content-entries',
+    },
+  ]
+  const sourcePostType = str(raw.post_type).toLowerCase()
+  const ordered = sourcePostType
+    ? [
+        ...candidates.filter(
+          (candidate) =>
+            candidate.type === sourcePostType ||
+            (!candidate.type && !['page', 'post', 'product'].includes(sourcePostType)),
+        ),
+        ...candidates.filter(
+          (candidate) =>
+            candidate.type !== sourcePostType &&
+            (candidate.type || ['page', 'post', 'product'].includes(sourcePostType)),
+        ),
+      ]
+    : candidates
+
+  for (const candidate of ordered) {
+    const id = await destinationIdFor(ctx, {
+      collection: candidate.collection,
+      resource: candidate.resource,
+      sourceRecordId: targetSourceId as number | string,
+    })
+    if (id) return { collection: candidate.collection, field: candidate.field, id }
+  }
+
+  throw new MigrationImportError(
+    'COMMENT_TARGET_MISSING',
+    `سند مقصد دیدگاه «${String(targetSourceId)}» در مقصد نیست؛ دیدگاه مسدود ماند.`,
+    'blocked',
+  )
+}
+
+/**
+ * WooCommerce stores a product review's rating in comment meta, but core's
+ * comments endpoint only returns meta a plugin explicitly registers for REST;
+ * WooCommerce does not register `rating`, so the WP rows above arrive with an
+ * empty `meta`. Its own reviews endpoint is the source that actually returns
+ * the number. Fetch it after the WP pass and stamp the rating onto the
+ * already-imported review destinations — a rating-only edit at the source is
+ * invisible in the WP comment hash, so this pass runs on every import.
+ */
+const applyWooReviewRatings = async (ctx: Ctx, sawReview: boolean): Promise<void> => {
+  if (!ctx.inventory?.hasWooCommerce) return
+  if (!sawReview && !(await findByFields(ctx, 'comments', { commentType: 'review' }))) return
+
+  const woo = ctx.clients.woo
+
+  if (!woo) {
+    await recordMigrationError(ctx.req, {
+      code: 'WOO_REVIEW_RATINGS_UNAVAILABLE',
+      error: new Error(
+        'کلیدهای ووکامرس ثبت نشده‌اند؛ امتیاز بازخوردهای محصول از API ووکامرس خوانده نشد.',
+      ),
+      jobId: ctx.jobId,
+      resource: 'comments',
+      siteId: ctx.siteId,
+      sourceId: ctx.sourceId,
+    })
+    ctx.counts.errors += 1
+    return
+  }
+
+  try {
+    for (const status of WOO_REVIEW_STATUSES) {
+      const rows = await woo.collect<RawRecord>(WOO_PRODUCT_REVIEWS_PATH, {
+        order: 'asc',
+        orderby: 'id',
+        status,
+      })
+
+      for (const row of rows) {
+        const sourceRecordId = sourceRecordIdOf(row)
+        const rating = commentRatingOf(row)
+        if (!sourceRecordId || rating === null) continue
+
+        const destinationId = await destinationIdFor(ctx, {
+          collection: 'comments',
+          resource: 'comments',
+          sourceRecordId,
+        })
+        if (!destinationId) continue
+
+        const doc = await findDestinationDoc(ctx, 'comments', destinationId)
+        if (!doc || doc.commentType !== 'review' || doc.parent || doc.rating === rating) continue
+
+        const updated = await updateDestinationDoc(ctx, {
+          collection: 'comments',
+          data: { rating },
+          id: destinationId,
+        })
+        await refreshRecordDestination(
+          ctx,
+          'comments',
+          sourceRecordId,
+          isoOf(updated.updatedAt) || null,
+        )
+      }
+    }
+
+    await resolveMigrationErrors(ctx.req, {
+      code: 'WOO_REVIEW_RATINGS_UNAVAILABLE',
+      jobId: ctx.jobId,
+      resource: 'comments',
+      siteId: ctx.siteId,
+      sourceId: ctx.sourceId,
+    })
+  } catch (error) {
+    await recordMigrationError(ctx.req, {
+      code:
+        error instanceof MigrationImportError ? error.code : 'WOO_REVIEW_RATINGS_UNAVAILABLE',
+      error,
+      jobId: ctx.jobId,
+      resource: 'comments',
+      siteId: ctx.siteId,
+      sourceId: ctx.sourceId,
+    })
+    ctx.counts.errors += 1
+  }
+}
+
+export const importComments = async (ctx: Ctx): Promise<void> => {
+  if (!ctx.settings.includeComments) return
+
+  let sawReview = false
+
+  for (const commentType of WORDPRESS_COMMENT_TYPES) {
+    await processPages(ctx, {
+      checkpointKey: `comments:${commentType}`,
+      client: ctx.clients.wp,
+      handler: async (raw) => {
+        if ((str(raw.type) || commentType) === 'review') sawReview = true
+        const sourceRecordId = sourceRecordIdOf(raw)!
+        const contentRecord = asRecord(raw.content)
+        const sourceBody = str(contentRecord.raw) || rendered(raw.content)
+        const conversion = wordpressContentToLexical(sourceBody, { locale: ctx.settings.locale })
+
+        if (!plainText(sourceBody)) {
+          throw new MigrationImportError(
+            'COMMENT_BODY_EMPTY',
+            'متن دیدگاه خالی است؛ دیدگاه به‌صورت مسدود ثبت شد.',
+            'blocked',
+          )
+        }
+
+        const target = await commentTargetData(ctx, raw)
+        const authorSourceId = intOf(raw.author, 0)
+        let authorCustomer: null | string = null
+
+        if (authorSourceId > 0) {
+          authorCustomer = await destinationIdFor(ctx, {
+            collection: 'customers',
+            resource: 'customers',
+            sourceRecordId: authorSourceId,
+          }).catch(() => null)
+        }
+
+        const rating = commentRatingOf(raw)
+        const result = await upsertDestination(ctx, {
+          collection: 'comments',
+          data: {
+            // Source-owned optional fields are written explicitly, including
+            // nulls. Omitting a now-empty email/URL/customer/rating from a
+            // Payload update would preserve the previous destination value
+            // forever, so a source-side removal would look like no change.
+            authorCustomer,
+            authorEmail: str(raw.author_email) || null,
+            authorName:
+              plainText(raw.author_name) || plainText(raw.reviewer) || 'نویسنده ناشناس',
+            authorUrl: str(raw.author_url || raw.reviewer_url) || null,
+            body: conversion.lexical,
+            commentType: str(raw.type) || commentType,
+            parent: null,
+            rating,
+            status: commentStatusOf(raw),
+            submittedAt: dateOf(raw),
+            targetCollection: target.collection,
+            targetEntry: null,
+            targetPage: null,
+            targetPost: null,
+            targetProduct: null,
+            [target.field]: target.id,
+            ...provenance(ctx, {
+              raw,
+              sourceRecordId,
+              sourceType: str(raw.type) || commentType,
+              system: 'wordpress',
+            }),
+          },
+          metadata: {
+            sourceParentId: intOf(raw.parent, 0),
+            sourceStatus: str(raw.status),
+            sourceTargetId: String(raw.post ?? ''),
+          },
+          raw,
+          resource: 'comments',
+          sourceRecordId,
+        })
+
+        if (intOf(raw.parent, 0) > 0) {
+          ctx.pendingParents.push({
+            collection: 'comments',
+            destinationId: result.id,
+            parentResource: 'comments',
+            parentSourceRecordId: String(raw.parent),
+            resource: 'comments',
+            sourceRecordId,
+          })
+        }
+
+        return actionDisposition(result.action)
+      },
+      params: {
+        context: 'edit',
+        order: 'asc',
+        orderby: 'id',
+        status: WORDPRESS_COMMENTS_STATUS,
+        type: commentType,
+      },
+      path: WORDPRESS_COMMENTS_PATH,
+      resource: 'comments',
+    })
+  }
+
+  await linkPendingParents(ctx, 'comments')
+  await applyWooReviewRatings(ctx, sawReview)
 }
 
 export const importCountsOf = (counts: MigrationCounts): MigrationCounts => counts

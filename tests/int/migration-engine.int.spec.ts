@@ -19,6 +19,9 @@ import {
   type FetchImpl,
 } from '@/lib/wordpress/client'
 import {
+  wpComments,
+  wpMenuItems,
+  wpMenus,
   wpPortfolioEntry,
   wpTaxonomiesResponse,
   wpTypesResponse,
@@ -71,6 +74,7 @@ const fixture = {
       taxonomy: 'category',
     },
   ] as Raw[],
+  comments: clone(wpComments()) as Raw[],
   coupons: [
     {
       amount: '10',
@@ -161,6 +165,8 @@ const fixture = {
       title: { rendered: 'تصویر دوم' },
     },
   ] as Raw[],
+  menuItems: clone(wpMenuItems()) as Raw[],
+  menus: clone(wpMenus()) as Raw[],
   orders: [] as Raw[],
   pages: [
     {
@@ -229,6 +235,20 @@ const fixture = {
     },
   ] as Raw[],
   products: [] as Raw[],
+  productReviews: [
+    {
+      date_created: '2024-02-05T10:00:00',
+      date_created_gmt: '2024-02-05T06:30:00',
+      id: 603,
+      product_id: 31,
+      rating: 5,
+      review: '<p>کیفیت کتاب عالی بود.</p>',
+      reviewer: 'سارا مشتری',
+      reviewer_email: 'buyer@example.ir',
+      status: 'approved',
+      verified: true,
+    },
+  ] as Raw[],
   refunds: [
     {
       amount: '10000',
@@ -277,6 +297,15 @@ const fixture = {
   ] as Raw[],
 }
 
+fixture.menus[0]!.slug = `main-${suffix}`
+fixture.menuItems[0]!.url = `${BASE}/about-${suffix}/`
+fixture.comments = fixture.comments.map((comment) => ({
+  ...comment,
+  ...(comment.id === 601 || comment.id === 603
+    ? { author_email: `buyer-${suffix}@example.ir` }
+    : {}),
+  ...(comment.id === 604 ? { post: 44 } : {}),
+}))
 fixture.portfolio = [
   {
     ...clone(wpPortfolioEntry()),
@@ -445,7 +474,25 @@ fixture.orders = [
 const modifiedOf = (item: Raw): string =>
   String(item.modified_gmt ?? item.date_modified_gmt ?? item.date_gmt ?? item.date_created_gmt ?? '')
 
-const listFor = (path: string): Raw[] | null => {
+const listFor = (path: string, searchParams?: URLSearchParams): Raw[] | null => {
+  if (path === '/wp-json/wp/v2/menus') return fixture.menus
+  if (path === '/wp-json/wp/v2/menu-items') return fixture.menuItems
+  if (path === '/wp-json/wp/v2/comments') {
+    const type = searchParams?.get('type')
+    const status = searchParams?.get('status')
+    const byType = type
+      ? fixture.comments.filter((comment) => comment.type === type)
+      : fixture.comments
+
+    // WordPress semantics, not the fixture's convenience: `status=all`
+    // returns only approved/held comments, while `any` also returns the
+    // spam/trash rows a migration must preserve or visibly block.
+    if (status === 'any') return byType
+    if (status === 'all') {
+      return byType.filter((comment) => ['approved', 'hold'].includes(String(comment.status)))
+    }
+    return status ? byType.filter((comment) => String(comment.status) === status) : byType
+  }
   if (path === '/wp-json/wp/v2/categories') return fixture.categories
   if (path === '/wp-json/wp/v2/tags') return fixture.tags
   if (path === '/wp-json/wp/v2/genre') return fixture.genre
@@ -456,6 +503,17 @@ const listFor = (path: string): Raw[] | null => {
   if (path === '/wp-json/wp/v2/pages') return fixture.pages
   if (path === '/wp-json/wp/v2/portfolio') return fixture.portfolio
   if (path === '/wp-json/wp/v2/plugins') return []
+  if (path === '/wp-json/wc/v3/products/reviews') {
+    const status = searchParams?.get('status')
+    if (status === 'all') {
+      return fixture.productReviews.filter((review) =>
+        ['approved', 'hold'].includes(String(review.status)),
+      )
+    }
+    return status
+      ? fixture.productReviews.filter((review) => String(review.status) === status)
+      : fixture.productReviews
+  }
   if (path === '/wp-json/wc/v3/products') return fixture.products
   if (path === '/wp-json/wc/v3/customers') return fixture.customers
   if (path === '/wp-json/wc/v3/coupons') return fixture.coupons
@@ -495,7 +553,7 @@ const fetchImpl: FetchImpl = async (url) => {
   const parsed = new URL(url)
   const path = parsed.pathname
   const object = objectFor(path)
-  const list = object ? null : listFor(path)
+  const list = object ? null : listFor(path, parsed.searchParams)
   let body: unknown = object
 
   if (list) {
@@ -744,10 +802,12 @@ beforeAll(async () => {
   const job = await createOrReuseMigrationJob(ownerReq, shopId, sourceId, {
     settings: {
       applyRedirects: true,
+      includeComments: true,
       includeContent: true,
       includeCoupons: true,
       includeCustomers: true,
       includeMedia: true,
+      includeMenus: true,
       includeOrders: true,
       includeProducts: true,
       locale: 'fa',
@@ -764,6 +824,8 @@ beforeAll(async () => {
 afterAll(async () => {
   const records = await ledger().catch(() => [])
   const order = [
+    'comments',
+    'menus',
     'orders',
     'entry-term-relations',
     'content-relations',
@@ -920,6 +982,10 @@ describe('migration engine', () => {
     expect(coverage.find((row) => row.resource === 'post-type:portfolio')?.disposition).toBe(
       'supported',
     )
+    expect(coverage.find((row) => row.resource === 'menus')?.disposition).toBe('requires-mapping')
+    expect(coverage.find((row) => row.resource === 'comments')?.disposition).toBe(
+      'requires-mapping',
+    )
 
     const dry = await operation('dry-run')
     expect(dry.status).toBe('ready')
@@ -928,6 +994,14 @@ describe('migration engine', () => {
     expect(await destination('posts', 41)).toBeNull()
     expect(await destination('products', 99)).toBeNull()
     expect(await destination('orders', 700)).toBeNull()
+    expect(await destination('menus', 301)).toBeNull()
+    expect(await destination('comments', 601)).toBeNull()
+    expect(
+      (report.resources as Raw[]).find((row) => row.resource === 'menus'),
+    ).toMatchObject({ seen: 1, wouldCreate: 1 })
+    expect(
+      (report.resources as Raw[]).find((row) => row.resource === 'comments'),
+    ).toMatchObject({ seen: 4, wouldCreate: 4 })
 
     const rows = await ledger()
     expect(rows.length).toBeGreaterThan(15)
@@ -986,6 +1060,34 @@ describe('migration engine', () => {
     expect(id(order?.customer)).toBe(String(customer?.id))
     expect((order?.refunds as Raw[])?.[0]?.amount).toBe(10_000)
 
+    const [menu, approvedComment, pendingReply, productReview, spamComment] = await Promise.all([
+      destination('menus', 301),
+      destination('comments', 601),
+      destination('comments', 602),
+      destination('comments', 603),
+      destination('comments', 604),
+    ])
+    expect(menu?.slug).toBe(`main-${suffix}`)
+    expect(menu?.location).toBe('primary')
+    const menuItems = menu?.items as Raw[]
+    expect(menuItems).toHaveLength(4)
+    expect(menuItems[0]?.reference).toEqual({
+      relationTo: 'pages',
+      value: String(parentPage?.id),
+    })
+    expect(menuItems[2]).toMatchObject({ depth: 1, parentKey: '402' })
+    expect((menuItems[2]?.reference as Raw)?.relationTo).toBe('taxonomy-terms')
+    expect(menuItems[3]).toMatchObject({ type: 'custom', url: 'https://example.org/help' })
+    expect(approvedComment?.status).toBe('approved')
+    expect(id(approvedComment?.targetPost)).toBe(String(post?.id))
+    expect(id(approvedComment?.authorCustomer)).toBe(String(customer?.id))
+    expect(pendingReply?.status).toBe('pending')
+    expect(id(pendingReply?.parent)).toBe(String(approvedComment?.id))
+    expect(productReview).toMatchObject({ commentType: 'review', rating: 5, status: 'approved' })
+    expect(id(productReview?.targetProduct)).toBe(String(simple?.id))
+    expect(spamComment?.status).toBe('spam')
+    expect(id(spamComment?.targetEntry)).toBe(String(entry?.id))
+
     const { docs: redirects } = await payload.find({
       collection: 'redirects',
       depth: 0,
@@ -1025,6 +1127,132 @@ describe('migration engine', () => {
     expect(new Set(keys).size).toBe(keys.length)
   }, 180_000)
 
+  it('resolves ACF relationships only after the destination collection is declared', async () => {
+    const definition = await destination('content-type-definitions', 'portfolio')
+    if (!definition) throw new Error('portfolio definition missing before ACF mapping')
+
+    const fieldSchema = (definition.fieldSchema as Raw[]).map((field) => {
+      if (field.key === 'related_products') {
+        return { ...field, fieldType: 'relationship', relationTo: 'products' }
+      }
+      if (field.key === 'related_post') {
+        return { ...field, fieldType: 'relationship', relationTo: 'posts' }
+      }
+      return field
+    })
+    await payload.update({
+      id: String(definition.id),
+      collection: 'content-type-definitions',
+      data: { fieldSchema } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+
+    const declared = await destination('content-type-definitions', 'portfolio')
+    expect(
+      (declared?.fieldSchema as Raw[]).find((field) => field.key === 'related_products'),
+    ).toMatchObject({ fieldType: 'relationship', relationTo: 'products' })
+    expect(
+      (declared?.fieldSchema as Raw[]).find((field) => field.key === 'related_post'),
+    ).toMatchObject({ fieldType: 'relationship', relationTo: 'posts' })
+
+    const mapped = await operation('import')
+    await expectStatus(mapped, 'ready')
+    const afterImport = await destination('content-type-definitions', 'portfolio')
+    expect(
+      (afterImport?.fieldSchema as Raw[]).find((field) => field.key === 'related_products'),
+    ).toMatchObject({ fieldType: 'relationship', relationTo: 'products' })
+
+    const [entry, post, simple, variable] = await Promise.all([
+      destination('content-entries', 44),
+      destination('posts', 41),
+      destination('products', 31),
+      destination('products', 99),
+    ])
+    expect((entry?.fieldValues as Raw)?.related_products).toEqual([
+      String(simple?.id),
+      String(variable?.id),
+    ])
+    expect((entry?.fieldValues as Raw)?.related_post).toBe(String(post?.id))
+    expect((entry?.unmappedMeta as Raw)?.related_products).toBeUndefined()
+    expect((entry?.unmappedMeta as Raw)?.related_post).toBeUndefined()
+
+    const [firstProductRelation, secondProductRelation, postRelation] = await Promise.all([
+      destination('content-relations', '44:related_products:31'),
+      destination('content-relations', '44:related_products:99'),
+      destination('content-relations', '44:related_post:41'),
+    ])
+    expect(id(firstProductRelation?.fromEntry)).toBe(String(entry?.id))
+    expect(id(firstProductRelation?.targetProduct)).toBe(String(simple?.id))
+    expect(firstProductRelation?.menuOrder).toBe(0)
+    expect(id(secondProductRelation?.targetProduct)).toBe(String(variable?.id))
+    expect(secondProductRelation?.menuOrder).toBe(1)
+    expect(postRelation).toMatchObject({
+      relationKind: 'acf:related_post',
+      targetCollection: 'posts',
+    })
+    expect(id(postRelation?.targetPost)).toBe(String(post?.id))
+  }, 180_000)
+
+  it('blocks menu items whose menu is not discoverable, then imports them when it appears', async () => {
+    const orphanItem: Raw = {
+      classes: [],
+      id: 499,
+      menu_order: 1,
+      menus: 399,
+      object: 'page',
+      object_id: 40,
+      parent: 0,
+      status: 'publish',
+      target: '',
+      title: { rendered: 'آیتم منوی ناشناخته' },
+      type: 'post_type',
+      url: `${BASE}/about-${suffix}/`,
+    }
+    fixture.menuItems.push(orphanItem)
+
+    try {
+      const dry = await operation('dry-run')
+      expect(dry.status).toBe('blocked')
+      const dryReport = dry.dryRunReport as Raw
+      expect(
+        (dryReport.resources as Raw[]).find((row) => row.resource === 'menus'),
+      ).toMatchObject({ blocked: 1, seen: 2 })
+
+      const imported = await operation('import')
+      expect(imported.status).toBe('blocked')
+      expect(imported.counts?.blocked).toBeGreaterThanOrEqual(1)
+      const rows = await ledger()
+      expect(
+        rows.find((row) => row.resource === 'menus' && String(row.sourceRecordId) === '399'),
+      ).toMatchObject({ disposition: 'blocked' })
+      expect(await destination('menus', 399)).toBeNull()
+
+      const reconciled = await operation('reconcile')
+      expect(reconciled.status).toBe('blocked')
+      const report = reconciled.reconciliationReport as Raw
+      expect(report.ok).toBe(false)
+      expect((report.issueCounts as Raw).MENU_ITEM_MENU_MISSING).toBeGreaterThanOrEqual(1)
+    } finally {
+      fixture.menuItems = fixture.menuItems.filter((item) => item.id !== 499)
+    }
+
+    fixture.menus.push({
+      description: 'منویی که دیرتر کشف شد',
+      id: 399,
+      locations: ['secondary'],
+      name: 'منوی دوم',
+      slug: `secondary-${suffix}`,
+    })
+    fixture.menuItems.push(orphanItem)
+
+    const recovered = await operation('import')
+    await expectStatus(recovered, 'ready')
+    const recoveredMenu = await destination('menus', 399)
+    expect(recoveredMenu?.slug).toBe(`secondary-${suffix}`)
+    expect((recoveredMenu?.items as Raw[])?.[0]).toMatchObject({ key: '499' })
+  }, 180_000)
+
   it('is idempotent on a full re-run', async () => {
     const before = {
       customers: await payload.count({ collection: 'customers', where: { site: { equals: shopId } } }),
@@ -1047,6 +1275,42 @@ describe('migration engine', () => {
     expect(after).toEqual(before)
   }, 180_000)
 
+  it('reconciliation detects deleted relation edges and import repairs them', async () => {
+    const [relationEdge, entryTermEdge] = await Promise.all([
+      destination('content-relations', '44:related_products:31'),
+      destination('entry-term-relations', '44:genre:12'),
+    ])
+    if (!relationEdge || !entryTermEdge) {
+      throw new Error(
+        `imported relation edges missing before reconciliation deletion check (acf=${Boolean(relationEdge)}, entryTerm=${Boolean(entryTermEdge)})`,
+      )
+    }
+    await payload.delete({
+      id: String(relationEdge.id),
+      collection: 'content-relations',
+      depth: 0,
+      overrideAccess: true,
+    })
+    await payload.delete({
+      id: String(entryTermEdge.id),
+      collection: 'entry-term-relations',
+      depth: 0,
+      overrideAccess: true,
+    })
+
+    const broken = await operation('reconcile')
+    expect(broken.status).toBe('blocked')
+    const brokenReport = broken.reconciliationReport as Raw
+    expect(brokenReport.ok).toBe(false)
+    expect((brokenReport.counts as Raw).missingDestinations).toBeGreaterThanOrEqual(2)
+    expect((brokenReport.issueCounts as Raw).DESTINATION_MISSING).toBeGreaterThanOrEqual(2)
+
+    const repaired = await operation('import')
+    await expectStatus(repaired, 'ready')
+    expect(await destination('content-relations', '44:related_products:31')).not.toBeNull()
+    expect(await destination('entry-term-relations', '44:genre:12')).not.toBeNull()
+  }, 180_000)
+
   it('refuses to roll back a manually edited document, then can re-import', async () => {
     const post = await destination('posts', 41)
     if (!post) throw new Error('imported post missing before rollback')
@@ -1063,12 +1327,16 @@ describe('migration engine', () => {
     expect(await destination('posts', 41)).not.toBeNull()
     expect(await destination('orders', 700)).toBeNull()
     expect(await destination('products', 99)).toBeNull()
+    expect(await destination('menus', 301)).toBeNull()
+    expect(await destination('comments', 601)).toBeNull()
 
     const reimported = await operation('import')
     await expectStatus(reimported, 'ready')
     const restored = await destination('posts', 41)
     expect(restored?.title).toBe('سلام دنیا')
     expect(await destination('orders', 700)).not.toBeNull()
+    expect(await destination('menus', 301)).not.toBeNull()
+    expect(await destination('comments', 601)).not.toBeNull()
   }, 180_000)
 
   it('delta-syncs a changed source record and reconciles cleanly', async () => {
@@ -1076,9 +1344,37 @@ describe('migration engine', () => {
     changed.title = { rendered: 'سلام دنیای تازه' }
     changed.modified_gmt = new Date(Date.now() + 1_000).toISOString().slice(0, 19)
 
+    const approvedSource = fixture.comments.find((comment) => comment.id === 601)!
+    approvedSource.author = 0
+    const replySource = fixture.comments.find((comment) => comment.id === 602)!
+    replySource.author_email = ''
+    replySource.author_url = ''
+    replySource.parent = 0
+    fixture.productReviews[0]!.rating = 0
+
+    const childPageSource = fixture.pages.find((page) => page.id === 42)!
+    childPageSource.modified_gmt = changed.modified_gmt
+    childPageSource.parent = 0
+    fixture.genre.find((term) => term.id === 12)!.parent = 0
+
     const synced = await operation('sync')
     await expectStatus(synced, 'ready')
     expect((await destination('posts', 41))?.title).toBe('سلام دنیای تازه')
+
+    const [approvedComment, formerReply, productReview, childPage, childTerm] =
+      await Promise.all([
+        destination('comments', 601),
+        destination('comments', 602),
+        destination('comments', 603),
+        destination('pages', 42),
+        destination('taxonomy-terms', 12),
+      ])
+    expect(id(approvedComment?.authorCustomer)).toBe('')
+    expect(formerReply).toMatchObject({ authorEmail: null, authorUrl: null })
+    expect(id(formerReply?.parent)).toBe('')
+    expect(productReview?.rating).toBe(0)
+    expect(id(childPage?.parent)).toBe('')
+    expect(id(childTerm?.parent)).toBe('')
 
     const reconciled = await operation('reconcile')
     await expectStatus(reconciled, 'ready-for-cutover')

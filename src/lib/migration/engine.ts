@@ -7,6 +7,7 @@ import { entryPath, termArchivePath } from '@/lib/content-paths'
 import { idOf } from '@/lib/ids'
 import { setMigrationContext } from '@/lib/migration-context'
 import { pagePath, postPath, productPath, slugify } from '@/lib/slug'
+import { WordPressApiError } from '@/lib/wordpress/client'
 import { coverageBlockers, coverageMatrix, type CoverageFacts, type CoverageRow } from '@/lib/wordpress/coverage'
 import {
   classifyCptCapability,
@@ -47,19 +48,35 @@ import {
 } from './context'
 import { wordpressContentToLexical } from './gutenberg'
 import {
+  acfContentRelationRaw,
   applyCurrentStock,
+  collectWordPressMenus,
+  commentRatingOf,
+  commentStatusOf,
   convertedOrder,
   customValuesOf,
+  CONTENT_RELATION_TARGET_FIELDS,
+  entryTermRelationRaw,
+  importComments,
   importContent,
   importCoupons,
   importCustomers,
   importDefinitions,
   importMedia,
+  importMenus,
   importOrders,
   importProducts,
   importTerms,
   inferFieldSchema,
+  menuAggregateRaw,
+  menuOrphanRecords,
+  relationshipFieldSupported,
+  sourceIdsFromRelationValue,
+  syncAcfRelationships,
   variationRows,
+  WORDPRESS_COMMENTS_PATH,
+  WORDPRESS_COMMENTS_STATUS,
+  WORDPRESS_COMMENT_TYPES,
   wpTaxonomyPath,
   wpTypePath,
 } from './importers'
@@ -330,6 +347,7 @@ const buildContext = async (
     mediaByUrl: new Map(),
     modifiedAfter,
     operation,
+    pendingContentRelations: [],
     pendingParents: [],
     perPage: options.perPage,
     req,
@@ -1388,6 +1406,169 @@ export const runDryRun = async (ctx: Ctx): Promise<DryRunReport> => {
     }
   }
 
+  if (ctx.settings.includeMenus) {
+    const stats = statsFor('menus')
+
+    try {
+      const aggregate = await collectWordPressMenus(ctx)
+
+      for (const menu of aggregate.menus) {
+        const sourceRecordId = sourceRecordIdOf(menu) ?? 'menu-missing-id'
+        const items = aggregate.itemsByMenu.get(sourceRecordId) ?? []
+        const raw = menuAggregateRaw(menu, items)
+
+        try {
+          if (!sourceRecordIdOf(menu)) {
+            throw new MigrationImportError(
+              'MENU_ID_MISSING',
+              'منوی مبدأ شناسه ندارد و به‌صورت مسدود ثبت شد.',
+              'blocked',
+            )
+          }
+          preserveWordPressSlug(menu.slug ?? `menu-${sourceRecordId}`)
+          if (items.length > 1_000) {
+            throw new MigrationImportError(
+              'MENU_TOO_LARGE',
+              'منو بیش از سقف ۱۰۰۰ آیتم دارد و برای تقسیم دستی مسدود ماند.',
+              'blocked',
+            )
+          }
+          for (const item of items) {
+            const status = mapWordPressStatus(str(item.status) || 'publish')
+            if (!status.target) {
+              throw new MigrationImportError(
+                'MENU_ITEM_STATUS_UNSUPPORTED',
+                `وضعیت آیتم منو «${status.original}» نگاشت بومی ندارد؛ منو مسدود ماند.`,
+                'blocked',
+              )
+            }
+          }
+          bumpDry(
+            stats,
+            await recordDryDisposition(ctx, {
+              metadata: { itemCount: items.length },
+              raw,
+              resource: 'menus',
+              sourceRecordId,
+            }),
+          )
+        } catch (error) {
+          stats.errors.push({ message: safeErrorMessage(error), sourceId: sourceRecordId })
+          const disposition =
+            error instanceof MigrationImportError && error.disposition === 'blocked'
+              ? 'blocked'
+              : 'error'
+          bumpDry(stats, disposition)
+          await recordDisposition(ctx, {
+            disposition,
+            raw,
+            resource: 'menus',
+            sourceRecordId,
+          }).catch(() => undefined)
+        }
+      }
+
+      for (const orphan of menuOrphanRecords(aggregate.orphanItems)) {
+        stats.errors.push({
+          message: orphan.claimedMenuIds.length
+            ? `آیتم منو به منویی اشاره می‌کند که endpoint منوها برنگرداند (${orphan.claimedMenuIds.join('، ')}).`
+            : 'آیتم منو هیچ منوی مبدأ قابل کشف ندارد.',
+          sourceId: orphan.sourceRecordId,
+        })
+        bumpDry(stats, 'blocked')
+        await recordDisposition(ctx, {
+          disposition: 'blocked',
+          metadata: {
+            claimedMenuIds: orphan.claimedMenuIds,
+            menuItemIds: orphan.items.map((item) => sourceRecordIdOf(item)),
+            orphanReason: orphan.claimedMenuIds.length ? 'unknown-menu' : 'missing-menu',
+          },
+          raw: orphan.raw,
+          resource: 'menus',
+          sourceRecordId: orphan.sourceRecordId,
+        }).catch(() => undefined)
+      }
+    } catch (error) {
+      if (
+        !(
+          error instanceof WordPressApiError &&
+          (error.status === 404 || /no_route|not_found/i.test(error.code ?? ''))
+        )
+      ) {
+        throw error
+      }
+      const raw: RawRecord = { endpoint: '/wp-json/wp/v2/menus', id: 'menus' }
+      stats.errors.push({
+        message: 'این مبدأ وردپرس مسیر REST منوها را ارائه نمی‌کند؛ منوها مسدود ماندند.',
+        sourceId: 'menus',
+      })
+      bumpDry(stats, 'blocked')
+      await recordDisposition(ctx, {
+        disposition: 'blocked',
+        raw,
+        resource: 'menus',
+        sourceRecordId: 'menus',
+      }).catch(() => undefined)
+    }
+  }
+
+  if (ctx.settings.includeComments) {
+    for (const commentType of WORDPRESS_COMMENT_TYPES) {
+      mergeDryCounts(
+        statsFor('comments'),
+        await processPages(ctx, {
+          checkpointKey: `comments:${commentType}`,
+          client: ctx.clients.wp,
+          handler: wrap('comments', async (raw) => {
+            commentStatusOf(raw)
+            commentRatingOf(raw)
+            const targetId = raw.post ?? raw.post_id ?? raw.product_id
+
+            if (!plainText(str(asRecord(raw.content).raw) || str(asRecord(raw.content).rendered) || raw.content)) {
+              throw new MigrationImportError(
+                'COMMENT_BODY_EMPTY',
+                'متن دیدگاه خالی است؛ دیدگاه به‌صورت مسدود ثبت شد.',
+                'blocked',
+              )
+            }
+            if (
+              targetId === undefined ||
+              targetId === null ||
+              String(targetId).trim() === '' ||
+              Number(targetId) === 0
+            ) {
+              throw new MigrationImportError(
+                'COMMENT_TARGET_MISSING',
+                'دیدگاه سند مقصد در مبدأ ندارد و بدون مقصد مسدود ماند.',
+                'blocked',
+              )
+            }
+
+            return recordDryDisposition(ctx, {
+              metadata: {
+                sourceParentId: intOf(raw.parent, 0),
+                sourceStatus: str(raw.status),
+                sourceTargetId: String(targetId),
+              },
+              raw,
+              resource: 'comments',
+              sourceRecordId: sourceRecordIdOf(raw)!,
+            })
+          }),
+          params: {
+            context: 'edit',
+            order: 'asc',
+            orderby: 'id',
+            status: WORDPRESS_COMMENTS_STATUS,
+            type: commentType,
+          },
+          path: WORDPRESS_COMMENTS_PATH,
+          resource: 'comments',
+        }),
+      )
+    }
+  }
+
   const redirectAssessment = await assessMigrationRedirects(ctx)
   const reportResources = [...statsByResource.values()].map((stats) => ({
     archived: stats.archived,
@@ -1466,9 +1647,12 @@ const expectedImportResources = (ctx: Ctx): Set<string> => {
         }
       }
       resources.add('entry-term')
+      resources.add('content-relation')
     }
   }
   if (ctx.settings.includeMedia) resources.add('media')
+  if (ctx.settings.includeMenus) resources.add('menus')
+  if (ctx.settings.includeComments) resources.add('comments')
   if (commerceAllowed(ctx)) {
     if (ctx.settings.includeProducts) resources.add('product')
     if (ctx.settings.includeCustomers) resources.add('customers')
@@ -1549,6 +1733,13 @@ export const runImportLike = async (
     }
   }
 
+  await updateJob(ctx, { phase: 'relationships' })
+  await syncAcfRelationships(ctx)
+  await updateJob(ctx, { phase: 'menus' })
+  await importMenus(ctx)
+  await updateJob(ctx, { phase: 'comments' })
+  await importComments(ctx)
+
   const deletedAtSource = await markMissingAtSource(ctx)
   await updateJob(ctx, { phase: 'redirects' })
   const redirects = await applyMigrationRedirects(ctx, { force: forceRedirects })
@@ -1626,6 +1817,10 @@ const collectionForResource = (
   if (resource === 'customers') return 'customers'
   if (resource === 'coupons') return 'coupons'
   if (resource === 'orders') return 'orders'
+  if (resource === 'menus') return 'menus'
+  if (resource === 'comments') return 'comments'
+  if (resource === 'entry-term') return 'entry-term-relations'
+  if (resource === 'content-relation') return 'content-relations'
   void ctx
   return null
 }
@@ -1761,10 +1956,68 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
       if (!['core-page', 'core-post', 'custom'].includes(type.capability)) continue
       const path = wpTypePath(type)
       if (!path) continue
+      const attachedTaxonomies = inventory.taxonomies.filter(
+        (taxonomy) => type.taxonomies.includes(taxonomy.slug) && !INTERNAL_TAXONOMIES.has(taxonomy.slug),
+      )
       await scan({
         client: ctx.clients.wp,
         params: { context: 'edit', order: 'asc', orderby: 'id', status: 'any' },
         path,
+        prepare: async (raw) => {
+          if (type.capability !== 'custom') return raw
+
+          const sourceRecordId = sourceRecordIdOf(raw)
+          const status = mapWordPressStatus(str(raw.status) || 'draft')
+          if (!sourceRecordId || status.disposition === 'archive-only') return raw
+
+          // Entry-term and explicit ACF edges have no source endpoint of
+          // their own; they are deterministic projections of this entry.
+          // Rebuild their exact synthetic ledger rows here, otherwise a
+          // deleted edge destination could hide behind a verified parent.
+          for (const taxonomy of attachedTaxonomies) {
+            if (taxonomy.slug === 'category') continue
+            const sourceTermIds = asArray(
+              raw[taxonomy.slug] ?? (taxonomy.restBase ? raw[taxonomy.restBase] : undefined),
+            )
+
+            for (const termSourceId of sourceTermIds) {
+              const relationRaw = entryTermRelationRaw(sourceRecordId, taxonomy.slug, termSourceId)
+              addExpected('entry-term', relationRaw, relationRaw, String(relationRaw.id))
+            }
+          }
+
+          const definition = ctx.typeDefinitions.get(type.slug)
+          if (definition) {
+            const values = customValuesOf(raw)
+
+            for (const field of asArray(definition.fieldSchema) as Loose[]) {
+              if (str(field.fieldType) !== 'relationship' || !relationshipFieldSupported(field)) {
+                continue
+              }
+
+              const fieldKey = str(field.key)
+              const relationTo = str(field.relationTo)
+              if (!fieldKey || !CONTENT_RELATION_TARGET_FIELDS[relationTo]) continue
+              if (relationTo === 'media' && !ctx.settings.includeMedia) continue
+
+              const targetSourceIds = [
+                ...new Set(sourceIdsFromRelationValue(values[fieldKey] ?? null)),
+              ]
+
+              for (const targetSourceId of targetSourceIds) {
+                const relationRaw = acfContentRelationRaw(
+                  sourceRecordId,
+                  fieldKey,
+                  relationTo,
+                  targetSourceId,
+                )
+                addExpected('content-relation', relationRaw, relationRaw, String(relationRaw.id))
+              }
+            }
+          }
+
+          return raw
+        },
         resource: `post-type:${type.slug}`,
       })
     }
@@ -1852,6 +2105,82 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
           resource: 'orders',
         })
       }
+    }
+  }
+
+  if (ctx.settings.includeMenus) {
+    try {
+      const aggregate = await collectWordPressMenus(ctx)
+
+      for (const menu of aggregate.menus) {
+        const sourceRecordId = sourceRecordIdOf(menu) ?? undefined
+        const items = sourceRecordId ? (aggregate.itemsByMenu.get(sourceRecordId) ?? []) : []
+        const raw = menuAggregateRaw(menu, items)
+
+        addExpected('menus', menu, raw, sourceRecordId)
+        if (items.length > 1_000) {
+          addIssue({
+            blocking: true,
+            code: 'MENU_TOO_LARGE',
+            message: 'منو بیش از سقف ۱۰۰۰ آیتم دارد و برای تقسیم دستی مسدود ماند.',
+            resource: 'menus',
+            sourceRecordId,
+          })
+        }
+      }
+
+      for (const orphan of menuOrphanRecords(aggregate.orphanItems)) {
+        addExpected('menus', orphan.raw, orphan.raw, orphan.sourceRecordId)
+        addIssue({
+          blocking: true,
+          code: 'MENU_ITEM_MENU_MISSING',
+          message: orphan.claimedMenuIds.length
+            ? `آیتم منو به منویی اشاره می‌کند که endpoint منوها برنگرداند (${orphan.claimedMenuIds.join('، ')}).`
+            : 'آیتم منو هیچ منوی مبدأ قابل کشف ندارد.',
+          resource: 'menus',
+          sourceRecordId: orphan.sourceRecordId,
+        })
+      }
+    } catch (error) {
+      addExpected(
+        'menus',
+        { endpoint: '/wp-json/wp/v2/menus', id: 'menus' },
+        { endpoint: '/wp-json/wp/v2/menus', id: 'menus' },
+        'menus',
+      )
+      addIssue({
+        blocking: true,
+        code:
+          error instanceof WordPressApiError &&
+          (error.status === 404 || /no_route|not_found/i.test(error.code ?? ''))
+            ? 'MENUS_ENDPOINT_UNAVAILABLE'
+            : 'MENUS_SCAN_FAILED',
+        message: safeErrorMessage(error),
+        resource: 'menus',
+        sourceRecordId: 'menus',
+      })
+    }
+  }
+
+  if (ctx.settings.includeComments) {
+    for (const commentType of WORDPRESS_COMMENT_TYPES) {
+      await scan({
+        client: ctx.clients.wp,
+        params: {
+          context: 'edit',
+          order: 'asc',
+          orderby: 'id',
+          status: WORDPRESS_COMMENTS_STATUS,
+          type: commentType,
+        },
+        path: WORDPRESS_COMMENTS_PATH,
+        prepare: async (raw) => {
+          commentStatusOf(raw)
+          commentRatingOf(raw)
+          return raw
+        },
+        resource: 'comments',
+      })
     }
   }
 
@@ -2000,7 +2329,15 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
     counts.verified += 1
   }
 
-  const expectedResourceNames = new Set([...expected.values()].map((item) => item.resource))
+  // The orphan check must use the job's in-scope resource universe, not only
+  // resources that happened to produce at least one expected row in this
+  // scan. If every edge (or every record of a type) disappeared at the
+  // source, the resource name would otherwise vanish too and all its stale
+  // destinations would be ignored.
+  const expectedResourceNames = new Set<string>([
+    ...expectedImportResources(ctx),
+    ...[...expected.values()].map((item) => item.resource),
+  ])
 
   for (const record of ledger) {
     const key = `${str(record.resource)}:${str(record.sourceRecordId)}`
@@ -2199,6 +2536,8 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
 // --- Rollback ---------------------------------------------------------------------
 
 const ROLLBACK_ORDER = [
+  'comments',
+  'menus',
   'orders',
   'entry-term-relations',
   'content-relations',
@@ -2392,8 +2731,14 @@ export const runMigrationJob = async (
   const operation = String(job.operation) as MigrationOperation
   const priorStatus = String(job.status)
   const checkpoint = asRecord(job.checkpoint)
+  // A paused/crashed run is the only run whose checkpoint may skip pages: it
+  // alone has no `finishedAt`. Queueing the same operation after a completed
+  // run is a fresh scan (for example after an operator declares an ACF
+  // relationship destination), not a resume of the finished one.
   const resume =
-    checkpoint.operation === operation && ['paused', 'queued', 'running'].includes(priorStatus)
+    checkpoint.operation === operation &&
+    !job.finishedAt &&
+    ['paused', 'queued', 'running'].includes(priorStatus)
   const runId = randomUUID()
   const startedAt = resume && job.startedAt ? String(job.startedAt) : nowIso()
 
