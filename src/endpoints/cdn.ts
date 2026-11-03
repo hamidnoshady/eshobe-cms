@@ -680,6 +680,88 @@ export const cdnZoneConnect: Endpoint['handler'] = async (req) => {
   return response({ ok: true, provider: account.provider, state: 'queued', zoneName }, 202)
 }
 
+/**
+ * POST /api/cdn/accounts/test { provider, apiToken }
+ *
+ * Validate provider credentials before saving an account — the account wizard's
+ * "test" step. Lists the zones the token can see; a bad/expired token throws and
+ * returns a 409 with a provider-specific message. Platform staff only.
+ */
+export const cdnAccountTest: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const provider = typeof data.provider === 'string' ? data.provider : null
+  const apiToken = typeof data.apiToken === 'string' ? data.apiToken : null
+  if (!provider || !apiToken)
+    return response({ message: 'provider and apiToken are required', ok: false }, 400)
+  if (provider !== 'arvancloud' && provider !== 'cloudflare')
+    return response({ message: 'provider must be arvancloud or cloudflare', ok: false }, 400)
+
+  try {
+    const input = {
+      provider: provider as CdnProvider,
+      zoneName: '',
+      credentials: { apiToken },
+    } as CdnZoneInput
+    const zones = await listRemoteZones(input)
+    return response({ ok: true, provider, zones })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'credential validation failed'
+    return response({ message, ok: false }, 409)
+  }
+}
+
+/**
+ * POST /api/cdn/accounts { provider, apiToken, name, originTarget?, tenantSelfService? }
+ *
+ * Create a platform CDN account. The apiToken is encrypted on save by the
+ * collection's beforeChange hook. The provider is validated and locked.
+ * Platform staff only.
+ */
+export const cdnAccountCreate: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const provider = typeof data.provider === 'string' ? data.provider : null
+  const apiToken = typeof data.apiToken === 'string' ? data.apiToken : null
+  const name = typeof data.name === 'string' ? data.name : null
+  if (!provider || !apiToken || !name)
+    return response(
+      { message: 'provider, apiToken and name are required', ok: false },
+      400,
+    )
+
+  try {
+    const created = await req.payload.create({
+      collection: 'cdn-accounts',
+      data: {
+        provider,
+        credentials: { apiToken },
+        enabled: data.enabled !== false,
+        name,
+        originTarget: typeof data.originTarget === 'string' ? data.originTarget : undefined,
+        tenantSelfService: data.tenantSelfService === true,
+        ...(provider === 'cloudflare' && typeof data.cloudflareAccountId === 'string'
+          ? { cloudflareAccountId: data.cloudflareAccountId }
+          : {}),
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+    return response({ ok: true, id: created.id, provider, state: 'created' })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'account creation failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN account creation failed for ${provider}`,
+    })
+    return response(
+      { message, ok: false },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Site-scoped — what a tenant may see and do about its own zone        */
 /* ------------------------------------------------------------------ */
@@ -1150,6 +1232,8 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnZoneAdopt, method: 'post', path: '/cdn/zones/adopt' },
   { handler: cdnZoneFind, method: 'post', path: '/cdn/zones/find' },
   { handler: cdnZoneConnect, method: 'post', path: '/cdn/zones/connect' },
+  { handler: cdnAccountTest, method: 'post', path: '/cdn/accounts/test' },
+  { handler: cdnAccountCreate, method: 'post', path: '/cdn/accounts' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },
