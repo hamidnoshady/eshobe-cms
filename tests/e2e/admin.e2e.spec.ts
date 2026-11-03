@@ -192,14 +192,6 @@ test.describe('Admin Panel', () => {
     // Enter, not click: the row's «بدون عنوان» block-name input is laid over the
     // full-width toggle button and swallows the pointer. Keyboard activation is a real
     // editor path and needs no `force`.
-    const toggle = page
-      .locator(
-        '#layout-row-1 button.collapsible__toggle--collapsed, #layout-row-0 button.collapsible__toggle--collapsed, button.collapsible__toggle--collapsed',
-      )
-      .first()
-    await toggle.waitFor({ state: 'attached', timeout: 30_000 })
-    await toggle.evaluate((el: HTMLElement) => el.click())
-
     // Row 1 is the contact block — `_order` in Postgres is 1-based, field paths are not.
     const heading = `تماس با ما ${Date.now()}`
     const headingInput = page
@@ -208,11 +200,18 @@ test.describe('Admin Panel', () => {
       )
       .first()
 
-    if (!(await headingInput.isVisible())) {
-      await toggle.click({ force: true, position: { x: 5, y: 5 } }).catch(() => {})
+    try {
+      await expect(headingInput).toBeVisible({ timeout: 10_000 })
+    } catch {
+      const toggle = page
+        .locator(
+          '#layout-row-1 button.collapsible__toggle--collapsed, #layout-row-0 button.collapsible__toggle--collapsed, button.collapsible__toggle--collapsed',
+        )
+        .first()
+      await toggle.waitFor({ state: 'attached', timeout: 30_000 })
+      await toggle.evaluate((el: HTMLElement) => el.click())
+      await expect(headingInput).toBeVisible({ timeout: 30_000 })
     }
-
-    await expect(headingInput).toBeVisible({ timeout: 30_000 })
     await headingInput.fill(heading)
 
     await expect(page.frameLocator('#live-preview-iframe').locator('body')).toContainText(heading, {
