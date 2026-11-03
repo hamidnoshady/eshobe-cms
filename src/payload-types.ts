@@ -3903,7 +3903,7 @@ export interface CdnEvent {
    * با حذف zone، رویداد برای گزارش تاریخی باقی می‌ماند و این ارتباط خالی می‌شود.
    */
   zone?: (string | null) | CdnZone;
-  operation: 'sync' | 'purge';
+  operation: 'sync' | 'purge' | 'adopt';
   ok: boolean;
   summary: string;
   updatedAt: string;

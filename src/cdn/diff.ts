@@ -250,3 +250,21 @@ export const adoptRemoteRecords = (
 
   return { adopted, refused, zone: { ...zone, dnsRecords: desired } }
 }
+
+/** Human-readable one-line summary of an adoption, for the audit trail. */
+export const formatCdnAdoptionSummary = (result: AdoptResult): string => {
+  const parts: string[] = []
+  if (result.adopted.length > 0) {
+    parts.push(
+      `Adopted ${result.adopted.length} remote record(s): ` +
+        result.adopted.map((r) => `${r.type} ${r.name}`).join(', '),
+    )
+  }
+  if (result.refused.length > 0) {
+    parts.push(
+      `Refused ${result.refused.length} record(s): ` +
+        result.refused.map((r) => `${r.name} (${r.reason})`).join(', '),
+    )
+  }
+  return parts.join('\n')
+}

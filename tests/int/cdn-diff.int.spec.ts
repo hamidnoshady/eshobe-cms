@@ -7,7 +7,7 @@ import {
   featureNote,
   supportsFeature,
 } from '@/cdn/capabilities'
-import { adoptRemoteRecords, diffCdnZone } from '@/cdn/diff'
+import { adoptRemoteRecords, diffCdnZone, formatCdnAdoptionSummary } from '@/cdn/diff'
 import type { CdnRemoteState, CdnZoneInput } from '@/cdn/types'
 
 describe('provider capability matrix', () => {
@@ -151,5 +151,14 @@ describe('selective adoption', () => {
     const result = adoptRemoteRecords(zone, remote, ['does-not-exist'])
     expect(result.refused).toEqual([{ name: 'does-not-exist', reason: 'remote record not found' }])
     expect(result.adopted).toEqual([])
+  })
+
+  it('produces an audit summary of what was adopted and refused', () => {
+    const result = adoptRemoteRecords(zone, remote, ['foreign-1', 'does-not-exist'])
+    const summary = formatCdnAdoptionSummary(result)
+    expect(summary).toContain('Adopted 1 remote record(s)')
+    expect(summary).toContain('MX mail.example.com')
+    expect(summary).toContain('Refused 1 record(s)')
+    expect(summary).toContain('does-not-exist (remote record not found)')
   })
 })

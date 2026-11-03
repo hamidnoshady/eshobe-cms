@@ -15,7 +15,12 @@ import {
   testCdnConnection,
   writeCdnOperationalState,
 } from '@/cdn/service'
-import { adoptRemoteRecords, diffCdnZone, type CdnDiffResult } from '@/cdn/diff'
+import {
+  adoptRemoteRecords,
+  diffCdnZone,
+  formatCdnAdoptionSummary,
+  type CdnDiffResult,
+} from '@/cdn/diff'
 import { providerCapabilities } from '@/cdn/capabilities'
 import { planZoneProbes, runZoneProbes, summarizeProbeResults } from '@/cdn/probe'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
@@ -508,6 +513,30 @@ export const cdnZoneAdopt: Endpoint['handler'] = async (req) => {
       overrideAccess: true,
       req,
     })
+
+    // Adoption mutates desired state, so it is audited: what was adopted, what
+    // was refused, and whether the operation succeeded overall.
+    const summary = formatCdnAdoptionSummary(result)
+    try {
+      await req.payload.create({
+        collection: 'cdn-events',
+        data: {
+          ok: result.adopted.length > 0,
+          operation: 'adopt',
+          summary: summary.slice(0, 4000),
+          zone: raw.id,
+        },
+        depth: 0,
+        overrideAccess: true,
+        req,
+      })
+    } catch (error) {
+      req.payload.logger.error({
+        err: error as Error,
+        msg: `could not write CDN adoption event for ${zone.zoneName}`,
+      })
+    }
+
     return response({
       adopted: result.adopted,
       ok: true,
