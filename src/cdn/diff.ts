@@ -171,3 +171,100 @@ export const diffCdnZone = (zone: CdnZoneInput, remote: CdnRemoteState): CdnDiff
 /** Human-readable one-line summary of a diff, for logs and audit records. */
 export const formatCdnDiff = (result: CdnDiffResult): string =>
   result.items.map((item) => `[${item.status}] ${item.kind}:${item.name}`).join('\n')
+
+/* ------------------------------------------------------------------ */
+/* Selective adoption                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Adopt foreign remote records into CMS management.
+ *
+ * A remote record is only ever mutated by sync when the CMS owns it (its
+ * `providerRecordId` was recorded when the CMS created it). Connecting an
+ * existing zone therefore requires the administrator to **explicitly adopt**
+ * each foreign record before sync will reconcile it. Adoption links a remote
+ * record to the CMS's desired state:
+ *
+ * - if a desired record with the same name/type already exists, its
+ *   `providerRecordId` is set to the remote id (it becomes managed in place);
+ * - otherwise a new desired record is created mirroring the remote one, so the
+ *   CMS now owns and can reconcile it.
+ *
+ * Records whose remote id is not present, or whose name/type would collide with
+ * a different desired record, are refused rather than silently adopted. This is
+ * the "adopt existing state" half of the connection workflow.
+ */
+export interface AdoptedRecord {
+  name: string
+  providerRecordId: string
+  type: string
+}
+
+export interface AdoptResult {
+  adopted: AdoptedRecord[]
+  refused: Array<{ name: string; reason: string }>
+  zone: CdnZoneInput
+}
+
+export const adoptRemoteRecords = (
+  zone: CdnZoneInput,
+  remote: CdnRemoteState,
+  adoptedProviderRecordIds: string[],
+): AdoptResult => {
+  const adoptedSet = new Set(adoptedProviderRecordIds)
+  const remoteById = new Map(
+    remote.dnsRecords.map((record) => [record.providerRecordId ?? '', record]),
+  )
+  const desired = [...(zone.dnsRecords ?? [])]
+  const adopted: AdoptedRecord[] = []
+  const refused: Array<{ name: string; reason: string }> = []
+
+  for (const id of adoptedSet) {
+    const remoteRecord = remoteById.get(id)
+    if (!remoteRecord) {
+      refused.push({ name: id, reason: 'remote record not found' })
+      continue
+    }
+    const key = dnsKey(remoteRecord.type, remoteRecord.name, zone.zoneName)
+    const existing = desired.find(
+      (record) => dnsKey(record.type, record.name, zone.zoneName) === key,
+    )
+    if (existing) {
+      // Link the desired record to the remote id so sync reconciles it in place.
+      existing.providerRecordId = id
+    } else {
+      desired.push({
+        content: remoteRecord.content,
+        name: relativeName(remoteRecord.name, zone.zoneName),
+        proxied: remoteRecord.proxied,
+        providerRecordId: id,
+        type: remoteRecord.type,
+      })
+    }
+    adopted.push({
+      name: remoteRecord.name,
+      providerRecordId: id,
+      type: remoteRecord.type,
+    })
+  }
+
+  return { adopted, refused, zone: { ...zone, dnsRecords: desired } }
+}
+
+/** Human-readable one-line summary of an adoption, for the audit trail. */
+export const formatCdnAdoptionSummary = (result: AdoptResult): string => {
+  const parts: string[] = []
+  if (result.adopted.length > 0) {
+    parts.push(
+      `Adopted ${result.adopted.length} remote record(s): ` +
+        result.adopted.map((r) => `${r.type} ${r.name}`).join(', '),
+    )
+  }
+  if (result.refused.length > 0) {
+    parts.push(
+      `Refused ${result.refused.length} record(s): ` +
+        result.refused.map((r) => `${r.name} (${r.reason})`).join(', '),
+    )
+  }
+  return parts.join('\n')
+}

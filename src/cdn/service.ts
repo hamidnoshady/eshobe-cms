@@ -11,6 +11,7 @@ import type {
   CdnProvider,
   CdnRecordType,
   CdnRemoteDnsRecord,
+  CdnRemoteZone,
   CdnRuleAction,
   CdnSecurityRule,
   CdnSyncResult,
@@ -948,6 +949,40 @@ export const discoverCdnZone = async (zone: CdnZoneInput): Promise<CdnDiscoveryR
       zoneName: zone.zoneName,
     },
   }
+}
+
+/**
+ * List the zones the provider account already holds, for the "find existing
+ * zone" step of the connection workflow. Read-only: no zone is created or
+ * mutated. Only id/name/status are returned — never credentials or records.
+ */
+export const listRemoteZones = async (zone: CdnZoneInput): Promise<CdnRemoteZone[]> => {
+  const token = decryptCdnSecret(zone.credentials?.apiToken)
+  if (!token) throw new CdnConfigurationError('API token قابل استفاده نیست.')
+  const http = new ProviderHttp(zone.provider, token)
+
+  if (zone.provider === 'cloudflare') {
+    const found = await http.request('/zones')
+    return array(found)
+      .filter((row) => asString(row.name))
+      .map((row) => ({
+        id: asString(row.id) ?? '',
+        status: asString(row.status) ?? null,
+        zoneName: String(asString(row.name)),
+      }))
+      .sort((a, b) => a.zoneName.localeCompare(b.zoneName))
+  }
+
+  // ArvanCloud: GET /domains returns every domain on the account.
+  const domains = await http.list('/domains')
+  return domains
+    .filter((row) => asString(row.name))
+    .map((row) => ({
+      id: asString(row.id) ?? '',
+      status: asString(row.status) ?? null,
+      zoneName: String(asString(row.name)),
+    }))
+    .sort((a, b) => a.zoneName.localeCompare(b.zoneName))
 }
 
 /**
