@@ -118,6 +118,10 @@ RUN \
 FROM base AS runner
 WORKDIR /app
 
+ARG ESHOBE_BUILD_SHA=unknown
+ENV ESHOBE_BUILD_SHA=$ESHOBE_BUILD_SHA
+LABEL org.opencontainers.image.revision=$ESHOBE_BUILD_SHA
+
 ENV NODE_ENV=production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 # ENV NEXT_TELEMETRY_DISABLED 1
