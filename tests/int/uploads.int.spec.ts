@@ -102,10 +102,10 @@ describe('media uploads', () => {
     })
 
     expect(doc.mimeType).toBe('image/svg+xml')
-    expect(doc.url).toMatch(/\\.svg(?:\\?|$)/)
+    expect(doc.url).toMatch(/\.svg(?:\?|$)/)
     expect(doc.filesize).toBeLessThanOrEqual(original.length)
     // Never link a raster thumbnail in place of an animated SVG original.
-    expect(doc.sizes?.thumbnail?.url ?? '').not.toMatch(/\\.(png|jpe?g|webp|avif)$/i)
+    expect(doc.sizes?.thumbnail?.url ?? '').not.toMatch(/\.(png|jpe?g|webp|avif)$/i)
   })
 
   it('refuses an SVG that is only script-free by luck — an element outside the allowlist', async () => {
