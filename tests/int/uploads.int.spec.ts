@@ -86,6 +86,28 @@ describe('media uploads', () => {
     expect(doc.mimeType).toBe('image/svg+xml')
   })
 
+  it('uploads the exact original Graphite SVG through Payload and keeps the animated source', async () => {
+    // The original 19,801-byte logo exercises upload checks, preprocessing,
+    // sharp/Payload media handling and storage, not just validateSvgUpload().
+    // Previous upload integration coverage used a simplified 2.3 KB fixture.
+    const original = readFileSync(
+      new URL('../fixtures/graphite-animated-logo-original.svg', import.meta.url),
+    )
+    expect(original.length).toBe(19_801)
+
+    const doc = await upload({
+      data: original,
+      mimetype: 'image/svg+xml',
+      name: 'graphite-animated-original.svg',
+    })
+
+    expect(doc.mimeType).toBe('image/svg+xml')
+    expect(doc.url).toMatch(/\\.svg(?:\\?|$)/)
+    expect(doc.filesize).toBeLessThanOrEqual(original.length)
+    // Never link a raster thumbnail in place of an animated SVG original.
+    expect(doc.sizes?.thumbnail?.url ?? '').not.toMatch(/\\.(png|jpe?g|webp|avif)$/i)
+  })
+
   it('refuses an SVG that is only script-free by luck — an element outside the allowlist', async () => {
     const svg = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>',
