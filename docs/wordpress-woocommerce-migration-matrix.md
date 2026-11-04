@@ -49,8 +49,9 @@ not a substitute for a dry-run against the customer's real source.
    the single writer and imports may be repeated; the idempotency key is
    `site + source installation + resource + source record id`.
 5. **Reconcile** rescans the selected source resources and compares source
-   hashes, ledger rows, destinations, open errors, redirect problems and
-   order/refund totals.
+   hashes, ledger rows, destinations, open errors, redirect problems,
+   order/refund totals and WooCommerce product-review ratings read again
+   from Woo's own reviews endpoint.
 6. **Cutover** requires an explicit confirmation that WordPress is
    write-fenced. It performs a final sync, force-applies non-conflicting
    redirects, reconciles again and only then marks the job `completed`.
@@ -59,16 +60,33 @@ not a substitute for a dry-run against the customer's real source.
 7. **Rollback** (automatic, pre-cutover only) deletes redirect rows and
    destination documents that the ledger proves this migration created and
    that have not changed since import. A document edited in Eshobe becomes a
-   visible rollback conflict and is never deleted. After cutover, rollback is
-   an operational DNS/data decision, because Eshobe may already have new
+   visible rollback conflict and is never deleted. Content-type definitions
+   are the deliberate mapping exception: every import snapshots the field
+   schema it used into the definition's ledger metadata, so if rollback
+   deletes that migration-created definition after an operator declared ACF
+   relationships and re-imported, the next import restores those explicit
+   field decisions instead of re-inferring them away. After cutover, rollback
+   is an operational DNS/data decision, because Eshobe may already have new
    orders and edits.
+8. **People & accounts** stay explicit. The owner can load WordPress
+   staff-role users, choose an Eshobe tenant role per person and send the
+   normal set-password invitation; only a WP administrator may become site
+   owner. Imported Woo customers remain `customers`, can receive one-time
+   expiring claim emails from the center, and a storefront theme exchanges
+   the token once for the verified customer identity. No WP password/hash or
+   shopper-to-CMS-user promotion occurs in either path.
 
 The HTTP control surface is session-authenticated and tenant-checked:
 `GET /api/site/migration`, `POST /api/site/migration/source`,
-`POST /api/site/migration/job`, job settings/queue/control/write-fence POSTs.
-Editors may read their own site's center; only site owners and platform
-administrators may change it. Site API keys cannot run migrations. Jobs are
-queued and drained by the scheduled `migrationJobs` Payload task, with
+`POST /api/site/migration/job`, job settings/queue/control/write-fence POSTs,
+`POST /api/site/migration/customer-claims/invite`,
+`GET /api/site/migration/staff-candidates` and
+`POST /api/site/migration/staff/invite`. Editors may read their own site's
+center; only site owners and platform administrators may change it. Site API
+keys cannot run migrations or issue invitations. The separate storefront
+claim exchange is `POST /api/site/customer-claims/exchange`, tenant-resolved
+from a site key or customer `Host`, rate-limited and token-consuming. Jobs
+are queued and drained by the scheduled `migrationJobs` Payload task, with
 checkpoints, a per-job lock, pause/resume/cancel control, batches, events,
 errors and audit rows.
 
@@ -87,8 +105,8 @@ errors and audit rows.
 | Elementor/other page builders and shortcodes | readable Lexical text + provenance; CPTs may also store `preservedHtml` | **Archive/manual** | WordPress plugins do not run in Eshobe. A 1:1 builder rebuild remains a theme/manual task. Coverage marks recognized builders archive-only. |
 | Attachments | `media` | **Implemented for platform-supported images** | AVIF, GIF, JPEG, PNG, SVG and WebP are downloaded over the guarded HTTPS path and imported before content/products. Unsupported media types are visibly blocked rather than replaced with a broken remote URL. |
 | Menus (`nav_menu`, menu items and locations) | `menus` | **Implemented; theme location mapping review** | The importer reads `/wp-json/wp/v2/menus` and `/menu-items`, preserving menu slug/name/description, all locations, item order, parent keys/depth, status, CSS classes, new-tab flag and source object metadata. Page/post/product/CPT/category/taxonomy/media targets become same-site references; custom and archive items become rewritten internal paths or safe external URLs. Header/Footer are not overwritten: the destination theme chooses which menu location to render. An old source without the menus REST routes is visibly blocked. |
-| Comments and WooCommerce product reviews | `comments` | **Implemented; moderation/PII review** | The importer reads WP comment types `comment` and `review` in edit context with `status=any` (WP's `all` would omit spam/trash), preserving body, submitted time, threaded parent, moderation status (`approved`/`pending`/`spam`/`trash`) and exactly one post/page/product/CPT target. Core does not expose WooCommerce's unregistered `rating` comment meta, so product-review ratings (0–5) are stamped from `/wp-json/wc/v3/products/reviews` across every moderation status; if that endpoint is unavailable the rating gap is an open migration error, not a silent zero. Registered customer authors link to imported `customers` when resolvable. Author email is staff-only at field level; anonymous reads expose only approved comments on published targets. Importing history does not open a public submission endpoint. |
-| WordPress staff users/authors | CMS `users` | **Manual; requires mapping** | Accounts and roles are not created automatically and WordPress password hashes are never copied. Source author IDs/names survive in provenance (and CPT `authorName` when embedded); owners invite staff through the normal CMS account flow. |
+| Comments and WooCommerce product reviews | `comments` | **Implemented; moderation/PII review** | The importer reads WP comment types `comment` and `review` in edit context with `status=any` (WP's `all` would omit spam/trash), preserving body, submitted time, threaded parent, moderation status (`approved`/`pending`/`spam`/`trash`) and exactly one post/page/product/CPT target. Core does not expose WooCommerce's unregistered `rating` comment meta, so product-review ratings (0–5) are stamped from `/wp-json/wc/v3/products/reviews` across every moderation status; if that endpoint is unavailable the rating gap is an open migration error, not a silent zero. Registered customer authors link to imported `customers` when resolvable. Author email is staff-only at field level; anonymous reads expose only approved comments on published targets. Reconciliation independently rescans Woo's review ratings and blocks cutover on any missing/extra/changed rating (`fieldMismatches`). Importing history does not open a public submission endpoint. |
+| WordPress staff users/authors | CMS `users` + site tenant role | **Implemented; explicit owner mapping** | Accounts and roles are never created by the importer. On demand, the center reads authenticated WP users with administrator/editor/author/contributor/shop-manager roles; the owner selects people and roles, with WP administrator as the only owner-eligible source role. Existing Eshobe users are assigned without role downgrade, new users get a random unseen password plus Payload's set-password email, and each decision is ledgered/audited with `createdByMigration: false` so rollback cannot delete a person's account. Source author IDs/names also survive in content provenance. |
 | Revisions and autosaves | — | **Intentionally excluded** | Editorial history is not published content. Internal WordPress types are labelled in discovery; they are not represented as destination content. |
 
 ## Commerce (WooCommerce)
@@ -99,7 +117,7 @@ errors and audit rows.
 | Variable product, attributes and variations | `products.attributes` + `products.variations` | **Implemented; money review** | Each variation keeps its source ID/key, attribute values, label, SKU, price/compare-at price, image, status and weight. A variable product with no returned variations is blocked instead of imported as a pseudo-simple product. |
 | Grouped/external product | `products` | **Implemented; mapping review** | Grouped members, upsells and cross-sells are linked after all products exist; external URL/button text are retained. Product types outside `simple`, `variable`, `grouped` and `external` are blocking. |
 | Product stock | `products.inventory` and variation stock | **Implemented** | Products are first imported without applying live stock. Historical orders then run under the migration context, and current stock is applied once per import/sync afterwards in `applyCurrentStock`. |
-| Customers | `customers` (separate from CMS `users`) | **Implemented; claim review** | Profile, username, billing/shipping addresses and order links import. `claimStatus` starts `unclaimed`; password hashes are never copied. Sending/claiming invitations is an account-flow/manual step, not performed by the importer. |
+| Customers | `customers` (separate from CMS `users`) | **Implemented; invite/claim exchange** | Profile, username, billing/shipping addresses and order links import. `claimStatus` starts `unclaimed`; password hashes are never copied and later Woo delta sync preserves invited/claimed state (revoking an outstanding token only if the source email changed). Owners send single or bounded-bulk one-time claim emails from the center; only the token hash and expiry are stored. The theme exchanges the token once at `POST /api/site/customer-claims/exchange` and binds the returned verified customer ID/email/name to its own storefront account/session. |
 | Coupons | `coupons` | **Implemented; money review** | Percent/fixed cart/fixed product amount, min/max, usage limits/count, product inclusions/exclusions, individual-use/free-shipping flags and validity window map. Historical orders retain coupon lines/discounts. |
 | Orders | `orders` + `orders.items` | **Implemented; exact-money gate** | All lines remain lines: product snapshot, variation key/label, SKU, quantity, unit price, line subtotal/tax/total. Order subtotal, discount, shipping lines/total, tax lines/total, fees, coupons, addresses, customer note, payment fields and a payment-history row from the available method/transaction/paid-at fields are retained. The legacy `product`, `quantity`, and `unitPrice` fields mirror only the first line for backward compatibility. |
 | Refunds | `orders.refunds` | **Implemented** | Refund rows are fetched per order and participate in reconciliation totals. |
@@ -184,10 +202,12 @@ the migration execution context.
 - A read-only WordPress agent or database-export connector for data that is
   not exposed through WP/Woo REST. Today, discovery can block such a source;
   it cannot magically read it.
-- Automatic staff-account provisioning and customer invitation
-  delivery/claim endpoints. Those need a separate identity/session and
-  invitation-delivery design; imports do not turn a WordPress role or claim
-  token into a login by implication.
+- Automatic staff-account provisioning, automatic customer-claim email
+  sending, and a shopper session/account system inside the CMS. Staff
+  invitation and customer claim issuance are explicit owner actions; after
+  the one-time claim exchange, the storefront theme owns its shopper
+  account/session. Imports never turn a WordPress role or password into an
+  Eshobe login by implication.
 - Functional adapters for page builders, forms, subscriptions and other
   operational plugins listed as archive-only or blocking in coverage.
 - Inference of an ACF relationship's destination collection from field names

@@ -1,11 +1,12 @@
-import type { PayloadRequest } from 'payload'
+import type { PayloadRequest, Where } from 'payload'
 
-import type { MigrationJob, MigrationSource, Site } from '@/payload-types'
+import type { Customer, MigrationJob, MigrationSource, Site } from '@/payload-types'
 import type { SiteStaffRole } from '@/deploy/tenantSettings'
 import { idOf, isUuid } from '@/lib/ids'
 import { isCurrencyCode } from '@/lib/money'
 
 import { asRecord, type Loose } from './context'
+import { customerClaimView } from './customer-claims'
 
 /**
  * The sanitized read model behind «مرکز مهاجرت» and its endpoints.
@@ -193,7 +194,15 @@ export const migrationCenterView = async (
     req,
   })) as Site | null
   const siteWhere = { site: { equals: siteId } }
-  const [sources, jobs, errors, events, audits, mappings] = await Promise.all([
+  const migratedCustomerWhere: Where = {
+    and: [
+      siteWhere,
+      { 'source.system': { equals: 'woocommerce' } },
+      { 'source.sourceType': { equals: 'customer' } },
+      { 'source.sourceId': { exists: true } },
+    ],
+  }
+  const [sources, jobs, errors, events, audits, mappings, claimCustomers] = await Promise.all([
     req.payload.find({
       collection: 'migration-sources',
       depth: 0,
@@ -254,6 +263,27 @@ export const migrationCenterView = async (
       sort: 'resource',
       where: siteWhere,
     }),
+    req.payload.find({
+      collection: 'customers',
+      depth: 0,
+      limit: 100,
+      overrideAccess: true,
+      pagination: false,
+      req,
+      select: {
+        claimExpiresAt: true,
+        claimStatus: true,
+        claimedAt: true,
+        displayName: true,
+        email: true,
+        firstName: true,
+        invitedAt: true,
+        lastName: true,
+        status: true,
+      },
+      sort: 'email',
+      where: migratedCustomerWhere,
+    }),
   ])
   const dispositions = [
     'archived',
@@ -274,7 +304,8 @@ export const migrationCenterView = async (
     'rolled-back',
     'unchanged',
   ] as const
-  const [recordCounts, redirectCounts] = await Promise.all([
+  const claimStatuses = ['claimed', 'disabled', 'invited', 'unclaimed'] as const
+  const [recordCounts, redirectCounts, claimCounts] = await Promise.all([
     Promise.all(
       dispositions.map(async (disposition) => [
         disposition,
@@ -291,11 +322,23 @@ export const migrationCenterView = async (
         }),
       ] as const),
     ),
+    Promise.all(
+      claimStatuses.map(async (status) => [
+        status,
+        await countWhere(req, 'customers', {
+          and: [migratedCustomerWhere, { claimStatus: { equals: status } }],
+        }),
+      ] as const),
+    ),
   ])
 
   return {
     audits: (audits.docs as unknown as Loose[]).map(briefAudit),
     canManage: canManageMigration(role),
+    customerClaims: {
+      counts: Object.fromEntries(claimCounts),
+      customers: (claimCustomers.docs as Customer[]).map(customerClaimView),
+    },
     errors: (errors.docs as unknown as Loose[]).map(briefError),
     events: (events.docs as unknown as Loose[]).map(briefEvent),
     jobs: (jobs.docs as MigrationJob[]).map(jobView),

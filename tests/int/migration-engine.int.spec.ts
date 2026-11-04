@@ -5,8 +5,18 @@ import { createLocalReq, getPayload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
+import { customerClaimEndpoints } from '@/endpoints/customerClaims'
 import { migrationCenterEndpoints } from '@/endpoints/migrationCenter'
+import {
+  exchangeCustomerClaimToken,
+  hashCustomerClaimToken,
+  issueCustomerClaimInvitation,
+} from '@/lib/migration/customer-claims'
 import { runMigrationJob } from '@/lib/migration/engine'
+import {
+  inviteWordPressStaff,
+  listWordPressStaffCandidates,
+} from '@/lib/migration/staff-invites'
 import { findForSite } from '@/lib/site-query'
 import {
   createMigrationSource,
@@ -58,6 +68,7 @@ let installation = ''
 let jobId = ''
 let clients: SourceClients
 let downloadCount = 0
+const createdStaffEmails: string[] = []
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
@@ -269,6 +280,36 @@ const fixture = {
       parent: 0,
       slug: `featured-${suffix}`,
       taxonomy: 'post_tag',
+    },
+  ] as Raw[],
+  users: [
+    {
+      email: `wp-admin-${suffix}@example.ir`,
+      id: 7,
+      name: 'مدیر وردپرس',
+      roles: ['administrator'],
+      slug: `wp-admin-${suffix}`,
+    },
+    {
+      email: `wp-author-${suffix}@example.ir`,
+      id: 8,
+      name: 'نویسنده وردپرس',
+      roles: ['author'],
+      slug: `wp-author-${suffix}`,
+    },
+    {
+      email: `wp-subscriber-${suffix}@example.ir`,
+      id: 9,
+      name: 'مشترک وردپرس',
+      roles: ['subscriber'],
+      slug: `wp-subscriber-${suffix}`,
+    },
+    {
+      email: 'shop@eshobe.test',
+      id: 10,
+      name: 'مالک کنونی فروشگاه',
+      roles: ['editor'],
+      slug: 'seed-shop-owner',
     },
   ] as Raw[],
   variations: [
@@ -492,6 +533,17 @@ const listFor = (path: string, searchParams?: URLSearchParams): Raw[] | null => 
       return byType.filter((comment) => ['approved', 'hold'].includes(String(comment.status)))
     }
     return status ? byType.filter((comment) => String(comment.status) === status) : byType
+  }
+  if (path === '/wp-json/wp/v2/users') {
+    const roles = (searchParams?.get('roles') ?? '')
+      .split(',')
+      .map((role) => role.trim())
+      .filter(Boolean)
+    return roles.length
+      ? fixture.users.filter((user) =>
+          ((user.roles as string[]) ?? []).some((role) => roles.includes(role)),
+        )
+      : fixture.users
   }
   if (path === '/wp-json/wp/v2/categories') return fixture.categories
   if (path === '/wp-json/wp/v2/tags') return fixture.tags
@@ -847,7 +899,16 @@ afterAll(async () => {
       order.indexOf(String(b.destinationCollection)),
   )
   for (const record of records) {
-    if (!record.destinationCollection || !record.destinationId) continue
+    // Staff invitations are deliberately outside migration rollback/cleanup
+    // of imported destinations too: a ledger row must never make a person's
+    // CMS account migration-owned. The fixture users are removed explicitly.
+    if (
+      !record.destinationCollection ||
+      !record.destinationId ||
+      record.destinationCollection === 'users'
+    ) {
+      continue
+    }
     await payload
       .delete({
         id: String(record.destinationId),
@@ -904,6 +965,20 @@ afterAll(async () => {
   await payload
     .delete({ id: sourceId, collection: 'migration-sources', depth: 0, overrideAccess: true })
     .catch(() => undefined)
+
+  for (const email of new Set([
+    ...createdStaffEmails,
+    `wp-admin-${suffix}@example.ir`,
+    `wp-author-${suffix}@example.ir`,
+  ])) {
+    await payload
+      .delete({
+        collection: 'users',
+        overrideAccess: true,
+        where: { email: { equals: email } },
+      })
+      .catch(() => undefined)
+  }
 }, 180_000)
 
 describe('Migration Center endpoints', () => {
@@ -943,6 +1018,26 @@ describe('Migration Center endpoints', () => {
       ),
     )
     expect(editorWrite.status).toBe(403)
+    const editorClaimInvite = await endpoint('post', '/site/migration/customer-claims/invite')(
+      await reqAs(
+        'shop-editor@eshobe.test',
+        postReq({ customerId: sourceId, site: shopId }),
+      ),
+    )
+    expect(editorClaimInvite.status).toBe(403)
+    const editorStaffCandidates = await endpoint('get', '/site/migration/staff-candidates')(
+      await reqAs('shop-editor@eshobe.test', {
+        url: `http://localhost/api/site/migration/staff-candidates?site=${shopId}&sourceId=${sourceId}`,
+      } as Partial<PayloadRequest>),
+    )
+    expect(editorStaffCandidates.status).toBe(403)
+    const editorStaffInvite = await endpoint('post', '/site/migration/staff/invite')(
+      await reqAs(
+        'shop-editor@eshobe.test',
+        postReq({ invites: [], jobId, site: shopId, sourceId }),
+      ),
+    )
+    expect(editorStaffInvite.status).toBe(403)
     expect(acmeId).not.toBe(shopId)
   }, 180_000)
 
@@ -1162,6 +1257,22 @@ describe('migration engine', () => {
     expect(
       (afterImport?.fieldSchema as Raw[]).find((field) => field.key === 'related_products'),
     ).toMatchObject({ fieldType: 'relationship', relationTo: 'products' })
+    const definitionRows = await ledger()
+    const definitionSnapshot = (
+      definitionRows.find(
+        (row) =>
+          row.resource === 'content-type-definition' &&
+          String(row.sourceRecordId) === 'portfolio',
+      )?.metadata as Raw | undefined
+    )?.fieldSchema as Raw[] | undefined
+    expect(definitionSnapshot?.find((field) => field.key === 'related_products')).toMatchObject({
+      fieldType: 'relationship',
+      relationTo: 'products',
+    })
+    expect(definitionSnapshot?.find((field) => field.key === 'related_post')).toMatchObject({
+      fieldType: 'relationship',
+      relationTo: 'posts',
+    })
 
     const [entry, post, simple, variable] = await Promise.all([
       destination('content-entries', 44),
@@ -1275,6 +1386,282 @@ describe('migration engine', () => {
     expect(after).toEqual(before)
   }, 180_000)
 
+  it('issues a one-time customer claim and preserves or revokes it correctly on re-import', async () => {
+    const importedCustomer = await destination('customers', 15)
+    if (!importedCustomer) throw new Error('imported customer missing before claim test')
+    const customerId = String(importedCustomer.id)
+    const ownerReq = await reqAs('shop@eshobe.test')
+    const deliveries: { claimUrl: string; token: string }[] = []
+    const directCustomer = async (): Promise<Raw> =>
+      (await payload.findByID({
+        id: customerId,
+        collection: 'customers',
+        depth: 0,
+        overrideAccess: true,
+        showHiddenFields: true,
+      })) as unknown as Raw
+    const issue = () =>
+      issueCustomerClaimInvitation(ownerReq, {
+        customerId,
+        deliver: async ({ claimUrl, token }) => {
+          deliveries.push({ claimUrl, token })
+        },
+        siteId: shopId,
+      })
+
+    const nativeCustomer = await payload.create({
+      collection: 'customers',
+      data: {
+        claimStatus: 'unclaimed',
+        email: `native-${suffix}@example.ir`,
+        firstName: 'بومی',
+        site: shopId,
+        status: 'active',
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+    try {
+      await expect(
+        issueCustomerClaimInvitation(ownerReq, {
+          customerId: String(nativeCustomer.id),
+          deliver: async () => undefined,
+          siteId: shopId,
+        }),
+      ).rejects.toThrow('مهاجرت نکرده')
+    } finally {
+      await payload
+        .delete({
+          id: String(nativeCustomer.id),
+          collection: 'customers',
+          depth: 0,
+          overrideAccess: true,
+        })
+        .catch(() => undefined)
+    }
+
+    await issue()
+    const firstToken = deliveries[0]?.token ?? ''
+    expect(firstToken.length).toBeGreaterThanOrEqual(32)
+    expect(deliveries[0]?.claimUrl).toContain('token=')
+    const invited = await directCustomer()
+    expect(invited.claimStatus).toBe('invited')
+    expect(invited.claimTokenHash).toBe(hashCustomerClaimToken(firstToken))
+    expect(invited.claimTokenHash).not.toBe(firstToken)
+
+    const centerRes = await endpoint('get', '/site/migration')(
+      await reqAs('shop@eshobe.test', {
+        url: `http://localhost/api/site/migration?site=${shopId}`,
+      } as Partial<PayloadRequest>),
+    )
+    expect(centerRes.status).toBe(200)
+    const centerRaw = await centerRes.text()
+    expect(centerRaw).not.toContain(firstToken)
+    expect(centerRaw).not.toContain(hashCustomerClaimToken(firstToken))
+    const center = JSON.parse(centerRaw) as {
+      customerClaims: { counts: Raw; customers: Raw[] }
+    }
+    expect(Number(center.customerClaims.counts.invited)).toBeGreaterThanOrEqual(1)
+    expect(
+      center.customerClaims.customers.find((customer) => customer.id === customerId),
+    ).toMatchObject({ claimStatus: 'invited', email: `buyer-${suffix}@example.ir` })
+
+    const preserved = await operation('import')
+    await expectStatus(preserved, 'ready')
+    const stillInvited = await directCustomer()
+    expect(stillInvited.claimStatus).toBe('invited')
+    expect(stillInvited.claimTokenHash).toBe(hashCustomerClaimToken(firstToken))
+
+    await expect(
+      exchangeCustomerClaimToken(ownerReq, { siteId: acmeId, token: firstToken }),
+    ).resolves.toBeNull()
+    const site = await payload.findByID({
+      id: shopId,
+      collection: 'sites',
+      depth: 0,
+      overrideAccess: true,
+    })
+    const exchangeHandler = customerClaimEndpoints[0]?.handler
+    if (!exchangeHandler) throw new Error('customer claim exchange endpoint missing')
+    const exchangeViaEndpoint = async (token: string) =>
+      exchangeHandler(
+        await createLocalReq(
+          {
+            req: {
+              headers: new Headers({
+                host: String(site.domain),
+                'x-forwarded-for': '203.0.113.77',
+              }),
+              json: async () => ({ token }),
+              url: 'http://localhost/api/site/customer-claims/exchange',
+            } as Partial<PayloadRequest>,
+          },
+          payload,
+        ),
+      )
+    const claimedRes = await exchangeViaEndpoint(firstToken)
+    expect(claimedRes.status).toBe(200)
+    const claimed = (await claimedRes.json()) as {
+      claimedAt: string
+      customer: Raw
+      ok: boolean
+    }
+    expect(claimed.ok).toBe(true)
+    expect(claimed.claimedAt).toBeTruthy()
+    expect(claimed.customer).toEqual({
+      displayName: 'سارا مشتری',
+      email: `buyer-${suffix}@example.ir`,
+      firstName: 'سارا',
+      id: customerId,
+      lastName: 'مشتری',
+    })
+    const replayRes = await exchangeViaEndpoint(firstToken)
+    expect(replayRes.status).toBe(400)
+    expect((await directCustomer()).claimStatus).toBe('claimed')
+
+    await payload.update({
+      id: customerId,
+      collection: 'customers',
+      data: { claimStatus: 'unclaimed', claimedAt: null } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+    await issue()
+    const manualToken = deliveries[1]?.token ?? ''
+    expect(manualToken).not.toBe(firstToken)
+    await payload.update({
+      id: customerId,
+      collection: 'customers',
+      data: { email: `buyer-manual-${suffix}@example.ir` } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+    const manuallyRevoked = await directCustomer()
+    expect(manuallyRevoked.claimStatus).toBe('unclaimed')
+    expect(manuallyRevoked.claimTokenHash ?? null).toBeNull()
+    await expect(
+      exchangeCustomerClaimToken(ownerReq, { siteId: shopId, token: manualToken }),
+    ).resolves.toBeNull()
+    await payload.update({
+      id: customerId,
+      collection: 'customers',
+      data: { email: `buyer-${suffix}@example.ir` } as never,
+      depth: 0,
+      overrideAccess: true,
+    })
+    await issue()
+    const staleToken = deliveries[2]?.token ?? ''
+    expect(staleToken).not.toBe(manualToken)
+
+    const sourceCustomer = fixture.customers[0]!
+    const newEmail = `buyer-new-${suffix}@example.ir`
+    sourceCustomer.email = newEmail
+    ;(sourceCustomer.billing as Raw).email = newEmail
+    sourceCustomer.date_modified_gmt = new Date().toISOString().slice(0, 19)
+
+    const reimported = await operation('import')
+    await expectStatus(reimported, 'ready')
+    const revoked = await directCustomer()
+    expect(revoked.email).toBe(newEmail)
+    expect(revoked.claimStatus).toBe('unclaimed')
+    expect(revoked.claimTokenHash ?? null).toBeNull()
+    await expect(
+      exchangeCustomerClaimToken(ownerReq, { siteId: shopId, token: staleToken }),
+    ).resolves.toBeNull()
+  }, 180_000)
+
+  it('invites WordPress staff only explicitly and never downgrades or over-promotes roles', async () => {
+    const ownerReq = await reqAs('shop@eshobe.test')
+    const sentInvites: string[] = []
+    const sendInvite = async ({ email }: { email: string }) => {
+      sentInvites.push(email)
+    }
+    const candidates = await listWordPressStaffCandidates(clients.wp)
+
+    expect(candidates.total).toBe(3)
+    expect(candidates.candidates.map((candidate) => candidate.sourceRecordId)).toEqual([
+      '7',
+      '8',
+      '10',
+    ])
+    expect(candidates.candidates.find((candidate) => candidate.sourceRecordId === '7'))
+      .toMatchObject({ canBeOwner: true, roles: ['administrator'], suggestedRole: 'owner' })
+    expect(candidates.candidates.find((candidate) => candidate.sourceRecordId === '8'))
+      .toMatchObject({ canBeOwner: false, roles: ['author'], suggestedRole: 'editor' })
+    expect(
+      candidates.candidates.some((candidate) => candidate.sourceRecordId === '9'),
+    ).toBe(false)
+
+    const rejected = await inviteWordPressStaff(ownerReq, {
+      clients,
+      invites: [{ role: 'owner', sourceRecordId: '8' }],
+      jobId,
+      sendInvite,
+      siteId: shopId,
+      sourceId,
+    })
+    expect(rejected.summary).toMatchObject({ rejected: 1 })
+    expect(sentInvites).toEqual([])
+    const noAuthor = await payload.find({
+      collection: 'users',
+      depth: 0,
+      limit: 1,
+      where: { email: { equals: `wp-author-${suffix}@example.ir` } },
+    })
+    expect(noAuthor.docs).toEqual([])
+
+    const invited = await inviteWordPressStaff(ownerReq, {
+      clients,
+      invites: [
+        { role: 'editor', sourceRecordId: '7' },
+        { role: 'editor', sourceRecordId: '8' },
+        { role: 'editor', sourceRecordId: '10' },
+      ],
+      jobId,
+      sendInvite,
+      siteId: shopId,
+      sourceId,
+    })
+    expect(invited.summary).toMatchObject({ 'already-member': 1, created: 2 })
+    expect(sentInvites).toEqual([
+      `wp-admin-${suffix}@example.ir`,
+      `wp-author-${suffix}@example.ir`,
+    ])
+    for (const result of invited.results) {
+      if (result.action === 'created') createdStaffEmails.push(result.email)
+    }
+
+    const tenantRole = async (email: string): Promise<unknown> => {
+      const user = (await userByEmail(email)) as unknown as Raw
+      return ((user.tenants as Raw[]) ?? []).find((row) => id(row.tenant) === shopId)?.role
+    }
+    expect(await tenantRole(`wp-admin-${suffix}@example.ir`)).toBe('editor')
+    expect(await tenantRole(`wp-author-${suffix}@example.ir`)).toBe('editor')
+    expect(await tenantRole('shop@eshobe.test')).toBe('owner')
+
+    const rows = await ledger()
+    for (const sourceRecordId of ['7', '8']) {
+      expect(
+        rows.find(
+          (row) =>
+            row.resource === 'wp-users' && String(row.sourceRecordId) === sourceRecordId,
+        ),
+      ).toMatchObject({ createdByMigration: false, destinationCollection: 'users' })
+    }
+
+    const upgraded = await inviteWordPressStaff(ownerReq, {
+      clients,
+      invites: [{ role: 'owner', sourceRecordId: '7' }],
+      jobId,
+      sendInvite,
+      siteId: shopId,
+      sourceId,
+    })
+    expect(upgraded.summary).toMatchObject({ assigned: 1 })
+    expect(sentInvites).toHaveLength(2)
+    expect(await tenantRole(`wp-admin-${suffix}@example.ir`)).toBe('owner')
+  }, 180_000)
+
   it('reconciliation detects deleted relation edges and import repairs them', async () => {
     const [relationEdge, entryTermEdge] = await Promise.all([
       destination('content-relations', '44:related_products:31'),
@@ -1297,13 +1684,19 @@ describe('migration engine', () => {
       depth: 0,
       overrideAccess: true,
     })
+    fixture.productReviews[0]!.rating = 4
 
     const broken = await operation('reconcile')
     expect(broken.status).toBe('blocked')
     const brokenReport = broken.reconciliationReport as Raw
     expect(brokenReport.ok).toBe(false)
     expect((brokenReport.counts as Raw).missingDestinations).toBeGreaterThanOrEqual(2)
+    expect((brokenReport.counts as Raw).fieldMismatches).toBeGreaterThanOrEqual(1)
     expect((brokenReport.issueCounts as Raw).DESTINATION_MISSING).toBeGreaterThanOrEqual(2)
+    expect(
+      (brokenReport.issueCounts as Raw).WOO_REVIEW_RATING_MISMATCH,
+    ).toBeGreaterThanOrEqual(1)
+    fixture.productReviews[0]!.rating = 5
 
     const repaired = await operation('import')
     await expectStatus(repaired, 'ready')
@@ -1329,6 +1722,13 @@ describe('migration engine', () => {
     expect(await destination('products', 99)).toBeNull()
     expect(await destination('menus', 301)).toBeNull()
     expect(await destination('comments', 601)).toBeNull()
+    expect(await destination('content-type-definitions', 'portfolio')).toBeNull()
+    expect((await userByEmail(`wp-admin-${suffix}@example.ir`)).email).toBe(
+      `wp-admin-${suffix}@example.ir`,
+    )
+    expect((await userByEmail(`wp-author-${suffix}@example.ir`)).email).toBe(
+      `wp-author-${suffix}@example.ir`,
+    )
 
     const reimported = await operation('import')
     await expectStatus(reimported, 'ready')
@@ -1337,6 +1737,20 @@ describe('migration engine', () => {
     expect(await destination('orders', 700)).not.toBeNull()
     expect(await destination('menus', 301)).not.toBeNull()
     expect(await destination('comments', 601)).not.toBeNull()
+    const restoredDefinition = await destination('content-type-definitions', 'portfolio')
+    expect(
+      (restoredDefinition?.fieldSchema as Raw[]).find(
+        (field) => field.key === 'related_products',
+      ),
+    ).toMatchObject({ fieldType: 'relationship', relationTo: 'products' })
+    expect(
+      (restoredDefinition?.fieldSchema as Raw[]).find((field) => field.key === 'related_post'),
+    ).toMatchObject({ fieldType: 'relationship', relationTo: 'posts' })
+    const restoredEntry = await destination('content-entries', 44)
+    expect((restoredEntry?.fieldValues as Raw)?.related_products).toHaveLength(2)
+    expect((restoredEntry?.fieldValues as Raw)?.related_post).toBe(String(restored?.id))
+    expect(await destination('content-relations', '44:related_products:31')).not.toBeNull()
+    expect(await destination('content-relations', '44:related_post:41')).not.toBeNull()
   }, 180_000)
 
   it('delta-syncs a changed source record and reconciles cleanly', async () => {
@@ -1380,6 +1794,7 @@ describe('migration engine', () => {
     await expectStatus(reconciled, 'ready-for-cutover')
     const report = reconciled.reconciliationReport as Raw
     expect(report.ok).toBe(true)
+    expect((report.counts as Raw).fieldMismatches).toBe(0)
     expect((report.totals as Raw).sourceOrderTotal).toBe(
       (report.totals as Raw).destinationOrderTotal,
     )

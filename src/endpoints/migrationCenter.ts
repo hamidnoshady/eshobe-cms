@@ -10,15 +10,29 @@ import {
   migrationSourceView,
   sanitizeMigrationSettings,
 } from '@/lib/migration/center'
-import { recordMigrationAudit } from '@/lib/migration/records'
 import {
+  CustomerClaimError,
+  issueCustomerClaimInvitation,
+  issueCustomerClaimInvitations,
+} from '@/lib/migration/customer-claims'
+import { recordMigrationAudit } from '@/lib/migration/records'
+import { safeErrorMessage } from '@/lib/migration/redact'
+import {
+  buildSourceClients,
   confirmWriteFence,
   createMigrationSource,
   createOrReuseMigrationJob,
   findOwnMigrationJob,
+  findOwnMigrationSource,
   queueMigrationOperation,
   setMigrationControl,
 } from '@/lib/migration/source'
+import {
+  inviteWordPressStaff,
+  listWordPressStaffCandidates,
+  sanitizeStaffInviteRequests,
+  StaffInviteError,
+} from '@/lib/migration/staff-invites'
 import type { MigrationOperation } from '@/lib/migration/types'
 
 import { json, param, readJsonBody, search } from './platformShared'
@@ -73,6 +87,23 @@ const text = (value: unknown, max = 2_000): string =>
 
 const state = async (req: PayloadRequest, siteId: string, role: SiteStaffRole) =>
   json({ ok: true, ...(await migrationCenterView(req, siteId, role)) })
+
+const knownError = (req: PayloadRequest, error: unknown, fallback: string): Response => {
+  if (error instanceof CustomerClaimError || error instanceof StaffInviteError) {
+    return json({ message: error.message, ok: false }, error.status)
+  }
+  req.payload.logger.error(error)
+  return json({ message: fallback, ok: false }, 502)
+}
+
+const boundedInteger = (
+  value: unknown,
+  { max, min }: { max: number; min: number },
+): null | number | undefined => {
+  if (value === undefined || value === '') return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : null
+}
 
 export const migrationCenterEndpoints: Endpoint[] = [
   {
@@ -288,5 +319,136 @@ export const migrationCenterEndpoints: Endpoint[] = [
     },
     method: 'post',
     path: '/site/migration/job/:id/write-fence',
+  },
+  {
+    handler: async (req) => {
+      const { body, error: bodyError } = await readJsonBody(req)
+      if (bodyError || !body) return bodyError ?? json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400)
+      const siteId = text(body.site, 100)
+      const { error, role } = resolveSite(req, siteId, { write: true })
+      if (error) return error
+
+      const expiresInDays = boundedInteger(body.expiresInDays, { max: 30, min: 1 })
+      if (expiresInDays === null) {
+        return json({ message: 'مهلت دعوت باید عددی میان ۱ تا ۳۰ روز باشد.', ok: false }, 400)
+      }
+      const limit = boundedInteger(body.limit, { max: 100, min: 1 })
+      if (limit === null) {
+        return json({ message: 'سقف دعوت گروهی باید عددی میان ۱ تا ۱۰۰ باشد.', ok: false }, 400)
+      }
+      const claimUrl = text(body.claimUrl, 2_000) || undefined
+
+      try {
+        if (body.all === true) {
+          const result = await issueCustomerClaimInvitations(req, {
+            claimUrl,
+            expiresInDays,
+            ...(limit ? { limit } : {}),
+            resendInvited: body.resendInvited === true,
+            siteId,
+          })
+          return json({
+            customerClaimInvitations: result,
+            ok: true,
+            ...(await migrationCenterView(req, siteId, role)),
+          })
+        }
+
+        const customerId = text(body.customerId, 100)
+        if (!isUuid(customerId)) {
+          return json({ message: 'شناسه مشتری معتبر نیست.', ok: false }, 400)
+        }
+        const result = await issueCustomerClaimInvitation(req, {
+          claimUrl,
+          customerId,
+          expiresInDays,
+          siteId,
+        })
+        return json({
+          customerClaimInvitation: result,
+          ok: true,
+          ...(await migrationCenterView(req, siteId, role)),
+        })
+      } catch (caught) {
+        return knownError(req, caught, 'ارسال دعوت مشتری انجام نشد.')
+      }
+    },
+    method: 'post',
+    path: '/site/migration/customer-claims/invite',
+  },
+  {
+    handler: async (req) => {
+      const query = search(req)
+      const siteId = query.get('site') ?? ''
+      const { error } = resolveSite(req, siteId, { write: true })
+      if (error) return error
+
+      const sourceId = query.get('sourceId') ?? ''
+      if (!isUuid(sourceId)) return json({ message: 'شناسهٔ مبدأ نامعتبر است.', ok: false }, 400)
+      const source = await findOwnMigrationSource(req, sourceId, siteId)
+      if (!source) return json({ message: 'مبدأ مهاجرت پیدا نشد.', ok: false }, 404)
+
+      try {
+        const clients = await buildSourceClients(req, source)
+        const result = await listWordPressStaffCandidates(clients.wp)
+        return json({ ok: true, staffCandidates: result.candidates, total: result.total, truncated: result.truncated })
+      } catch (caught) {
+        req.payload.logger.error(caught)
+        return json(
+          {
+            message: `خواندن کاربران کارکنان وردپرس انجام نشد: ${safeErrorMessage(caught)}`,
+            ok: false,
+          },
+          502,
+        )
+      }
+    },
+    method: 'get',
+    path: '/site/migration/staff-candidates',
+  },
+  {
+    handler: async (req) => {
+      const { body, error: bodyError } = await readJsonBody(req)
+      if (bodyError || !body) return bodyError ?? json({ message: 'بدنهٔ درخواست باید JSON باشد.', ok: false }, 400)
+      const siteId = text(body.site, 100)
+      const { error, role } = resolveSite(req, siteId, { write: true })
+      if (error) return error
+
+      const sourceId = text(body.sourceId, 100)
+      const jobId = text(body.jobId, 100)
+      if (!isUuid(sourceId) || !isUuid(jobId)) {
+        return json({ message: 'شناسه مبدأ یا کار مهاجرت معتبر نیست.', ok: false }, 400)
+      }
+      const invites = sanitizeStaffInviteRequests(body.invites)
+      if (!invites.length || !Array.isArray(body.invites) || invites.length !== body.invites.length) {
+        return json({ message: 'فهرست دعوت کارکنان معتبر نیست.', ok: false }, 400)
+      }
+
+      try {
+        const result = await inviteWordPressStaff(req, {
+          invites,
+          jobId,
+          siteId,
+          sourceId,
+        })
+        return json({
+          ok: true,
+          staffInvites: result,
+          ...(await migrationCenterView(req, siteId, role)),
+        })
+      } catch (caught) {
+        if (caught instanceof StaffInviteError) return knownError(req, caught, 'دعوت کارکنان انجام نشد.')
+        req.payload.logger.error(caught)
+        return json(
+          {
+            message: `دعوت کارکنان وردپرس انجام نشد: ${safeErrorMessage(caught)}`,
+            ok: false,
+          },
+          502,
+        )
+      }
+    },
+    method: 'post',
+    path: '/site/migration/staff/invite',
   },
 ]

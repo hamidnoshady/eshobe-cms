@@ -51,6 +51,7 @@ import {
   acfContentRelationRaw,
   applyCurrentStock,
   collectWordPressMenus,
+  collectWooReviewRatings,
   commentRatingOf,
   commentStatusOf,
   convertedOrder,
@@ -1771,6 +1772,7 @@ export type ReconciliationReport = {
   checkedAt: string
   counts: {
     expected: number
+    fieldMismatches: number
     missingDestinations: number
     missingLedger: number
     notImported: number
@@ -2184,6 +2186,76 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
     }
   }
 
+  // A WP comment hash cannot prove a Woo review rating: core's comments
+  // endpoint commonly returns empty meta for the unregistered Woo rating.
+  // Read Woo's own reviews endpoint again here and compare the destination
+  // numbers below, rather than trusting the import post-pass that wrote them.
+  const expectedReviewRatings = new Map<string, number>()
+  if (ctx.settings.includeComments) {
+    const reviewIds = new Set<string>()
+
+    for (const item of expected.values()) {
+      if (item.resource !== 'comments' || str(item.raw.type) !== 'review') continue
+      reviewIds.add(item.sourceRecordId)
+      try {
+        const wpRating = commentRatingOf(item.raw)
+        if (wpRating !== null) expectedReviewRatings.set(item.sourceRecordId, wpRating)
+      } catch {
+        // The scan's prepare step already recorded this invalid source row.
+      }
+    }
+
+    if (inventory.hasWooCommerce && reviewIds.size) {
+      if (!ctx.clients.woo) {
+        addIssue({
+          blocking: true,
+          code: 'WOO_REVIEW_RATINGS_UNAVAILABLE',
+          message: 'کلیدهای ووکامرس برای راستی‌آزمایی مستقل امتیاز بازخوردها در دسترس نیستند.',
+          resource: 'comments',
+        })
+      } else {
+        try {
+          const wooRatings = await collectWooReviewRatings(ctx.clients.woo)
+
+          for (const [sourceRecordId, rating] of wooRatings) {
+            if (!reviewIds.has(sourceRecordId)) {
+              addIssue({
+                blocking: true,
+                code: 'WOO_REVIEW_NOT_IN_WP_SCAN',
+                message: 'ووکامرس بازخوردی دارد که در اسکن دیدگاه‌های وردپرس دیده نشد.',
+                resource: 'comments',
+                sourceRecordId,
+              })
+              continue
+            }
+            expectedReviewRatings.set(sourceRecordId, rating)
+          }
+          for (const sourceRecordId of reviewIds) {
+            if (!wooRatings.has(sourceRecordId) && !expectedReviewRatings.has(sourceRecordId)) {
+              addIssue({
+                blocking: true,
+                code: 'WOO_REVIEW_RATING_MISSING',
+                message: 'امتیاز این بازخورد نه از ووکامرس و نه از فراداده وردپرس قابل راستی‌آزمایی نیست.',
+                resource: 'comments',
+                sourceRecordId,
+              })
+            }
+          }
+        } catch (error) {
+          addIssue({
+            blocking: true,
+            code:
+              error instanceof MigrationImportError
+                ? error.code
+                : 'WOO_REVIEW_RATINGS_UNAVAILABLE',
+            message: safeErrorMessage(error),
+            resource: 'comments',
+          })
+        }
+      }
+    }
+  }
+
   const ledger = await allDocs(ctx.req, 'migration-records', {
     and: [{ site: { equals: ctx.siteId } }, { source: { equals: ctx.sourceId } }],
   })
@@ -2192,6 +2264,7 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
   )
   const counts: ReconciliationReport['counts'] = {
     expected: expected.size,
+    fieldMismatches: 0,
     missingDestinations: 0,
     missingLedger: 0,
     notImported: 0,
@@ -2319,6 +2392,30 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
           blocking: true,
           code: 'ORDER_MONEY_MISMATCH',
           message: 'جمع‌ها یا شمار سطرهای سفارش مقصد با سفارش مبدأ برابر نیست.',
+          resource: item.resource,
+          sourceRecordId: item.sourceRecordId,
+        })
+        continue
+      }
+    }
+
+    if (
+      item.resource === 'comments' &&
+      str(item.raw.type) === 'review' &&
+      expectedReviewRatings.has(item.sourceRecordId)
+    ) {
+      const expectedRating = expectedReviewRatings.get(item.sourceRecordId)!
+      if (
+        doc.commentType !== 'review' ||
+        Boolean(doc.parent) ||
+        typeof doc.rating !== 'number' ||
+        doc.rating !== expectedRating
+      ) {
+        counts.fieldMismatches += 1
+        addIssue({
+          blocking: true,
+          code: 'WOO_REVIEW_RATING_MISMATCH',
+          message: 'امتیاز بازخورد مقصد با امتیاز خوانده‌شده از ووکامرس برابر نیست.',
           resource: item.resource,
           sourceRecordId: item.sourceRecordId,
         })
@@ -2471,6 +2568,7 @@ export const runReconciliation = async (ctx: Ctx): Promise<ReconciliationReport>
     totals,
   }
   report.ok =
+    counts.fieldMismatches === 0 &&
     counts.missingLedger === 0 &&
     counts.missingDestinations === 0 &&
     counts.notImported === 0 &&

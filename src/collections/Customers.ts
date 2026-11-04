@@ -15,8 +15,8 @@ const noDirectWrite = () => false
  * storefront shopper an admin-panel identity, and copying a WordPress
  * password hash is both a credential transplant and a downgrade. So a
  * customer lands here as a profile + addresses + order relationship with
- * `claimStatus: unclaimed`; account access is established later by an
- * invitation/reset the customer proves they own (email/phone), never by
+ * `claimStatus: unclaimed`; account access is established later by the
+ * one-time email claim in `src/lib/migration/customer-claims.ts`, never by
  * importing a hash. Reads are staff-only: a customer book is PII.
  */
 export const Customers: CollectionConfig = {
