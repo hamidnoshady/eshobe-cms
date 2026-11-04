@@ -23,6 +23,13 @@ https://{$CONTROL_PLANE_HOST} {
         respond 404
     }
 
+    # The Torob crawler endpoint exists only on a customer site's own origin. On the
+    # control plane it has no tenant and must not reach the app router (issue #183).
+    @control_plane_torob path /torob*
+    handle @control_plane_torob {
+        respond 404
+    }
+
     # WAVE-9 §9.4 — close the control-plane fail-open at the edge as well as in
     # collection access. A visitor on admin.example.com has no tenant; anonymous
     # REST/GraphQL reads there used to be the one URL that could enumerate every
@@ -83,6 +90,21 @@ https:// {
 
     tls {
         on_demand
+    }
+
+    # Torob Product API v3 (issue #183). Torob POSTs to the shop's own origin; the
+    # application verifies the EdDSA JWT against the stored canonical domain and reads
+    # only that site's published catalogue. Exact path, POST only, bounded body, and
+    # before the theme matcher so a deployed theme cannot swallow the crawler endpoint.
+    @torob_products {
+        method POST
+        path /torob/v1/products
+    }
+    handle @torob_products {
+        request_body {
+            max_size 256KB
+        }
+        reverse_proxy web:3000
     }
 
     @form_submissions {

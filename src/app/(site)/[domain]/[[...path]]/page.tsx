@@ -43,6 +43,7 @@ type SiteSearchParams = {
   page?: string
   q?: string
   r?: string
+  variant?: string
 }
 
 type Args = {
@@ -128,7 +129,7 @@ export default async function SiteRoute({ params, searchParams }: Args) {
       return <PostsIndex page={pageNumber(query.page)} />
 
     case 'product':
-      return <ProductDetail slug={route.slug} />
+      return <ProductDetail slug={route.slug} variantKey={typeof query.variant === 'string' ? query.variant : undefined} />
 
     case 'search':
       return <SearchResults page={pageNumber(query.page)} q={query.q} />

@@ -1,0 +1,15 @@
+{
+  "validAudiences": ["shop.example.com", "shop.example.com:8080", "SHOP.Example.COM", "shop.example.com."],
+  "invalid": [
+    { "case": "missing_token", "reason": "missing_token" },
+    { "case": "missing_token_version", "reason": "missing_token_version" },
+    { "case": "unsupported_token_version", "reason": "unsupported_token_version" },
+    { "case": "other_audience", "reason": "audience_mismatch" },
+    { "case": "no_audience", "reason": "audience_mismatch" },
+    { "case": "expired", "reason": "expired" },
+    { "case": "not_yet_valid", "reason": "not_yet_valid" },
+    { "case": "wrong_key", "reason": "invalid_token" },
+    { "case": "not_a_jwt", "reason": "invalid_token" },
+    { "case": "hs256", "reason": "wrong_algorithm" }
+  ]
+}

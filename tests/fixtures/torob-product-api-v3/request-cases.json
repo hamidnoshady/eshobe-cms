@@ -1,0 +1,31 @@
+{
+  "valid": [
+    { "body": { "page_urls": ["https://shop.example.com/product/34/"] }, "mode": "page_urls" },
+    { "body": { "page_uniques": ["12412_1"] }, "mode": "page_uniques" },
+    { "body": { "page": 2, "sort": "date_added_desc" }, "mode": "page", "page": 2, "sort": "date_added_desc" },
+    { "body": { "cursor": null, "sort": "product_id_desc" }, "mode": "cursor", "cursor": null },
+    { "body": { "cursor": "12345", "sort": "product_id_desc" }, "mode": "cursor", "cursor": "12345" }
+  ],
+  "invalid": [
+    { "body": {}, "error": "empty_request", "message": "request body is empty: send page_urls, page_uniques, page, or cursor" },
+    { "body": { "sort": "date_added_desc" }, "error": "empty_request", "message": "request body is empty: send page_urls, page_uniques, page, or cursor" },
+    { "body": { "page": 1 }, "error": "sort_required", "message": "sort parameter is not provided" },
+    { "body": { "page": 1, "sort": "title_asc" }, "error": "sort_invalid", "message": "sort must be one of date_added_desc, date_updated_desc, product_id_desc" },
+    { "body": { "page": 1, "sort": 42 }, "error": "sort_invalid", "message": "sort must be one of date_added_desc, date_updated_desc, product_id_desc" },
+    { "body": { "page": 1, "sort": "date_added_desc", "page_uniques": ["a"] }, "error": "multiple_modes", "message": "request must use exactly one of page_urls, page_uniques, page, or cursor" },
+    { "body": { "page_urls": [] }, "error": "page_urls_invalid", "message": "page_urls must be a non-empty list of absolute URLs" },
+    { "body": { "page_urls": ["/product/1/"] }, "error": "page_urls_invalid", "message": "page_urls must be a non-empty list of absolute URLs" },
+    { "body": { "page_uniques": [] }, "error": "page_uniques_invalid", "message": "page_uniques must be a non-empty list of strings" },
+    { "body": { "page_uniques": ["  "] }, "error": "page_uniques_invalid", "message": "page_uniques must be a non-empty list of strings" },
+    { "body": { "page": 0, "sort": "date_added_desc" }, "error": "page_invalid", "message": "page must be an integer greater than or equal to 1" },
+    { "body": { "page": -1, "sort": "date_added_desc" }, "error": "page_invalid", "message": "page must be an integer greater than or equal to 1" },
+    { "body": { "page": 1.5, "sort": "date_added_desc" }, "error": "page_invalid", "message": "page must be an integer greater than or equal to 1" },
+    { "body": { "page": "1", "sort": "date_added_desc" }, "error": "page_invalid", "message": "page must be an integer greater than or equal to 1" },
+    { "body": { "page": null, "sort": "date_added_desc" }, "error": "page_invalid", "message": "page must be an integer greater than or equal to 1" },
+    { "body": { "cursor": "abc", "sort": "date_added_desc" }, "error": "cursor_requires_product_id_desc", "message": "cursor pagination requires sort product_id_desc" },
+    { "body": { "cursor": "", "sort": "product_id_desc" }, "error": "cursor_invalid", "message": "cursor must be a non-empty string" },
+    { "body": [], "error": "body_not_object", "message": "request body must be a JSON object" },
+    { "body": "page=1", "error": "body_not_object", "message": "request body must be a JSON object" },
+    { "body": null, "error": "body_not_object", "message": "request body must be a JSON object" }
+  ]
+}

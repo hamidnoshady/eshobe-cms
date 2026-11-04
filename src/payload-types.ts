@@ -496,6 +496,13 @@ export interface Site {
    * ردیف استقراری که هم‌اکنون به این دامنه سرویس می‌دهد.
    */
   activeDeployment?: (string | null) | SiteDeployment;
+  torob?: {
+    connected?: boolean | null;
+    enabled?: boolean | null;
+    authorizationState?: ('not_authorized' | 'pending_approval' | 'authorized' | 'revoked') | null;
+    shopId?: string | null;
+    syncedAt?: string | null;
+  };
   /**
    * When enabled, the slug will auto-generate from the title field on save and autosave.
    */
@@ -6719,6 +6726,15 @@ export interface SitesSelect<T extends boolean = true> {
   assignedThemePackage?: T;
   renderedBy?: T;
   activeDeployment?: T;
+  torob?:
+    | T
+    | {
+        connected?: T;
+        enabled?: T;
+        authorizationState?: T;
+        shopId?: T;
+        syncedAt?: T;
+      };
   generateSlug?: T;
   slug?: T;
   updatedAt?: T;

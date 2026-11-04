@@ -141,13 +141,22 @@ export const ProductGridBlock: React.FC<Props> = async ({
                 </p>
 
                 {showBuyButton !== false && !soldOut && (
-                  <PurchaseForm
-                    availability={stock}
-                    currency={currency}
-                    locale={locale}
-                    paymentMethods={paymentMethods}
-                    productId={String(product.id)}
-                  />
+                  (product.productType ?? 'simple') === 'variable' ? (
+                    <Link
+                      className="mt-2 rounded-md border border-border px-3 py-2 text-center text-sm font-medium hover:bg-muted/50"
+                      href={localeHref(productPath(product.slug), locale, site?.defaultLocale ?? 'fa')}
+                    >
+                      {uiString('chooseOptions', locale)}
+                    </Link>
+                  ) : (
+                    <PurchaseForm
+                      availability={stock}
+                      currency={currency}
+                      locale={locale}
+                      paymentMethods={paymentMethods}
+                      productId={String(product.id)}
+                    />
+                  )
                 )}
               </div>
             </article>

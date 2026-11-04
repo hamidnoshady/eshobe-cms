@@ -1,0 +1,24 @@
+{
+  "pageSize": 100,
+  "apiVersion": "torob_api_v3",
+  "maxPages": [
+    { "total": 0, "maxPages": 1 },
+    { "total": 100, "maxPages": 1 },
+    { "total": 101, "maxPages": 2 },
+    { "total": 150, "maxPages": 2 }
+  ],
+  "ordering": {
+    "date_added_desc_tieBreak": "page_unique_asc",
+    "date_updated_desc_missing": "last",
+    "product_id_desc": "page_unique_desc_lexical"
+  },
+  "cursor": {
+    "sort": "product_id_desc",
+    "continues": "strictly_below_last_page_unique",
+    "pastEnd": { "products": [], "next_cursor": null }
+  },
+  "lookup": {
+    "unknownUrl": { "total": 0, "products": [] },
+    "unknownUnique": { "total": 0, "products": [] }
+  }
+}

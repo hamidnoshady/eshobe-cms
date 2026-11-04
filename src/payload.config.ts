@@ -104,6 +104,7 @@ import { platformOwnerBridgeEndpoints } from './endpoints/platformOwnerBridge'
 import { platformDeploymentEndpoints } from './endpoints/platformDeployments'
 import { platformBillingEndpoints } from './endpoints/platformBilling'
 import { platformSaasEndpoints } from './endpoints/platformSaas'
+import { platformTorobEndpoints } from './endpoints/platformTorob'
 import { siteDescriptor } from './endpoints/siteDescriptor'
 import { updateSiteDomain } from './endpoints/updateSiteDomain'
 import { siteDomainsEndpoints } from './endpoints/siteDomains'
@@ -180,6 +181,8 @@ export default buildConfig({
     // fleet file records for its own `/snapshot` pair.
     ...platformBillingEndpoints,
     ...platformSaasEndpoints,
+    // Literal `/platform/sites/:id/torob*` siblings must precede the bare `:id` below.
+    ...platformTorobEndpoints,
     // Wave 11 — the deployable-theme surface, spread here for the same ordering
     // reason as the SaaS routes above it: it registers several literal
     // `/platform/sites/:id/deployment*` paths that the fleet file's bare
