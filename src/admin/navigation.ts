@@ -102,6 +102,7 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
       collection('pages'),
       collection('header'),
       collection('footer'),
+      collection('menus'),
       collection('forms'),
       collection('form-submissions'),
       // SEO & search, then redirects — the «SEO و جستجو» / «تغییر مسیرها» pair.
@@ -111,7 +112,12 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
   },
   {
     label: 'محتوا',
-    entities: [collection('posts'), collection('categories'), collection('media')],
+    entities: [
+      collection('posts'),
+      collection('categories'),
+      collection('media'),
+      collection('comments'),
+    ],
   },
   {
     // The custom content engine (issue #166): a site's own content types and

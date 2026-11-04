@@ -35,8 +35,10 @@ import { ContentTypeDefinitions } from './collections/ContentTypeDefinitions'
 import { EntryTermRelations } from './collections/EntryTermRelations'
 import { TaxonomyDefinitions } from './collections/TaxonomyDefinitions'
 import { TaxonomyTerms } from './collections/TaxonomyTerms'
+import { Comments } from './collections/Comments'
 import { Coupons } from './collections/Coupons'
 import { Customers } from './collections/Customers'
+import { Menus } from './collections/Menus'
 import { MigrationAudits } from './collections/MigrationAudits'
 import { MigrationBatches } from './collections/MigrationBatches'
 import { MigrationErrors } from './collections/MigrationErrors'
@@ -318,6 +320,10 @@ export default buildConfig({
     ContentEntries,
     EntryTermRelations,
     ContentRelations,
+    // Issue #166 — named navigation trees and moderated reader discussion:
+    // the native destinations for WordPress menus and comments/reviews.
+    Menus,
+    Comments,
     Users,
     Sites,
     // WAVE-9 §9.4 — platform-admin only, deliberately not in the multi-tenant

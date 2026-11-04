@@ -111,6 +111,21 @@ export type PendingParent = {
   sourceRecordId: string
 }
 
+/**
+ * One explicitly mapped ACF relationship field on one imported entry.
+ * Content is imported before products (and before later CPTs in inventory
+ * order), so the edge cannot be resolved inside the entry's own handler;
+ * the specs ride in memory to the post-import relationship pass.
+ */
+export type PendingContentRelation = {
+  entryId: string
+  fieldKey: string
+  relationTo: string
+  sourceEntryRecordId: string
+  sourceType: string
+  value: unknown
+}
+
 export type MigrationContextState = {
   clients: SourceClients
   counts: MigrationCounts
@@ -125,6 +140,7 @@ export type MigrationContextState = {
   mediaByUrl: Map<string, string>
   modifiedAfter: null | string
   operation: string
+  pendingContentRelations: PendingContentRelation[]
   pendingParents: PendingParent[]
   perPage?: number
   req: PayloadRequest
@@ -168,10 +184,12 @@ export const resolveMigrationSettings = async (
   return {
     applyRedirects: raw.applyRedirects !== false,
     confirmedRialToToman: raw.confirmedRialToToman === true,
+    includeComments: raw.includeComments !== false,
     includeContent: raw.includeContent !== false,
     includeCoupons: raw.includeCoupons !== false,
     includeCustomers: raw.includeCustomers !== false,
     includeMedia: raw.includeMedia !== false,
+    includeMenus: raw.includeMenus !== false,
     includeOrders: raw.includeOrders !== false,
     includeProducts: raw.includeProducts !== false,
     locale,
@@ -405,7 +423,11 @@ export const destinationIdFor = async (
     destinationId = docs[0] ? String(docs[0].id) : null
   }
 
-  ctx.destinationCache.set(cacheKey, destinationId)
+  // Cache only a positive resolution. A relationship target may legitimately
+  // be imported by a later phase — and, for content entries/taxonomy terms,
+  // under a more specific ledger resource than this generic lookup — so an
+  // early miss must not become a permanent "not imported" answer.
+  if (destinationId) ctx.destinationCache.set(cacheKey, destinationId)
 
   return destinationId
 }
@@ -577,6 +599,7 @@ const countKeyFor = (disposition: RecordDisposition): keyof MigrationCounts =>
 export const processPages = async (
   ctx: Ctx,
   {
+    checkpointKey,
     client,
     handler,
     params = {},
@@ -584,6 +607,13 @@ export const processPages = async (
     resource,
     writeLedgerOnError = true,
   }: {
+    /**
+     * A single ledger resource can need several independently resumable
+     * scans (WordPress comments are fetched once per comment type). Their
+     * page cursors must not share the resource key, or resuming the second
+     * scan would skip pages the first scan happened to finish.
+     */
+    checkpointKey?: string
     client: NonNullable<SourceClients['wp']>
     handler: (raw: RawRecord) => Promise<RecordDisposition>
     params?: Record<string, string>
@@ -593,7 +623,8 @@ export const processPages = async (
   },
 ): Promise<MigrationCounts> => {
   const totals = emptyCounts()
-  const checkpoint = asRecord(checkpointOf(ctx)[resource])
+  const checkpointResource = checkpointKey ?? resource
+  const checkpoint = asRecord(checkpointOf(ctx)[checkpointResource])
   const resumeThrough =
     ctx.resume && asRecord(ctx.job.checkpoint).operation === ctx.operation
       ? intOf(checkpoint.page, 0)
@@ -703,7 +734,7 @@ export const processPages = async (
       })
       addCounts(totals, batchCounts)
       addCounts(ctx.counts, batchCounts)
-      await saveCheckpoint(ctx, resource, {
+      await saveCheckpoint(ctx, checkpointResource, {
         modifiedAfter: ctx.modifiedAfter,
         page,
         totalPages,

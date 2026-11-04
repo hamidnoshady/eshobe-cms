@@ -10,16 +10,23 @@ import {
   CdnConfigurationError,
   discoverCdnZone,
   formatCdnActions,
+  listRemoteZones,
   purgeCdnZone,
   syncCdnZone,
   testCdnConnection,
   writeCdnOperationalState,
 } from '@/cdn/service'
-import { diffCdnZone, type CdnDiffResult } from '@/cdn/diff'
+import type { CdnProvider, CdnZoneInput } from '@/cdn/types'
+import {
+  adoptRemoteRecords,
+  diffCdnZone,
+  formatCdnAdoptionSummary,
+  type CdnDiffResult,
+} from '@/cdn/diff'
 import { providerCapabilities } from '@/cdn/capabilities'
 import { planZoneProbes, runZoneProbes, summarizeProbeResults } from '@/cdn/probe'
 import { CDN_SECRET_READ_CONTEXT_KEY } from '@/collections/hooks/cdnZoneSecrets'
-import { findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
+import { findCdnAccountWithSecret, findCdnZoneWithSecret, withCdnCredentials } from '@/cdn/resolve'
 import {
   assertZoneBelongsToSite,
   mergeTenantRecords,
@@ -464,6 +471,292 @@ export const cdnZoneHealth: Endpoint['handler'] = async (req) => {
     })
     return response(
       { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/adopt { id, providerRecordIds: string[] }
+ *
+ * Explicitly adopt foreign remote records into CMS management before sync will
+ * reconcile them. A remote record is only mutated by sync when the CMS owns it;
+ * adoption is the step that records ownership. Records whose remote id is not
+ * present, or that would collide, are refused. Platform staff only.
+ */
+export const cdnZoneAdopt: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const id = zoneId(data)
+  if (!id) return response({ message: 'id must be a UUID', ok: false }, 400)
+
+  const ids =
+    Array.isArray(data.providerRecordIds) &&
+    data.providerRecordIds.every((item) => typeof item === 'string')
+      ? (data.providerRecordIds as string[])
+      : null
+  if (data.providerRecordIds !== undefined && !ids)
+    return response({ message: 'providerRecordIds must be an array of strings', ok: false }, 400)
+
+  const raw = await zoneById(req, id)
+  if (!raw) return response({ message: 'cdn zone not found', ok: false }, 404)
+  const zone = cdnZoneInput(raw)
+
+  try {
+    const credentialsZone = await withCdnCredentials(req, raw)
+    const discovered = await discoverCdnZone(credentialsZone)
+    const result = adoptRemoteRecords(credentialsZone, discovered.remote, ids ?? [])
+
+    await req.payload.update({
+      id: zone.id,
+      collection: 'cdn-zones',
+      data: { dnsRecords: result.zone.dnsRecords } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+
+    // Adoption mutates desired state, so it is audited: what was adopted, what
+    // was refused, and whether the operation succeeded overall.
+    const summary = formatCdnAdoptionSummary(result)
+    try {
+      await req.payload.create({
+        collection: 'cdn-events',
+        data: {
+          ok: result.adopted.length > 0,
+          operation: 'adopt',
+          summary: summary.slice(0, 4000),
+          zone: raw.id,
+        },
+        depth: 0,
+        overrideAccess: true,
+        req,
+      })
+    } catch (error) {
+      req.payload.logger.error({
+        err: error as Error,
+        msg: `could not write CDN adoption event for ${zone.zoneName}`,
+      })
+    }
+
+    return response({
+      adopted: result.adopted,
+      ok: true,
+      refused: result.refused,
+      zone: zone.zoneName,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN adoption failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN adoption failed for ${zone.provider}:${zone.zoneName}`,
+    })
+    return response(
+      { message, ok: false, zone: zone.zoneName },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/find { account }
+ *
+ * List the zones the provider account already holds, for the "find existing
+ * zone" step of the connection workflow. Read-only: no zone is created or
+ * mutated, and no credentials or records are returned — only id/name/status.
+ * Platform staff only.
+ */
+export const cdnZoneFind: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const accountId = typeof data.account === 'string' ? data.account : null
+  if (!accountId) return response({ message: 'account must be a string', ok: false }, 400)
+
+  try {
+    const account = await findCdnAccountWithSecret(req, accountId)
+    if (!account) return response({ message: 'account not found', ok: false }, 404)
+    if (account.enabled === false)
+      return response({ message: 'account disabled', ok: false }, 409)
+
+    const provider = String(account.provider) as CdnProvider
+    const input = {
+      provider,
+      zoneName: '',
+      credentials: {
+        apiToken: (account.credentials as { apiToken?: string } | undefined)?.apiToken as string,
+      },
+    } as CdnZoneInput
+    const zones = await listRemoteZones(input)
+    return response({ ok: true, provider, zones })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'CDN zone listing failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN zone listing failed for account ${accountId}`,
+    })
+    return response(
+      { message, ok: false },
+      error instanceof CdnConfigurationError ? 409 : 502,
+    )
+  }
+}
+
+/**
+ * POST /api/cdn/zones/connect { account, remoteZoneId, site, zoneName }
+ *
+ * Connect an existing provider zone to a site: creates the CMS zone record
+ * that references the remote zone by its provider id, so the next sync reads
+ * (rather than creates) it. The zone name must be a hostname of the named
+ * site. `provisionIfMissing` is false — the zone already exists at the
+ * provider. Platform staff only.
+ */
+export const cdnZoneConnect: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const accountId = typeof data.account === 'string' ? data.account : null
+  const remoteZoneId = typeof data.remoteZoneId === 'string' ? data.remoteZoneId : null
+  const siteId = typeof data.site === 'string' ? data.site : null
+  const candidate = typeof data.zoneName === 'string' ? data.zoneName : ''
+  if (!accountId || !remoteZoneId || !siteId)
+    return response(
+      { message: 'account, remoteZoneId and site are required', ok: false },
+      400,
+    )
+
+  const account = await findCdnAccountWithSecret(req, accountId)
+  if (!account) return response({ message: 'account not found', ok: false }, 404)
+  if (account.enabled === false)
+    return response({ message: 'account disabled', ok: false }, 409)
+
+  const site = await req.payload.findByID({
+    id: siteId,
+    collection: 'sites',
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  if (!site) return response({ message: 'site not found', ok: false }, 404)
+
+  let zoneName: string
+  try {
+    zoneName = assertZoneBelongsToSite(
+      site as never,
+      candidate,
+      candidate ? await otherSitesHostnames(req, siteId, candidate) : [],
+    )
+  } catch (error) {
+    const refused = refusal(error)
+    if (refused) return refused
+    throw error
+  }
+
+  try {
+    await req.payload.create({
+      collection: 'cdn-zones',
+      data: {
+        account: accountId,
+        active: true,
+        dnsRecords: [],
+        managedBy: 'operator',
+        provider: account.provider,
+        provisionIfMissing: false,
+        providerZoneId: remoteZoneId,
+        site: siteId,
+        syncRequestedAt: new Date().toISOString(),
+        zoneName,
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+  } catch (error) {
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN zone connect refused for ${zoneName}`,
+    })
+    return response({ message: 'این دامنه از قبل در CDN ثبت شده است.', ok: false }, 409)
+  }
+
+  return response({ ok: true, provider: account.provider, state: 'queued', zoneName }, 202)
+}
+
+/**
+ * POST /api/cdn/accounts/test { provider, apiToken }
+ *
+ * Validate provider credentials before saving an account — the account wizard's
+ * "test" step. Lists the zones the token can see; a bad/expired token throws and
+ * returns a 409 with a provider-specific message. Platform staff only.
+ */
+export const cdnAccountTest: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const provider = typeof data.provider === 'string' ? data.provider : null
+  const apiToken = typeof data.apiToken === 'string' ? data.apiToken : null
+  if (!provider || !apiToken)
+    return response({ message: 'provider and apiToken are required', ok: false }, 400)
+  if (provider !== 'arvancloud' && provider !== 'cloudflare')
+    return response({ message: 'provider must be arvancloud or cloudflare', ok: false }, 400)
+
+  try {
+    const input = {
+      provider: provider as CdnProvider,
+      zoneName: '',
+      credentials: { apiToken },
+    } as CdnZoneInput
+    const zones = await listRemoteZones(input)
+    return response({ ok: true, provider, zones })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'credential validation failed'
+    return response({ message, ok: false }, 409)
+  }
+}
+
+/**
+ * POST /api/cdn/accounts { provider, apiToken, name, originTarget?, tenantSelfService? }
+ *
+ * Create a platform CDN account. The apiToken is encrypted on save by the
+ * collection's beforeChange hook. The provider is validated and locked.
+ * Platform staff only.
+ */
+export const cdnAccountCreate: Endpoint['handler'] = async (req) => {
+  if (!(await allowed(req))) return response({ message: 'forbidden', ok: false }, 403)
+  const data = await body(req)
+  const provider = typeof data.provider === 'string' ? data.provider : null
+  const apiToken = typeof data.apiToken === 'string' ? data.apiToken : null
+  const name = typeof data.name === 'string' ? data.name : null
+  if (!provider || !apiToken || !name)
+    return response(
+      { message: 'provider, apiToken and name are required', ok: false },
+      400,
+    )
+
+  try {
+    const created = await req.payload.create({
+      collection: 'cdn-accounts',
+      data: {
+        provider,
+        credentials: { apiToken },
+        enabled: data.enabled !== false,
+        name,
+        originTarget: typeof data.originTarget === 'string' ? data.originTarget : undefined,
+        tenantSelfService: data.tenantSelfService === true,
+        ...(provider === 'cloudflare' && typeof data.cloudflareAccountId === 'string'
+          ? { cloudflareAccountId: data.cloudflareAccountId }
+          : {}),
+      } as never,
+      depth: 0,
+      overrideAccess: true,
+      req,
+    })
+    return response({ ok: true, id: created.id, provider, state: 'created' })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'account creation failed'
+    req.payload.logger.warn({
+      err: error as Error,
+      msg: `CDN account creation failed for ${provider}`,
+    })
+    return response(
+      { message, ok: false },
       error instanceof CdnConfigurationError ? 409 : 502,
     )
   }
@@ -936,6 +1229,11 @@ export const cdnEndpoints: Endpoint[] = [
   { handler: cdnZoneDiscover, method: 'post', path: '/cdn/zones/discover' },
   { handler: cdnZoneDiff, method: 'post', path: '/cdn/zones/diff' },
   { handler: cdnZoneHealth, method: 'post', path: '/cdn/zones/health' },
+  { handler: cdnZoneAdopt, method: 'post', path: '/cdn/zones/adopt' },
+  { handler: cdnZoneFind, method: 'post', path: '/cdn/zones/find' },
+  { handler: cdnZoneConnect, method: 'post', path: '/cdn/zones/connect' },
+  { handler: cdnAccountTest, method: 'post', path: '/cdn/accounts/test' },
+  { handler: cdnAccountCreate, method: 'post', path: '/cdn/accounts' },
   { handler: siteCdnStatus, method: 'get', path: '/site/cdn' },
   { handler: siteCdnPurge, method: 'post', path: '/site/cdn/purge' },
   { handler: siteCdnCreateZone, method: 'post', path: '/site/cdn/zone' },

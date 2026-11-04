@@ -33,6 +33,7 @@ import * as migration_20261028_090000_cdn_shared_accounts from './20261028_09000
 import * as migration_20261031_120000_custom_content_types from './20261031_120000_custom_content_types';
 import * as migration_20261101_000000_cdn_arvan_origin_discovery from './20261101_000000_cdn_arvan_origin_discovery';
 import * as migration_20261101_120000_wordpress_migration_center from './20261101_120000_wordpress_migration_center';
+import * as migration_20261102_120000_migration_menus_comments from './20261102_120000_migration_menus_comments';
 import * as migration_20261104_120000_torob_product_api from './20261104_120000_torob_product_api';
 
 export const migrations = [
@@ -210,6 +211,11 @@ export const migrations = [
     up: migration_20261101_120000_wordpress_migration_center.up,
     down: migration_20261101_120000_wordpress_migration_center.down,
     name: '20261101_120000_wordpress_migration_center'
+  },
+  {
+    up: migration_20261102_120000_migration_menus_comments.up,
+    down: migration_20261102_120000_migration_menus_comments.down,
+    name: '20261102_120000_migration_menus_comments'
   },
   {
     up: migration_20261104_120000_torob_product_api.up,

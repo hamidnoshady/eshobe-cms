@@ -7,7 +7,7 @@ import {
   featureNote,
   supportsFeature,
 } from '@/cdn/capabilities'
-import { diffCdnZone } from '@/cdn/diff'
+import { adoptRemoteRecords, diffCdnZone, formatCdnAdoptionSummary } from '@/cdn/diff'
 import type { CdnRemoteState, CdnZoneInput } from '@/cdn/types'
 
 describe('provider capability matrix', () => {
@@ -119,5 +119,46 @@ describe('dry-run diff', () => {
     expect(result.summary['in-sync']).toBe(1)
     expect(result.summary.drifted).toBe(4) // dns:www + ssl.mode + ssl.minimumTls + hsts
     expect(result.summary.external).toBe(2) // dns:mail + dns:_acme-challenge
+  })
+})
+
+describe('selective adoption', () => {
+  it('links an adopted foreign record to an existing desired record', () => {
+    const result = adoptRemoteRecords(zone, remote, ['foreign-1'])
+    // The desired `mail` record now owns the remote id.
+    const mail = result.zone.dnsRecords!.find((r) => r.name === 'mail')
+    expect(mail?.providerRecordId).toBe('foreign-1')
+    expect(result.adopted).toEqual([
+      { name: 'mail.example.com', providerRecordId: 'foreign-1', type: 'MX' },
+    ])
+    expect(result.refused).toEqual([])
+    // After adoption, the diff no longer reports it as external.
+    const diff = diffCdnZone(result.zone, remote)
+    expect(diff.items.find((i) => i.name === 'mail')?.status).toBe('drifted')
+  })
+
+  it('creates a new desired record when none exists for the adopted remote record', () => {
+    const result = adoptRemoteRecords(zone, remote, ['acme-1'])
+    const acme = result.zone.dnsRecords!.find((r) => r.name === '_acme-challenge')
+    expect(acme).toMatchObject({
+      content: '_acme-challenge',
+      providerRecordId: 'acme-1',
+      type: 'TXT',
+    })
+  })
+
+  it('refuses a remote id that does not exist', () => {
+    const result = adoptRemoteRecords(zone, remote, ['does-not-exist'])
+    expect(result.refused).toEqual([{ name: 'does-not-exist', reason: 'remote record not found' }])
+    expect(result.adopted).toEqual([])
+  })
+
+  it('produces an audit summary of what was adopted and refused', () => {
+    const result = adoptRemoteRecords(zone, remote, ['foreign-1', 'does-not-exist'])
+    const summary = formatCdnAdoptionSummary(result)
+    expect(summary).toContain('Adopted 1 remote record(s)')
+    expect(summary).toContain('MX mail.example.com')
+    expect(summary).toContain('Refused 1 record(s)')
+    expect(summary).toContain('does-not-exist (remote record not found)')
   })
 })

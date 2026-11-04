@@ -87,7 +87,7 @@ export const siteDescriptor: Endpoint = {
     // lookup — the same exception `getSiteByHost` documents. Nothing is selected that
     // a public page render could not see; `paymentInstructions` in particular is
     // excluded by the `select` below *and* by its own field access.
-    const [store, theme, branding, themeSettings] = await Promise.all([
+    const [store, theme, branding, themeSettings, menuDocs] = await Promise.all([
       req.payload
         .find({
           collection: 'store',
@@ -160,7 +160,45 @@ export const siteDescriptor: Endpoint = {
           where: { site: { equals: siteId } },
         })
         .then(({ docs }) => docs[0] as unknown as Record<string, unknown> | undefined),
+      req.payload
+        .find({
+          collection: 'menus',
+          depth: 0,
+          limit: 100,
+          overrideAccess: true,
+          pagination: false,
+          req,
+          select: {
+            location: true,
+            locations: true,
+            name: true,
+            slug: true,
+            updatedAt: true,
+          },
+          sort: 'slug',
+          where: {
+            and: [{ site: { equals: siteId } }, { isActive: { equals: true } }],
+          },
+        })
+        .then(({ docs }) => docs as unknown as Record<string, unknown>[]),
     ])
+
+    const publicMenus = menuDocs.map((menu) => {
+      const locations = Array.isArray(menu.locations)
+        ? menu.locations.filter((value): value is string => typeof value === 'string' && Boolean(value))
+        : []
+      const location = typeof menu.location === 'string' ? menu.location : (locations[0] ?? null)
+
+      return {
+        id: String(menu.id ?? ''),
+        location,
+        locations: [...new Set(location ? [location, ...locations] : locations)],
+        name: typeof menu.name === 'string' ? menu.name : null,
+        slug: typeof menu.slug === 'string' ? menu.slug : null,
+        updatedAt: typeof menu.updatedAt === 'string' ? menu.updatedAt : null,
+      }
+    })
+    const menuLocations = [...new Set(publicMenus.flatMap((menu) => menu.locations))]
 
     const publicMedia = (value: unknown) => {
       if (!value || typeof value !== 'object') return null
@@ -338,6 +376,10 @@ export const siteDescriptor: Endpoint = {
       // proxy (`/api/media/file/*`), not from the bucket URL, so the bucket stays
       // private.
       media: { basePath: '/api/media/file', origin: siteOrigin(site) },
+      // Navigation discovery without item bodies: a renderer learns which
+      // migrated menu/location exists here, then reads the active tree from
+      // `/api/menus?where[slug][equals]=…` under the same host scope.
+      menus: { items: publicMenus, locations: menuLocations },
       branding: (() => {
         const primaryLogo = publicMedia(branding?.primaryLogo)
         const compactLogo = publicMedia(branding?.compactLogo)
@@ -401,6 +443,7 @@ export const siteDescriptor: Endpoint = {
       theme?.updatedAt,
       branding?.updatedAt,
       themeSettings?.updatedAt,
+      ...publicMenus.map((menu) => menu.updatedAt),
       ...bindingTimestamps,
     ].filter(Boolean) as string[]
     const latest = timestamps.length

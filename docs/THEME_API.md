@@ -269,6 +269,12 @@ Accept: application/json
     "displayNameFa": "فروشگاه نمونه", "logo": { "…": "= primaryLogo" }, "logoCompact": { "…": "= compactLogo, else primaryLogo" }, "defaultOgImage": { "…": "= socialImage" }
   },
   "media": { "basePath": "/api/media/file", "origin": "https://acme.ir" },
+  "menus": {
+    "items": [
+      { "id": "…", "slug": "primary", "name": "منوی اصلی", "location": "header", "locations": ["header"], "updatedAt": "…" }
+    ],
+    "locations": ["header"]
+  },
   "name": "فروشگاه نمونه",
   "slug": "acme",
   "status": "active",
@@ -315,6 +321,7 @@ revalidation secrets, tenant secret values or encrypted ciphertext.
 - `blocks` → same allowlist the admin picker uses; warn in theme if layout contains unknown `blockType`.
 - `store.currency` → the unit label (`تومان` vs `Toman`) and math.
 - `theme` → emit as CSS variables (see §9).
+- `menus` → discovery metadata for **active** menus only (id, slug, localized name, primary location, every location and `updatedAt`). It deliberately does not embed the item tree or grant access; fetch the chosen menu once with `GET /api/menus?where[and][0][slug][equals]=primary&where[and][1][isActive][equals]=true&locale=fa&depth=1&limit=1`, then render published reference items in `menuOrder`/parent-key order.
 - `media.origin` → `new URL(media.url, site.media.origin)`. `media.url` is always relative (`/api/media/file/…`), served through the CMS proxy so the object-storage bucket stays private.
 
 ### cURL
@@ -660,6 +667,49 @@ GET /api/entry-term-relations?where[term][equals]=<termId>&depth=1   # entries f
 | Field | Type |
 |-------|------|
 | `navItems` | array { link: { type: reference|custom, reference: pages|posts, url, label, newTab, appearance } } | Header links use appearance `default|outline` |
+
+### `menus` — named navigation trees
+
+`menus` is the general-purpose navigation store used for imported WordPress
+menus and for themes that need more than the Header/Footer singletons. One
+menu has a site-unique machine `slug`, localized `name`/`description`, a
+primary `location`, a `locations[]` list and ordered `items[]`. Each item has
+a stable `key`, optional `parentKey`, derived `depth`, `menuOrder`, localized
+`label`/`description`, publication `status`, optional `cssClasses` and either
+a same-site `reference` (pages, posts, products, content entries, categories,
+taxonomy terms or media) or a custom internal/external `url`. Anonymous
+reads are tenant-scoped and expose only `isActive: true` menus; a site key
+is the site's own integration credential and can read that site's inactive
+menus too, so a public renderer using one must still select an active menu.
+Render only items whose `status` is `published`; a reference that does not
+populate to a published same-site document must not be rendered. Group items
+by `parentKey` (empty = root) and sort siblings by `menuOrder`.
+
+```bash
+# Descriptor discovery first; then fetch the tree once for the location.
+GET /api/menus?where[and][0][slug][equals]=primary&where[and][1][isActive][equals]=true&locale=fa&depth=1&limit=1
+```
+
+### `comments` — moderation-first comments and reviews
+
+`comments.body` is localized Lexical rich text; render it with the same safe
+Lexical renderer as posts. A comment has `commentType` (`comment` or
+`review`), optional `rating` (0–5), `submittedAt`, an optional threaded
+`parent`, and exactly one same-site target named by `targetCollection`
+(`posts`, `pages`, `products` or `content-entries`). Anonymous reads are
+constrained server-side to `status: approved` comments whose target is
+published; pending, spam and trashed comments never render publicly. A site
+key can read its own site's moderation queue, so a renderer using one must
+keep the explicit `status=approved` filter below (and only query comments
+for a target it is already rendering as published).
+`authorEmail`, source provenance and customer account details are staff-only
+data and must never be rendered by a theme. Writes are authenticated CMS
+operations — there is no anonymous comment submission endpoint in this
+contract.
+
+```bash
+GET /api/comments?where[and][0][targetCollection][equals]=products&where[and][1][targetProduct][equals]=<productId>&where[and][2][commentType][equals]=review&where[and][3][status][equals]=approved&sort=-submittedAt&locale=fa&depth=0
+```
 
 ### `forms` / `form-submissions` — form builder
 `forms` is admin-edited. `form-submissions` is `create: () => true` (public), but `beforeValidate` derives `site` from the `form` doc's site — client cannot choose tenant.

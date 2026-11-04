@@ -40,6 +40,7 @@ export const CdnEvents: CollectionConfig<'cdn-events'> = {
       options: [
         { label: 'همگام‌سازی', value: 'sync' },
         { label: 'پاک‌سازی کش', value: 'purge' },
+        { label: 'الحاق', value: 'adopt' },
       ],
       label: 'عملیات',
     },
