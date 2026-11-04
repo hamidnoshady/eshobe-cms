@@ -58,6 +58,13 @@ export const SEARCH_SEGMENT = 'search'
 export const CHECKOUT_SEGMENT = 'checkout'
 export const PRODUCTS_SEGMENT = 'products'
 
+/**
+ * Torob Product API v3 (issue #183) is a static App Router path outside `[domain]`.
+ * A CMS page saved at exactly this nested slug would be unreachable behind it, so the
+ * reserved-page hook refuses the path as well as the bare segments above.
+ */
+export const TOROB_PRODUCTS_PATH = '/torob/v1/products'
+
 export const POSTS_BASE = `/${POSTS_SEGMENT}`
 export const SEARCH_PATH = `/${SEARCH_SEGMENT}`
 export const CHECKOUT_BASE = `/${CHECKOUT_SEGMENT}`

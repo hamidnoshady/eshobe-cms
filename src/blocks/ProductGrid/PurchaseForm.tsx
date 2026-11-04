@@ -54,7 +54,9 @@ export const PurchaseForm: React.FC<{
   locale: string
   paymentMethods?: PaymentMethodOption[]
   productId: string
-}> = ({ availability, currency = 'IRT', locale, paymentMethods = [], productId }) => {
+  /** Stable variation key for a variable product; checkout refuses a variable parent without one. */
+  variation?: string
+}> = ({ availability, currency = 'IRT', locale, paymentMethods = [], productId, variation }) => {
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   /**
@@ -66,7 +68,7 @@ export const PurchaseForm: React.FC<{
   const [selected, setSelected] = useState<null | string>(paymentMethods[0]?.id ?? null)
 
   const max = Math.max(1, Math.min(MAX_ORDER_QUANTITY, availability ?? MAX_ORDER_QUANTITY))
-  const id = `purchase-${productId}`
+  const id = `purchase-${productId}${variation ? `-${variation}` : ''}`
   const chosen = methods.find((method) => method.id === selected) ?? null
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -85,6 +87,7 @@ export const PurchaseForm: React.FC<{
       phone: String(form.get('phone') ?? '').trim(),
       product: productId,
       quantity: Number(form.get('quantity') ?? 1),
+      ...(variation ? { variation } : {}),
     }
 
     setStatus('sending')

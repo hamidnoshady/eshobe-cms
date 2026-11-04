@@ -2,7 +2,7 @@ import type { CollectionBeforeValidateHook } from 'payload'
 
 import { ValidationError } from 'payload'
 
-import { RESERVED_PAGE_SLUGS } from '@/lib/slug'
+import { RESERVED_PAGE_SLUGS, TOROB_PRODUCTS_PATH } from '@/lib/slug'
 
 /**
  * `posts` and `search` are Next.js routes under `[domain]`, and a static segment
@@ -23,7 +23,10 @@ export const reservedPageSlug: CollectionBeforeValidateHook = async ({ data, ori
 
   if (!slug) return data
 
-  if ((RESERVED_PAGE_SLUGS as readonly string[]).includes(slug)) {
+  if (
+    (RESERVED_PAGE_SLUGS as readonly string[]).includes(slug) ||
+    slug === TOROB_PRODUCTS_PATH.replace(/^\//, '')
+  ) {
     throw new ValidationError({
       collection: 'pages',
       errors: [

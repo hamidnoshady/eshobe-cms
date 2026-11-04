@@ -1,4 +1,5 @@
 import { draftMode } from 'next/headers'
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import React from 'react'
 
@@ -8,11 +9,18 @@ import { formatPrice } from '@/lib/format'
 import { getSiteContext } from '@/lib/site-context'
 import { paymentMethodsForSite, storeSettingsForSite } from '@/lib/store'
 import { uiString } from '@/lib/ui-strings'
+import { cn } from '@/utilities/ui'
 
 import { PurchaseForm } from '@/blocks/ProductGrid/PurchaseForm'
 import { queryProduct } from './queries'
 
-export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
+/**
+ * A product page. For a variable product, `?variant=<key>` selects the exact variation
+ * Torob's feed linked to (issue #183): price, stock and image come from that row, and the
+ * purchase form sends the same key to checkout. Without a key the page shows the first
+ * active variation so a shared parent URL is still buyable.
+ */
+export const ProductDetail: React.FC<{ slug: string; variantKey?: string }> = async ({ slug, variantKey }) => {
   const { isEnabled: draft } = await draftMode()
   const { locale, site } = await getSiteContext()
   const product = await queryProduct(slug)
@@ -23,15 +31,24 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
     ? await storeSettingsForSite(String(site.id), { cachePublic: !draft, locale })
     : { currency: 'IRT' as const }
 
-  // Same list the product grid renders, from the same helper: a buyer who sees Digipay on
-  // the card and not on the detail page has been told two different things about one shop.
   const paymentMethods = site
     ? await paymentMethodsForSite(String(site.id), { currency, locale })
     : []
 
+  const activeVariations = (product.variations ?? []).filter((variation) => variation.active !== false && variation.key)
+  const isVariable = (product.productType ?? 'simple') === 'variable'
+  const variation = isVariable
+    ? activeVariations.find((candidate) => candidate.key === variantKey) ?? activeVariations[0]
+    : undefined
+  if (isVariable && !variation) notFound()
+
+  const price = variation?.price ?? product.price
+  const compareAtPrice = variation?.compareAtPrice ?? product.compareAtPrice
+  const image = variation?.image ?? product.image
+  const stockRow = variation?.trackInventory ? variation : product
   const stock =
-    product.trackInventory && typeof product.inventory === 'number'
-      ? Math.max(0, product.inventory)
+    stockRow.trackInventory && typeof stockRow.inventory === 'number'
+      ? Math.max(0, stockRow.inventory)
       : null
   const soldOut = stock === 0
 
@@ -42,9 +59,9 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
       <div className="container pt-16">
         <div className="grid gap-10 lg:grid-cols-2">
           <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
-            {product.image ? (
+            {image ? (
               <Media
-                resource={product.image}
+                resource={image}
                 className="h-full w-full"
                 imgClassName="h-full w-full object-cover"
                 size="50vw"
@@ -62,23 +79,44 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
           </div>
 
           <div className="flex flex-col gap-4">
-            <h1 className="text-3xl font-bold">{product.title}</h1>
+            <h1 className="text-3xl font-bold">
+              {product.title}
+              {variation?.label ? ` — ${variation.label}` : ''}
+            </h1>
 
             {product.summary && <p className="text-muted-foreground">{product.summary}</p>}
 
+            {isVariable && activeVariations.length > 1 && (
+              <nav aria-label={uiString('chooseOptions', locale)} className="flex flex-wrap gap-2">
+                {activeVariations.map((candidate) => (
+                  <Link
+                    className={cn(
+                      'rounded-md border px-3 py-1 text-sm',
+                      candidate.key === variation?.key
+                        ? 'border-primary bg-primary/5 font-medium'
+                        : 'border-border hover:bg-muted/50',
+                    )}
+                    href={`?variant=${encodeURIComponent(candidate.key!)}`}
+                    key={candidate.key}
+                  >
+                    {candidate.label ?? candidate.key}
+                  </Link>
+                ))}
+              </nav>
+            )}
+
             <p className="flex flex-wrap items-baseline gap-x-3">
-              <span className="text-2xl font-bold">{formatPrice(product.price, currency, locale)}</span>
-              {typeof product.compareAtPrice === 'number' &&
-                product.compareAtPrice > Number(product.price ?? 0) && (
-                  <s className="text-base text-muted-foreground">
-                    {formatPrice(product.compareAtPrice, currency, locale)}
-                  </s>
-                )}
+              <span className="text-2xl font-bold">{formatPrice(price, currency, locale)}</span>
+              {typeof compareAtPrice === 'number' && compareAtPrice > Number(price ?? 0) && (
+                <s className="text-base text-muted-foreground">
+                  {formatPrice(compareAtPrice, currency, locale)}
+                </s>
+              )}
             </p>
 
             {product.sku && (
               <p className="text-sm text-muted-foreground">
-                {uiString('sku', locale)}: {product.sku}
+                {uiString('sku', locale)}: {variation?.sku ?? product.sku}
               </p>
             )}
 
@@ -89,6 +127,7 @@ export const ProductDetail: React.FC<{ slug: string }> = async ({ slug }) => {
                 locale={locale}
                 paymentMethods={paymentMethods}
                 productId={String(product.id)}
+                variation={variation?.key ?? undefined}
               />
             ) : (
               <p className="rounded-md border border-border bg-muted p-4 text-center text-sm">

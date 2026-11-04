@@ -134,6 +134,7 @@ describe('Caddyfile theme upstream', () => {
     const themed = indexOf('@themed')
 
     for (const carveOut of [
+      '@torob_products',
       '@form_submissions',
       '@checkout',
       '@payment_methods',

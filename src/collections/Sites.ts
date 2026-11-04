@@ -15,6 +15,8 @@ import { locales } from '../lib/locales'
 import { slugifyField } from '../lib/slug'
 import { PLATFORM_GROUPS } from '@/admin/visibility'
 import { siteDeploymentLifecycle } from '@/deploy/lifecycle'
+import { DEFAULT_TOROB_ENROLLMENT, TOROB_AUTHORIZATION_STATES } from '@/lib/torob/enrollment'
+import { protectTorobEnrollment } from '@/hooks/protectTorobEnrollment'
 
 /** Same list the platform offers, in select-field shape. */
 const localeOptions = locales.map(({ code, label }) => ({ label, value: code }))
@@ -112,7 +114,7 @@ const normalizeAndValidateDomains: NonNullable<CollectionConfig['hooks']>['befor
  * through the site-key endpoint.
  */
 const resetVerificationOnHostChange: NonNullable<CollectionConfig['hooks']>['beforeChange'] = [
-  ({ data, originalDoc }) => {
+  ({ data, originalDoc, req }) => {
     const input = (data ?? {}) as SiteData
     const persisted = (originalDoc ?? {}) as SiteData
     const next: SiteData = { ...input }
@@ -123,6 +125,13 @@ const resetVerificationOnHostChange: NonNullable<CollectionConfig['hooks']>['bef
       normalizeDomain(input.domain) !== normalizeDomain(persisted.domain)
     ) {
       next.domainVerified = false
+      // The Torob audience is the canonical hostname. A domain move invalidates the
+      // old enrollment until Biza Miz re-syncs it; never keep serving under a stale shop.
+      ;(next as Record<string, unknown>).torob = {
+        ...DEFAULT_TOROB_ENROLLMENT,
+        syncedAt: new Date().toISOString(),
+      }
+      req.context = { ...req.context, torobEnrollmentReset: true }
     }
 
     if (Array.isArray(input.domains)) {
@@ -275,7 +284,7 @@ export const Sites: CollectionConfig = {
     // Suspension/archival stop the site's theme applications; domain changes
     // re-render the Caddy map (`src/deploy/lifecycle.ts`).
     afterChange: [siteDeploymentLifecycle],
-    beforeChange: resetVerificationOnHostChange,
+    beforeChange: [...resetVerificationOnHostChange, protectTorobEnrollment],
     beforeValidate: normalizeAndValidateDomains,
   },
   labels: {
@@ -480,6 +489,58 @@ export const Sites: CollectionConfig = {
         position: 'sidebar',
         readOnly: true,
       },
+    },
+    /**
+     * Local projection of Biza Miz's Torob enrollment (issue #183). Hidden: Growth is
+     * the dashboard; this is runtime configuration synced by the platform control API.
+     * A site key or tenant editor cannot enable their own crawler feed.
+     */
+    {
+      name: 'torob',
+      type: 'group',
+      label: 'ترب',
+      access: {
+        create: platformAdminFieldAccess,
+        read: platformAdminFieldAccess,
+        update: platformAdminFieldAccess,
+      },
+      admin: { hidden: true },
+      fields: [
+        {
+          name: 'connected',
+          type: 'checkbox',
+          label: 'متصل',
+          defaultValue: false,
+          access: { create: platformAdminFieldAccess, read: platformAdminFieldAccess, update: platformAdminFieldAccess },
+        },
+        {
+          name: 'enabled',
+          type: 'checkbox',
+          label: 'فعال',
+          defaultValue: false,
+          access: { create: platformAdminFieldAccess, read: platformAdminFieldAccess, update: platformAdminFieldAccess },
+        },
+        {
+          name: 'authorizationState',
+          type: 'select',
+          label: 'وضعیت مجوز',
+          defaultValue: 'not_authorized',
+          options: TOROB_AUTHORIZATION_STATES.map((value) => ({ label: value, value })),
+          access: { create: platformAdminFieldAccess, read: platformAdminFieldAccess, update: platformAdminFieldAccess },
+        },
+        {
+          name: 'shopId',
+          type: 'text',
+          label: 'شناسه فروشگاه در بیزامیز',
+          access: { create: platformAdminFieldAccess, read: platformAdminFieldAccess, update: platformAdminFieldAccess },
+        },
+        {
+          name: 'syncedAt',
+          type: 'date',
+          label: 'زمان همگام‌سازی',
+          access: { create: platformAdminFieldAccess, read: platformAdminFieldAccess, update: platformAdminFieldAccess },
+        },
+      ],
     },
     // Not localized: a site's slug is an internal identifier, not a public URL.
     slugField({ localized: false, slugify: slugifyField, useAsSlug: 'name' }),

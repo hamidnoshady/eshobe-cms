@@ -1,0 +1,19 @@
+{
+  "valid": [
+    { "amount": 125000, "currency": "IRT", "toman": 125000 },
+    { "amount": 1250000, "currency": "IRR", "toman": 125000 },
+    { "amount": 0, "currency": "IRT", "toman": 0 }
+  ],
+  "invalid": [
+    { "amount": 1250001, "currency": "IRR", "reason": "not_exact_toman" },
+    { "amount": 125000, "currency": "USD", "reason": "unsupported_currency" },
+    { "amount": 125000, "currency": "EUR", "reason": "unsupported_currency" },
+    { "amount": -1, "currency": "IRT", "reason": "out_of_range" },
+    { "amount": 100000000001, "currency": "IRT", "reason": "out_of_range" }
+  ],
+  "pairs": [
+    { "available": true, "toman": 250000, "expected": { "current_price": 250000, "availability": true } },
+    { "available": false, "toman": 250000, "expected": { "current_price": 0, "availability": false } },
+    { "available": true, "toman": 0, "expected": { "current_price": 0, "availability": true } }
+  ]
+}

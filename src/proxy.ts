@@ -8,6 +8,7 @@ import {
 } from '@/lib/adminFrame'
 import { EMBED_MARKER_COOKIE } from '@/lib/embed'
 import { defaultLocale, isLocale } from '@/lib/locales'
+import { TOROB_PRODUCTS_PATH } from '@/lib/slug'
 
 /**
  * Turns a request on a customer domain into a route under `[domain]`:
@@ -104,6 +105,11 @@ const admin = (req: NextRequest): NextResponse => {
 
 export function proxy(req: NextRequest): NextResponse {
   if (req.nextUrl.pathname.startsWith('/admin')) return admin(req)
+
+  // Torob Product API v3 is a machine endpoint on the customer's own origin, not a
+  // localized site page. Leave the exact path alone so the App Router route handler
+  // receives it; every other `/torob…` URL remains an ordinary CMS page path.
+  if (req.nextUrl.pathname === TOROB_PRODUCTS_PATH) return NextResponse.next()
 
   // `Host` carries the port in dev; `sites.domain` never does.
   const host = (req.headers.get('host') ?? '').split(':')[0]!.toLowerCase()

@@ -479,3 +479,18 @@ Rules that are easy to break:
   An embed open in another tab then asks to be reopened.
 - **No Caddy carve-out.** Both routes are called on the control plane's own `Host`.
 
+
+## Torob enrollment (issue #183)
+
+Biza Miz syncs a managed site's Torob channel state through the platform surface; the
+CMS admin has no Torob dashboard. Full contract and crawler rules: `docs/torob-product-api.md`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/platform/sites/:id/torob` | Canonical `endpoint`, token `audience`, current enrollment projection |
+| `PATCH` | `/api/platform/sites/:id/torob` | Full-state sync: `connected`, `enabled`, `authorizationState`, optional `shopId` |
+| `POST` | `/api/platform/sites/:id/torob/disconnect` | Reset to the fail-closed default |
+
+`authorizationState` is `not_authorized | pending_approval | authorized | revoked`.
+A partial PATCH is refused so a disconnect cannot leave a stale `enabled: true`.
+Changing the site's domain also resets the projection until Biza Miz re-syncs it.
