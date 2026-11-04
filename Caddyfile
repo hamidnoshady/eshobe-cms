@@ -190,6 +190,18 @@ https:// {
         reverse_proxy web:3000
     }
 
+    # Migrated Woo customers claim their profile from the storefront domain.
+    # POST only; the application resolves the tenant from Host or a site key,
+    # rate-limits the exchange and consumes the one-time token before it
+    # returns the verified customer identity.
+    @customer_claim {
+        method POST
+        path /api/site/customer-claims/exchange
+    }
+    handle @customer_claim {
+        reverse_proxy web:3000
+    }
+
     # WAVE-9 §9.4 — the site key's own read/write surface (docs/eshobe-cms-integration.md
     # in cafe-restaurant-pos). No method filter, like @checkout above: a site key
     # reads its catalogue (GET) and writes its products and order statuses

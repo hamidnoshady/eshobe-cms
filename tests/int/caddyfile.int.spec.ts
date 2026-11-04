@@ -122,6 +122,17 @@ describe('Caddyfile control-plane API guard', () => {
       expect(cmsContent).toContain(surface)
     }
   })
+
+  it('routes only the customer-claim token exchange from customer domains', () => {
+    const claim = caddyfile.slice(
+      indexOf('@customer_claim'),
+      indexOf('handle @customer_claim'),
+    )
+
+    expect(claim).toContain('method POST')
+    expect(claim).toContain('path /api/site/customer-claims/exchange')
+    expect(claim).not.toContain('/api/site/migration')
+  })
 })
 
 /**
@@ -146,6 +157,7 @@ describe('Caddyfile theme upstream', () => {
       '@media_files',
       '@site_domain',
       '@site_domains',
+      '@customer_claim',
       '@cms_content',
     ]) {
       expect(indexOf(carveOut), `${carveOut} must precede @themed`).toBeLessThan(themed)
