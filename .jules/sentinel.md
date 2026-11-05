@@ -1,8 +1,4 @@
-## 2025-03-01 - Timing Attack Vulnerability in Secret Comparison
-**Vulnerability:** A simple string equality operator (`!==`) was used to compare the expected secret with the user-provided secret in `src/endpoints/handoff.ts`.
-**Learning:** String comparison operators short-circuit, leading to measurable timing differences. This could be exploited by an attacker to guess the secret character by character or determine its length.
-**Prevention:** Always use `crypto.timingSafeEqual()` when comparing sensitive strings or tokens. Furthermore, when the lengths of the strings can vary, hash both strings first (e.g., using SHA-256) to ensure the buffers passed to `timingSafeEqual()` are exactly the same length, preventing length-based timing leaks or runtime exceptions.
-## 2024-05-18 - Fix timing leak in variable-length token comparison
-**Vulnerability:** A length-based timing leak existed in multiple files where `timingSafeEqual` was used on variable-length strings (or strings where length could be inferred if different).
-**Learning:** `timingSafeEqual` throws an error if buffer lengths mismatch. If length checking is performed beforehand (or allowed to crash), it can leak the exact length of the expected secret string. `Buffer.from()` was used directly, which preserved string length differences.
-**Prevention:** When comparing tokens where the length can vary, hash both strings first (e.g., using SHA-256) to ensure the buffers passed to `timingSafeEqual()` are exactly the same length, preventing length-based timing leaks.
+## 2026-11-05 - Missing Parameter Check Allows Authorization Bypass
+**Vulnerability:** The `/api/handoff` endpoint skipped its secret validation block entirely if an expected secret was configured but the caller omitted the `secret` parameter from the request (`if (expectedSecret && secret != null)`).
+**Learning:** Checking for the presence of a user-supplied parameter inside the same `if` condition that gates the security check itself can lead to a fail-open scenario where missing input bypasses validation.
+**Prevention:** Always structure security checks such that if a requirement exists (e.g., `expectedSecret` is configured), the absence of the required input (`secret == null`) results in an explicit and immediate failure (`403 Forbidden`) before proceeding.
