@@ -146,7 +146,8 @@ describe('POST /api/handoff — admin handoff shape', () => {
   })
 
   it('rejects without a token', async () => {
-    const res = await callHandoff({ url: 'http://cms.example.com/api/handoff' })
+    // Supply the correct secret so the test reaches the missing token check
+    const res = await callHandoff({ url: `http://cms.example.com/api/handoff?secret=${process.env.PREVIEW_SECRET}` })
     expect(res.status).toBe(400)
   })
 
