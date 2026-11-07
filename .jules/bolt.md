@@ -5,3 +5,7 @@
 ## 2024-05-19 - Cache Intl formatters
 **Learning:** `Intl.DateTimeFormat` and `Intl.NumberFormat` instantiation is a known performance bottleneck in JS. Recreating them on every function call for commonly formatted dates or numbers causes significant CPU overhead, especially during bulk operations or frequent re-renders.
 **Action:** Always cache `Intl` formatters (e.g., using a `Map` keyed by locale and options) instead of instantiating them on every function call.
+
+## 2024-05-20 - Deterministic stringification for caching
+**Learning:** Using `JSON.stringify(options)` for caching objects with non-guaranteed property orders leads to frequent cache misses.
+**Action:** Always use a deterministic stringification strategy, like `JSON.stringify(safeOptions, Object.keys(safeOptions).sort())`, when using an object as a cache key.
