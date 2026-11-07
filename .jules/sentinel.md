@@ -6,3 +6,7 @@
 **Vulnerability:** A length-based timing leak existed in multiple files where `timingSafeEqual` was used on variable-length strings (or strings where length could be inferred if different).
 **Learning:** `timingSafeEqual` throws an error if buffer lengths mismatch. If length checking is performed beforehand (or allowed to crash), it can leak the exact length of the expected secret string. `Buffer.from()` was used directly, which preserved string length differences.
 **Prevention:** When comparing tokens where the length can vary, hash both strings first (e.g., using SHA-256) to ensure the buffers passed to `timingSafeEqual()` are exactly the same length, preventing length-based timing leaks.
+## 2024-05-18 - Missing Secret Bypass Vulnerability
+**Vulnerability:** Authorization bypass via missing secret input in handoff endpoint.
+**Learning:** The check `if (expectedSecret && secret != null)` evaluates to false when `secret` is deliberately omitted (e.g. `null`), skipping the security validation block entirely and proceeding as if validation passed. This fail-open logic allows unauthorized access by simply withholding the expected input.
+**Prevention:** Always use "fail-closed" logic for authentication and authorization. Explicitly verify the presence of required parameters, such as `if (!expectedSecret || !secret) { fail() }`, before continuing to evaluate tokens or granting access.

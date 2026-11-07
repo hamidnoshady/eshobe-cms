@@ -64,12 +64,14 @@ const handler: Endpoint['handler'] = async (req: PayloadRequest) => {
 
   const expectedSecret = process.env.HANDOFF_SECRET ?? process.env.PREVIEW_SECRET
 
-  if (expectedSecret && secret != null) {
-    const expectedHash = createHash('sha256').update(expectedSecret).digest()
-    const providedHash = createHash('sha256').update(secret).digest()
-    if (!timingSafeEqual(expectedHash, providedHash)) {
-      return Response.json({ error: 'forbidden' }, { status: 403, headers: { 'cache-control': 'no-store' } })
-    }
+  if (!expectedSecret || !secret) {
+    return Response.json({ error: 'forbidden' }, { status: 403, headers: { 'cache-control': 'no-store' } })
+  }
+
+  const expectedHash = createHash('sha256').update(expectedSecret).digest()
+  const providedHash = createHash('sha256').update(secret).digest()
+  if (!timingSafeEqual(expectedHash, providedHash)) {
+    return Response.json({ error: 'forbidden' }, { status: 403, headers: { 'cache-control': 'no-store' } })
   }
 
   if (!token) {
