@@ -57,7 +57,7 @@ jobs:
   # ---------- Docker image: build & push to GHCR ----------
   docker-publish:
     name: Publish Docker image (GHCR)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ci]
     outputs:
       # Recorded in the job summary so a deployed container can be traced back
