@@ -1,6 +1,7 @@
 'use client'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Search as SearchIcon } from 'lucide-react'
 import React, { useState, useEffect } from 'react'
 import { useDebounce } from '@/utilities/useDebounce'
 import { useRouter } from 'next/navigation'
@@ -31,6 +32,7 @@ export const Search: React.FC = () => {
   return (
     <div>
       <form
+        className="relative"
         onSubmit={(e) => {
           e.preventDefault()
         }}
@@ -44,9 +46,14 @@ export const Search: React.FC = () => {
             setValue(event.target.value)
           }}
           placeholder={uiString('search', locale)}
+          className="pe-10"
         />
-        <button type="submit" className="sr-only">
-          {uiString('submit', locale)}
+        <button
+          type="submit"
+          className="absolute inset-y-0 end-0 flex items-center justify-center px-3 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label={uiString('submit', locale)}
+        >
+          <SearchIcon className="size-4" />
         </button>
       </form>
     </div>
