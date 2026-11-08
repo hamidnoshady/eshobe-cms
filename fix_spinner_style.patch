@@ -1,0 +1,22 @@
+--- src/blocks/ProductGrid/PurchaseForm.tsx
++++ src/blocks/ProductGrid/PurchaseForm.tsx
+@@ -262,7 +262,7 @@
+       />
+
+       <Button className="w-full" disabled={status === 'sending'} type="submit">
+-        {status === 'sending' && <Loader2 className="animate-spin" />}
++        {status === 'sending' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+         {status === 'sending' ? uiString('submitting', locale) : uiString('buyNow', locale)}
+       </Button>
+
+--- src/blocks/Form/Component.tsx
++++ src/blocks/Form/Component.tsx
+@@ -178,7 +178,7 @@
+               </div>
+
+               <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
+-                {(isLoading || isSubmitting) && <Loader2 className="animate-spin" />}
++                {(isLoading || isSubmitting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                 {submitButtonLabel}
+               </Button>
+             </form>

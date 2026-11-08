@@ -1,0 +1,188 @@
+'use client'
+import type { FormFieldBlock, Form as FormType } from '@payloadcms/plugin-form-builder/types'
+
+import { useRouter } from 'next/navigation'
+import React, { useCallback, useState } from 'react'
+import { useForm, FormProvider } from 'react-hook-form'
+import RichText from '@/components/RichText'
+import { Button } from '@/components/ui/button'
+import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
+
+import { fields } from './fields'
+import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
+import { getClientSideURL } from '@/utilities/getURL'
+
+export type FormBlockType = {
+  blockName?: string
+  blockType?: 'formBlock'
+  enableIntro: boolean
+  form: FormType
+  introContent?: DefaultTypedEditorState
+}
+
+export const FormBlock: React.FC<
+  {
+    id?: string
+  } & FormBlockType
+> = (props) => {
+  const {
+    enableIntro,
+    form: formFromProps,
+    form: { id: formID, confirmationMessage, confirmationType, redirect, submitButtonLabel } = {},
+    introContent,
+  } = props
+
+  const formMethods = useForm({
+    defaultValues: formFromProps.fields,
+  })
+  const {
+    control,
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+  } = formMethods
+
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasSubmitted, setHasSubmitted] = useState<boolean>()
+  const [error, setError] = useState<{ message: string } | undefined>()
+  const router = useRouter()
+
+  const onSubmit = useCallback(
+    (data: FormFieldBlock[]) => {
+      let loadingTimerID: ReturnType<typeof setTimeout>
+      const submitForm = async () => {
+        setError(undefined)
+
+        const dataToSend = Object.entries(data)
+          // Keep the internal trap out of honest submissions even if the browser or
+          // an autofill extension populates it. The server still validates it for
+          // direct/bot requests that bypass this client.
+          .filter(([name]) => name !== PUBLIC_FORM_HONEYPOT_FIELD)
+          .map(([name, value]) => ({
+            field: name,
+            value,
+          }))
+
+        // delay loading indicator by 1s
+        loadingTimerID = setTimeout(() => {
+          setIsLoading(true)
+        }, 1000)
+
+        try {
+          const req = await fetch(`${getClientSideURL()}/api/form-submissions`, {
+            body: JSON.stringify({
+              form: formID,
+              submissionData: dataToSend,
+            }),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            method: 'POST',
+          })
+
+          const res = await req.json()
+
+          clearTimeout(loadingTimerID)
+
+          if (req.status >= 400) {
+            setIsLoading(false)
+
+            setError({
+              message: res.errors?.[0]?.message || 'ارسال پیام ناموفق بود. دوباره تلاش کنید.',
+            })
+
+            return
+          }
+
+          setIsLoading(false)
+          setHasSubmitted(true)
+
+          if (confirmationType === 'redirect' && redirect) {
+            const { url } = redirect
+
+            const redirectUrl = url
+
+            if (redirectUrl) router.push(redirectUrl)
+          }
+        } catch (err) {
+          console.warn(err)
+          setIsLoading(false)
+          setError({
+            message: 'ارتباط با سرور برقرار نشد. اتصال خود را بررسی کنید.',
+          })
+        }
+      }
+
+      return submitForm()
+    },
+    [router, formID, redirect, confirmationType],
+  )
+
+  return (
+    <div className="container lg:max-w-[48rem]">
+      {enableIntro && introContent && !hasSubmitted && (
+        <RichText className="mb-8 lg:mb-12" data={introContent} enableGutter={false} />
+      )}
+      <div className="p-4 lg:p-6 border border-border rounded-[0.8rem]">
+        <FormProvider {...formMethods}>
+          {!isLoading && hasSubmitted && confirmationType === 'message' && (
+            <RichText data={confirmationMessage} />
+          )}
+          {isLoading && !hasSubmitted && <p>در حال ارسال…</p>}
+          {error && (
+            /**
+             * `role="alert"` so a screen reader announces a failed submission — the
+             * visual change is below the button and easy to miss. The status code is
+             * gone from the copy: it told a visitor nothing and the message now says
+             * what to do instead.
+             */
+            <div className="mb-4 text-destructive" role="alert">
+              {error.message}
+            </div>
+          )}
+          {!hasSubmitted && (
+            <form id={formID} onSubmit={handleSubmit(onSubmit)}>
+              <div aria-hidden="true" className="absolute -start-[10000px] h-px w-px overflow-hidden">
+                <label htmlFor={`${formID}-website-check`}>Leave this field blank</label>
+                <input
+                  autoComplete="off"
+                  id={`${formID}-website-check`}
+                  tabIndex={-1}
+                  type="text"
+                  {...register(PUBLIC_FORM_HONEYPOT_FIELD as never)}
+                />
+              </div>
+              <div className="mb-4 last:mb-0">
+                {formFromProps &&
+                  formFromProps.fields &&
+                  formFromProps.fields?.map((field, index) => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const Field: React.FC<any> = fields?.[field.blockType as keyof typeof fields]
+                    if (Field) {
+                      return (
+                        <div className="mb-6 last:mb-0" key={index}>
+                          <Field
+                            form={formFromProps}
+                            {...field}
+                            {...formMethods}
+                            control={control}
+                            errors={errors}
+                            register={register}
+                          />
+                        </div>
+                      )
+                    }
+                    return null
+                  })}
+              </div>
+
+              <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
+                {submitButtonLabel}
+              </Button>
+            </form>
+          )}
+        </FormProvider>
+      </div>
+    </div>
+  )
+}

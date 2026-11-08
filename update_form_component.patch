@@ -1,0 +1,18 @@
+--- src/blocks/Form/Component.tsx
++++ src/blocks/Form/Component.tsx
+@@ -7,6 +7,7 @@
+ import RichText from '@/components/RichText'
+ import { Button } from '@/components/ui/button'
+ import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
++import { Loader2 } from 'lucide-react'
+
+ import { fields } from './fields'
+ import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
+@@ -176,6 +177,7 @@
+               </div>
+
+               <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
++                {(isLoading || isSubmitting) && <Loader2 className="animate-spin" />}
+                 {submitButtonLabel}
+               </Button>
+             </form>

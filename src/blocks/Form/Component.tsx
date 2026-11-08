@@ -7,6 +7,7 @@ import { useForm, FormProvider } from 'react-hook-form'
 import RichText from '@/components/RichText'
 import { Button } from '@/components/ui/button'
 import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
+import { Loader2 } from 'lucide-react'
 
 import { fields } from './fields'
 import { PUBLIC_FORM_HONEYPOT_FIELD } from '@/lib/public-form-fields'
@@ -177,6 +178,7 @@ export const FormBlock: React.FC<
               </div>
 
               <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
+                {(isLoading || isSubmitting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {submitButtonLabel}
               </Button>
             </form>

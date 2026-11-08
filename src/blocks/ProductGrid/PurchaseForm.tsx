@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { uiString } from '@/lib/ui-strings'
 import React, { useState } from 'react'
 import { cn } from '@/utilities/ui'
+import { Loader2 } from 'lucide-react'
 
 type Status = 'error' | 'idle' | 'sending'
 
@@ -261,6 +262,7 @@ export const PurchaseForm: React.FC<{
       />
 
       <Button className="w-full" disabled={status === 'sending'} type="submit">
+        {status === 'sending' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {status === 'sending' ? uiString('submitting', locale) : uiString('buyNow', locale)}
       </Button>
 
