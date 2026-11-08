@@ -123,7 +123,8 @@ describe('POST /api/handoff — admin handoff shape', () => {
   }, 180_000)
 
   const callHandoff = (init: { headers?: Record<string, string>; method?: string; token?: string; url?: string }) => {
-    const url = init.url ?? 'http://cms.example.com/api/handoff?token=bad'
+    const defaultSecret = process.env.HANDOFF_SECRET ?? process.env.PREVIEW_SECRET ?? 'ci-preview-secret'
+    const url = init.url ?? `http://cms.example.com/api/handoff?token=bad&secret=${defaultSecret}`
     return createLocalReq(
       {
         req: {
@@ -146,7 +147,8 @@ describe('POST /api/handoff — admin handoff shape', () => {
   })
 
   it('rejects without a token', async () => {
-    const res = await callHandoff({ url: 'http://cms.example.com/api/handoff' })
+    const defaultSecret = process.env.HANDOFF_SECRET ?? process.env.PREVIEW_SECRET ?? 'ci-preview-secret'
+    const res = await callHandoff({ url: `http://cms.example.com/api/handoff?secret=${defaultSecret}` })
     expect(res.status).toBe(400)
   })
 
