@@ -47,7 +47,7 @@ jobs:
   # ---------- Quick static checks (no DB required) ----------
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -60,7 +60,7 @@ jobs:
 
   typecheck:
     name: Typecheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -74,7 +74,7 @@ jobs:
   # ---------- Build the Next.js app (catches build-time breaks) ----------
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # `next build` loads payload.config.ts; these placeholders are enough for the
       # build step — nothing prerenders from the DB. Mirrors Dockerfile.
@@ -103,7 +103,7 @@ jobs:
   # ---------- Docker image build + srv1 deployment acceptance ----------
   docker-build:
     name: Docker build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -125,7 +125,7 @@ jobs:
   # ---------- Integration tests (Vitest + real Postgres) ----------
   test-int:
     name: Integration tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -171,7 +171,7 @@ jobs:
   # ---------- End-to-end tests (Playwright against `pnpm dev`) ----------
   test-e2e:
     name: E2E tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -225,7 +225,7 @@ jobs:
   # ---------- The one gate ----------
   ci-success:
     name: CI success
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: always()
     needs: [lint, typecheck, build, docker-build, test-int, test-e2e]
     steps:
