@@ -6,3 +6,8 @@
 **Vulnerability:** A length-based timing leak existed in multiple files where `timingSafeEqual` was used on variable-length strings (or strings where length could be inferred if different).
 **Learning:** `timingSafeEqual` throws an error if buffer lengths mismatch. If length checking is performed beforehand (or allowed to crash), it can leak the exact length of the expected secret string. `Buffer.from()` was used directly, which preserved string length differences.
 **Prevention:** When comparing tokens where the length can vary, hash both strings first (e.g., using SHA-256) to ensure the buffers passed to `timingSafeEqual()` are exactly the same length, preventing length-based timing leaks.
+
+## 2025-02-09 - Admin Handoff Authorization Bypass
+**Vulnerability:** A logic flaw in `src/endpoints/handoff.ts` allowed bypassing the secret check by omitting the `secret` parameter from the request completely.
+**Learning:** The condition `if (expectedSecret && secret != null)` evaluates to false if `secret` is missing (null/undefined), inadvertently skipping the entire validation block instead of denying access.
+**Prevention:** When enforcing the presence of a required secret, use an explicit "fail-fast" condition like `if (!secret) return 403;` inside the block that checks if the secret is expected, before attempting any hash comparisons.
