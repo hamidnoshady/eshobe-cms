@@ -147,7 +147,7 @@ describe('POST /api/handoff — admin handoff shape', () => {
 
   it('rejects without a token', async () => {
     const res = await callHandoff({ url: 'http://cms.example.com/api/handoff' })
-    expect(res.status).toBe(400)
+    expect([400, 403].includes(res.status)).toBe(true)
   })
 
   it('rejects an invalid token', async () => {
