@@ -319,7 +319,7 @@ const getDeployment = async () =>
 
 beforeAll(async () => {
   vi.stubEnv('ESHOBE_LEGACY_CADDY_EDGE', '1')
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
   vi.stubGlobal('fetch', fakeFetch)
 
   const { docs } = await payload.find({

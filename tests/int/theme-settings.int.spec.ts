@@ -81,7 +81,7 @@ const bodyOf = async (res: Response): Promise<{ raw: string; json: Record<string
 }
 
 beforeAll(async () => {
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
 
   for (const slug of ['acme', 'shop'] as const) {
     const { docs } = await payload.find({ collection: 'sites', depth: 0, limit: 1, where: { slug: { equals: slug } } })

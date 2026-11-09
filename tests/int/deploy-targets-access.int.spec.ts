@@ -36,7 +36,7 @@ const list = async (key: null | string) =>
   payload.find({ collection: 'deploy-targets', depth: 0, overrideAccess: false, req: await reqWithKey(key) })
 
 beforeAll(async () => {
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
   const { docs: admins } = await payload.find({
     collection: 'users',
     depth: 0,

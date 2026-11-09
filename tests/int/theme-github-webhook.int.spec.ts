@@ -27,7 +27,7 @@ const pushBody = (repo: string, ref: string, after = 'bbbbbbbbbbbbbbbbbbbbbbbbbb
 describe('GitHub theme webhook', () => {
   beforeAll(async () => {
     process.env.GITHUB_THEME_WEBHOOK_SECRET = 'test-webhook-secret-for-theme-packages-32chars'
-    payload = await getPayload({ config })
+    payload = await getPayload({ config: await config })
     const user = (
       await payload.find({
         collection: 'users',

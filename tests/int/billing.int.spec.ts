@@ -60,7 +60,7 @@ const eventFor = (quantity = 4): UsageEventV1 => {
 }
 
 beforeAll(async () => {
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
   const { docs } = await payload.find({ collection: 'sites', depth: 0, limit: 1, where: { slug: { equals: 'shop' } } })
   if (!docs[0]) throw new Error('shop missing — run pnpm seed')
   siteId = String(docs[0].id)

@@ -21,7 +21,7 @@ describe('mintSiteKey', () => {
   const created: string[] = []
 
   beforeAll(async () => {
-    payload = await getPayload({ config })
+    payload = await getPayload({ config: await config })
   })
 
   afterAll(async () => {

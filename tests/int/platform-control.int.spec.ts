@@ -100,7 +100,7 @@ const issueKey = async (body: Record<string, unknown>): Promise<string> => {
 }
 
 beforeAll(async () => {
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
   for (const slug of ['acme', 'shop'] as const) {
     const { docs } = await payload.find({
       collection: 'sites',

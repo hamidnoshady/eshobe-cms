@@ -18,7 +18,7 @@ let targetId = ''
 let adminReq: PayloadRequest
 
 beforeAll(async () => {
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
 
   const { docs: sites } = await payload.find({
     collection: 'sites',

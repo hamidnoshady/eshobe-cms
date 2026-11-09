@@ -67,7 +67,7 @@ describe('a media row in a page layout', () => {
   let mediaId = ''
 
   beforeAll(async () => {
-    payload = await getPayload({ config })
+    payload = await getPayload({ config: await config })
   })
 
   afterAll(async () => {

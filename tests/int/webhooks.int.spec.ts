@@ -108,7 +108,7 @@ const createWebhook = async (overrides: Record<string, unknown> = {}) =>
 
 beforeAll(async () => {
   process.env.WEBHOOK_ALLOW_INSECURE = 'true'
-  payload = await getPayload({ config })
+  payload = await getPayload({ config: await config })
 
   server = createServer((request, response) => {
     let raw = ''
