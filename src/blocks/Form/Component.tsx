@@ -178,8 +178,7 @@ export const FormBlock: React.FC<
               </div>
 
               <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
-                {/* eslint-disable-next-line no-restricted-syntax */}
-                {(isLoading || isSubmitting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {(isLoading || isSubmitting) && <Loader2 className="me-2 size-4 animate-spin" />}
                 {submitButtonLabel}
               </Button>
             </form>
