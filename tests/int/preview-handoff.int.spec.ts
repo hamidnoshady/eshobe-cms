@@ -152,6 +152,11 @@ describe('POST /api/handoff — admin handoff shape', () => {
     expect(res.status).toBe(400)
   })
 
+  it('rejects without a secret', async () => {
+    const res = await callHandoff({ url: 'http://cms.example.com/api/handoff?token=bad' })
+    expect(res.status).toBe(403)
+  })
+
   it('rejects an invalid token', async () => {
     const res = await callHandoff({ token: 'not.a.jwt' })
     // 403 — not 500 — the contract a builder matches on
