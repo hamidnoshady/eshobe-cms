@@ -262,6 +262,7 @@ export const PurchaseForm: React.FC<{
       />
 
       <Button className="w-full" disabled={status === 'sending'} type="submit">
+        {/* eslint-disable-next-line no-restricted-syntax */}
         {status === 'sending' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {status === 'sending' ? uiString('submitting', locale) : uiString('buyNow', locale)}
       </Button>
