@@ -2,7 +2,11 @@ import type { PayloadRequest } from 'payload'
 
 import type { Order, Site } from '@/payload-types'
 
-import { formatPrice } from './format'
+import { formatNumber, formatPrice } from './format'
+
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+})[character]!)
 
 /**
  * The buyer's receipt, sent when a payment is confirmed.
@@ -35,13 +39,18 @@ export const sendOrderReceipt = async ({
   const amount = formatPrice(order.total, order.currency, locale)
   const lines = [
     `سفارش ${order.reference ?? order.id}`,
-    `${order.productTitle ?? 'محصول'} — ${order.quantity ?? 1} عدد`,
+    ...(order.items?.length
+      ? order.items.flatMap((item) => [
+          `${item.productTitle}${item.variationLabel ? ` — ${item.variationLabel}` : ''} — ${formatNumber(item.quantity, locale)} عدد`,
+          ...(item.modifiers ?? []).map((modifier) => `${modifier.groupLabel}: ${modifier.optionLabel}`),
+        ])
+      : [`${order.productTitle ?? 'محصول'} — ${formatNumber(order.quantity ?? 1, locale)} عدد`]),
     `مبلغ: ${amount}`,
     order.status === 'paid' ? 'پرداخت تأیید شد.' : 'سفارش در انتظار پرداخت است.',
   ]
 
   await req.payload.sendEmail({
-    html: lines.map((line) => `<p>${line}</p>`).join(''),
+    html: lines.map((line) => `<p>${escapeHtml(line)}</p>`).join(''),
     from: process.env.EMAIL_FROM ?? `noreply@${site.domain}`,
     subject: `سفارش ${order.reference ?? order.id} — ${site.name}`,
     text: lines.join('\n'),

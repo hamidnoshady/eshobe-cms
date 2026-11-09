@@ -1267,6 +1267,14 @@ export interface TaxonomyTerm {
     totalDocs?: number;
   };
   /**
+   * برای منوی همگام‌شده: biza_miz.
+   */
+  menuSourceSystem?: string | null;
+  /**
+   * شناسهٔ کالا یا دسته در سامانهٔ مبدأ، نه نام یا کد کالا.
+   */
+  menuSourceId?: string | null;
+  /**
    * رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.
    */
   source: {
@@ -1317,6 +1325,7 @@ export interface TaxonomyTerm {
 export interface TaxonomyDefinition {
   id: string;
   site?: (string | null) | Site;
+  cafeMenuIdentity?: string | null;
   /**
    * شناسه پایدار طبقه‌بندی در نگاشت و قالب؛ مثل genre یا post_tag. بعد از ورود داده تغییر نکند.
    */
@@ -1833,7 +1842,7 @@ export interface Product {
    */
   trackInventory?: boolean | null;
   /**
-   * با پرداخت موفق هر سفارش به اندازهٔ تعدادش کم می‌شود.
+   * برای کالاهای عادی با پرداخت کم می‌شود؛ موجودی منوی مبدأ فقط همگام‌سازی می‌شود.
    */
   inventory?: number | null;
   body?: {
@@ -1905,6 +1914,44 @@ export interface Product {
         weight?: string | null;
         sourceId?: string | null;
         sourceStatus?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * برای منوی همگام‌شده: biza_miz.
+   */
+  menuSourceSystem?: string | null;
+  /**
+   * شناسهٔ کالا یا دسته در سامانهٔ مبدأ، نه نام یا کد کالا.
+   */
+  menuSourceId?: string | null;
+  /**
+   * موجودی کالا فقط تصویری از سامانهٔ مبدأ است؛ پرداخت در ای‌شوب آن را کم نمی‌کند.
+   */
+  externalInventory?: boolean | null;
+  menuAvailability?: ('available' | 'sold_out' | 'unavailable') | null;
+  menuOrder?: number | null;
+  /**
+   * افزودنی‌ها از تنوع‌های محصول جدا هستند؛ شناسه‌ها از سامانهٔ مبدأ می‌آیند.
+   */
+  modifierGroups?:
+    | {
+        sourceId: string;
+        label: string;
+        minSelections: number;
+        maxSelections: number;
+        active?: boolean | null;
+        menuOrder?: number | null;
+        options?:
+          | {
+              sourceId: string;
+              label: string;
+              priceDelta: number;
+              active?: boolean | null;
+              menuOrder?: number | null;
+              id?: string | null;
+            }[]
+          | null;
         id?: string | null;
       }[]
     | null;
@@ -2363,6 +2410,10 @@ export interface Form {
 export interface ProductGridBlock {
   heading?: string | null;
   intro?: string | null;
+  /**
+   * منوی کافه کالاها و دسته‌های همگام‌شدهٔ همین سایت را به ترتیب مبدأ نمایش می‌دهد.
+   */
+  mode?: ('catalog' | 'cafe') | null;
   populateBy?: ('collection' | 'selection') | null;
   /**
    * تازه‌ترین‌ها اول.
@@ -3068,6 +3119,18 @@ export interface Order {
         variationKey?: string | null;
         variationLabel?: string | null;
         sku?: string | null;
+        externalInventory?: boolean | null;
+        modifiers?:
+          | {
+              groupSourceId: string;
+              groupLabel: string;
+              optionSourceId: string;
+              optionLabel: string;
+              quantity: number;
+              priceDelta: number;
+              id?: string | null;
+            }[]
+          | null;
         quantity: number;
         unitPrice: number;
         subtotal: number;
@@ -6049,6 +6112,7 @@ export interface FormBlockSelect<T extends boolean = true> {
 export interface ProductGridBlockSelect<T extends boolean = true> {
   heading?: T;
   intro?: T;
+  mode?: T;
   populateBy?: T;
   limit?: T;
   products?: T;
@@ -6411,6 +6475,7 @@ export interface ContentTypeDefinitionsSelect<T extends boolean = true> {
  */
 export interface TaxonomyDefinitionsSelect<T extends boolean = true> {
   site?: T;
+  cafeMenuIdentity?: T;
   key?: T;
   singularLabel?: T;
   pluralLabel?: T;
@@ -6454,6 +6519,8 @@ export interface TaxonomyTermsSelect<T extends boolean = true> {
   legacyArchiveUrl?: T;
   meta?: T;
   entryRelations?: T;
+  menuSourceSystem?: T;
+  menuSourceId?: T;
   source?:
     | T
     | {
@@ -6928,6 +6995,32 @@ export interface ProductsSelect<T extends boolean = true> {
         sourceStatus?: T;
         id?: T;
       };
+  menuSourceSystem?: T;
+  menuSourceId?: T;
+  externalInventory?: T;
+  menuAvailability?: T;
+  menuOrder?: T;
+  modifierGroups?:
+    | T
+    | {
+        sourceId?: T;
+        label?: T;
+        minSelections?: T;
+        maxSelections?: T;
+        active?: T;
+        menuOrder?: T;
+        options?:
+          | T
+          | {
+              sourceId?: T;
+              label?: T;
+              priceDelta?: T;
+              active?: T;
+              menuOrder?: T;
+              id?: T;
+            };
+        id?: T;
+      };
   terms?: T;
   upsells?: T;
   crossSells?: T;
@@ -6997,6 +7090,18 @@ export interface OrdersSelect<T extends boolean = true> {
         variationKey?: T;
         variationLabel?: T;
         sku?: T;
+        externalInventory?: T;
+        modifiers?:
+          | T
+          | {
+              groupSourceId?: T;
+              groupLabel?: T;
+              optionSourceId?: T;
+              optionLabel?: T;
+              quantity?: T;
+              priceDelta?: T;
+              id?: T;
+            };
         quantity?: T;
         unitPrice?: T;
         subtotal?: T;

@@ -3,16 +3,18 @@ import type { Endpoint, PayloadRequest } from 'payload'
 import { addDataAndFileToRequest } from 'payload'
 
 import type { PaymentProvider } from '@/payments'
-import type { Coupon, Product, Site } from '@/payload-types'
+import type { Coupon, Order, Product, Site } from '@/payload-types'
 
 import { isGatewayId, listEnabledGateways, verifyGatewayState } from '@/payments/gateways'
 
 import { newOrderReference } from '@/collections/hooks/snapshotOrder'
 import { toAsciiDigits } from '@/lib/digits'
+import { resolveModifiers } from '@/lib/cafe-menu'
+import { withDerivedSiteWrite } from '@/lib/derived-site-write'
 import { clientKey, consume } from '@/lib/rate-limit'
 import { MAX_ORDER_QUANTITY, toCheckoutOrder } from '@/lib/checkout'
 import { isUuid } from '@/lib/ids'
-import { localeHref } from '@/lib/locales'
+import { isLocale, localeHref } from '@/lib/locales'
 import { CHECKOUT_BASE } from '@/lib/slug'
 import { readOrderDocs, signOrderReceipt } from '@/lib/order-receipt'
 import { findForSite, siteFromRequest } from '@/lib/site-query'
@@ -262,14 +264,24 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     )
   }
 
-  const productId = typeof data.product === 'string' ? data.product : null
-
-  if (!isUuid(productId)) return badRequest('product id missing or malformed')
-
-  const quantity = Number(data.quantity ?? 1)
-
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ORDER_QUANTITY) {
-    return badRequest('quantity out of range')
+  // The legacy product/quantity request remains unchanged. A cart is an
+  // explicit items[] request, bounded before any reads; client prices are ignored.
+  const isCart = data.items !== undefined
+  if (isCart && (!Array.isArray(data.items) || data.items.length < 1 || data.items.length > 50)) {
+    return badRequest('items out of range')
+  }
+  const submitted = isCart
+    ? data.items as unknown[]
+    : [{ product: data.product, quantity: data.quantity, variation: data.variation, modifiers: data.modifiers }]
+  const requestedLines: { productId: string; quantity: number; variation: string; modifiers: unknown }[] = []
+  for (const value of submitted) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return badRequest('invalid item')
+    const line = value as Record<string, unknown>
+    if (!isUuid(line.product)) return badRequest('product id missing or malformed')
+    const quantity = Number(line.quantity ?? 1)
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ORDER_QUANTITY) return badRequest('quantity out of range')
+    if (line.variation !== undefined && typeof line.variation !== 'string') return badRequest('invalid variation')
+    requestedLines.push({ productId: line.product, quantity, variation: typeof line.variation === 'string' ? line.variation.trim() : '', modifiers: line.modifiers })
   }
 
   const name = typeof data.name === 'string' ? data.name.trim() : ''
@@ -284,78 +296,91 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
   // empty string as if it were an address.
   const buyer = { name, phone, ...(email ? { email } : {}), ...(note ? { note } : {}) }
 
-  // `findForSite`, so the product is access-controlled *and* tenant-scoped in one
-  // call: a draft, an unpublished, or another site's product is not readable here,
-  // and no price for any of them is ever revealed.
-  const { docs } = await findForSite('products', String(site.id), {
-    depth: 0,
-    limit: 1,
-    locale: site.defaultLocale ?? undefined,
-    pagination: false,
-    where: { id: { equals: productId } },
-  })
+  // Prices, options and availability always come from current published rows,
+  // scoped to the Host-derived site. Reusing a row within this request avoids
+  // repeated reads for the same product with different modifier configurations.
+  const requestedLocale = typeof data.locale === 'string' && isLocale(data.locale) &&
+    (site.availableLocales as readonly string[] ?? []).includes(data.locale) ? data.locale as 'fa' | 'en' : site.defaultLocale ?? 'fa'
+  const productCache = new Map<string, Product>()
+  const stockPools = new Map<string, { available: number; quantity: number }>()
+  const resolvedLines: NonNullable<Order['items']> = []
 
-  const product = docs[0] as Product | undefined
+  for (const requested of requestedLines) {
+    let product = productCache.get(requested.productId)
+    if (!product) {
+      const { docs } = await findForSite('products', String(site.id), {
+        depth: 0, limit: 1, locale: requestedLocale, pagination: false,
+        where: { id: { equals: requested.productId } },
+      })
+      product = docs[0] as Product | undefined
+      if (!product) return refused(req, `product ${requested.productId} not purchasable on ${site.domain}`)
+      productCache.set(requested.productId, product)
+    }
+    if (product.menuAvailability && product.menuAvailability !== 'available') {
+      return refused(req, `product ${requested.productId} is not available`)
+    }
 
-  if (!product) return refused(req, `product ${productId} not purchasable on ${site.domain}`)
-
-  // A grouped catalogue entry and an external/affiliate link are not things
-  // this endpoint sells. A variable product is sold *by variation key*: the
-  // key chooses, the row just read prices and stocks it, and the order line
-  // snapshots both so a later price edit cannot rewrite the sale.
-  const productType = product.productType ?? 'simple'
-  const variationKey = typeof data.variation === 'string' ? data.variation.trim() : ''
-
-  if (productType === 'grouped' || productType === 'external') {
-    return refused(req, `product ${productId} is ${productType} and not directly purchasable`)
-  }
-
-  const variation =
-    productType === 'variable'
-      ? (product.variations ?? []).find(
-          (candidate) => candidate.key === variationKey && candidate.active !== false,
-        )
+    const productType = product.productType ?? 'simple'
+    if (productType === 'grouped' || productType === 'external') {
+      return refused(req, `product ${requested.productId} is ${productType} and not directly purchasable`)
+    }
+    const variation = productType === 'variable'
+      ? (product.variations ?? []).find((candidate) => candidate.key === requested.variation && candidate.active !== false)
       : undefined
+    if (productType === 'variable' && !variation) return badRequest('a purchasable variation key is required')
+    if (productType !== 'variable' && requested.variation) return badRequest('variation supplied for a non-variable product')
 
-  if (productType === 'variable' && !variation) {
-    return badRequest('a purchasable variation key is required')
+    const stockRow = variation?.trackInventory ? variation : product
+    if (stockRow.trackInventory) {
+      if (!Number.isSafeInteger(stockRow.inventory) || Number(stockRow.inventory) < 0) {
+        return refused(req, `tracked stock for product ${requested.productId} is unknown`)
+      }
+      const key = `${requested.productId}:${variation?.trackInventory ? variation.key : ''}`
+      const pool = stockPools.get(key) ?? { available: Number(stockRow.inventory), quantity: 0 }
+      pool.quantity += requested.quantity
+      stockPools.set(key, pool)
+    }
+
+    const selection = resolveModifiers(product.modifierGroups, requested.modifiers)
+    if (!selection.ok) return badRequest('invalid modifier selection')
+    const basePrice = Number(variation?.price ?? product.price ?? 0)
+    const unitPrice = basePrice + selection.priceDelta
+    const lineSubtotal = unitPrice * requested.quantity
+    if (!Number.isSafeInteger(basePrice) || basePrice < 0 || !Number.isSafeInteger(unitPrice) || unitPrice < 1 || !Number.isSafeInteger(lineSubtotal)) {
+      return refused(req, `product ${requested.productId} has no usable price`)
+    }
+    resolvedLines.push({
+      product: product.id,
+      productTitle: product.title,
+      quantity: requested.quantity,
+      ...(variation?.sku ? { sku: variation.sku } : product.sku ? { sku: product.sku } : {}),
+      ...(product.externalInventory || product.menuSourceSystem === 'biza_miz' ? { externalInventory: true } : {}),
+      ...(selection.snapshots.length ? { modifiers: selection.snapshots } : {}),
+      subtotal: lineSubtotal,
+      taxTotal: 0,
+      total: lineSubtotal,
+      unitPrice,
+      ...(variation?.key ? { variationKey: variation.key } : {}),
+      ...(variation?.label ? { variationLabel: variation.label } : {}),
+    })
   }
-  if (productType !== 'variable' && variationKey) {
-    return badRequest('variation supplied for a non-variable product')
+
+  for (const { available, quantity } of stockPools.values()) {
+    if (available < quantity) {
+      return Response.json(
+        { available, message: available === 0 ? 'این محصول تمام شده است.' : `تنها ${available} عدد از این محصول موجود است.`, ok: false },
+        { headers: noStore, status: 409 },
+      )
+    }
   }
-
-  const available =
-    variation?.trackInventory && typeof variation.inventory === 'number'
-      ? variation.inventory
-      : product.trackInventory && typeof product.inventory === 'number'
-        ? product.inventory
-        : null
-
-  if (available !== null && available < quantity) {
-    return Response.json(
-      {
-        available,
-        message:
-          available === 0
-            ? 'این محصول تمام شده است.'
-            : `تنها ${available} عدد از این محصول موجود است.`,
-        ok: false,
-      },
-      { headers: noStore, status: 409 },
-    )
-  }
-
-  // Every number comes from the row just read. A body carrying `total: 1` buys
-  // nothing at that price, because the client is not asked what the price is.
-  const unitPrice = Number(variation?.price ?? product.price ?? 0)
-
-  if (!Number.isInteger(unitPrice) || unitPrice < 1) {
-    return refused(req, `product ${productId} has no usable price`)
-  }
+  const first = resolvedLines[0]!
+  const product = productCache.get(String(first.product))!
+  const quantity = first.quantity
+  const unitPrice = first.unitPrice
 
   const duplicateWindow = duplicateWindowMs()
 
-  if (duplicateWindow > 0) {
+  if (!isCart && duplicateWindow > 0) {
     const { totalDocs: alreadyPending } = await req.payload.count({
       collection: 'orders',
       overrideAccess: true,
@@ -387,8 +412,10 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     locale: site.defaultLocale ?? undefined,
   })
 
-  const subtotal = unitPrice * quantity
+  const subtotal = resolvedLines.reduce((sum, line) => sum + line.subtotal, 0)
+  if (!Number.isSafeInteger(subtotal)) return badRequest('order total out of range')
   const couponCode = typeof data.couponCode === 'string' ? data.couponCode.trim() : ''
+  if (isCart && couponCode) return badRequest('coupons are not supported for cart checkout')
   const appliedCoupon = couponCode
     ? await resolveCheckoutCoupon({
         code: couponCode,
@@ -409,7 +436,7 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
 
   const discountTotal = appliedCoupon?.discount ?? 0
   const total = subtotal - discountTotal
-  const locale = site.defaultLocale ?? 'fa'
+  const locale = requestedLocale
 
   /**
    * Which gateway takes this order — the buyer's choice, or the site's.
@@ -464,27 +491,14 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     provider = resolvePaymentProvider(paymentProvider)
   }
 
-  const order = await req.payload.create({
+  const order = await withDerivedSiteWrite(req, () => req.payload.create({
     collection: 'orders',
     data: {
       buyer,
       currency,
       // The multi-line shape, with the legacy single-product fields kept as
       // the mirror older receipts/integrations read.
-      items: [
-        {
-          product: product.id,
-          productTitle: product.title,
-          quantity,
-          ...(variation?.sku ? { sku: variation.sku } : product.sku ? { sku: product.sku } : {}),
-          subtotal,
-          taxTotal: 0,
-          total: subtotal,
-          unitPrice,
-          ...(variation?.key ? { variationKey: variation.key } : {}),
-          ...(variation?.label ? { variationLabel: variation.label } : {}),
-        },
-      ],
+      items: resolvedLines,
       discountTotal,
       ...(appliedCoupon
         ? {
@@ -500,6 +514,7 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
       payment: { provider: provider.name },
       reference: newOrderReference(),
       product: product.id,
+      productTitle: first.productTitle || product.title,
       quantity,
       shippingTotal: 0,
       // The tenant, from the Host — see the header comment.
@@ -516,7 +531,7 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     // tenant is resolved, the price is computed, and the buyer's details are validated.
     overrideAccess: true,
     req,
-  })
+  }))
 
   const checkoutOrder = toCheckoutOrder({ locale, order, site })
 

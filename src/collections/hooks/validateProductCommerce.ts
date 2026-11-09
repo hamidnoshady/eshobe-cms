@@ -3,6 +3,7 @@ import type { CollectionBeforeValidateHook } from 'payload'
 import { idOf } from '@/lib/ids'
 
 import { failField, findOnSite, siteIdOfWrite } from './contentSameSite'
+import { isMenuSourceId } from './validateMenuSource'
 
 /**
  * Commerce shape rules for an expanded `products` row (issue #166).
@@ -102,6 +103,49 @@ export const validateProductCommerce: CollectionBeforeValidateHook = async ({
     })
   }
 
+  if (row.menuOrder !== undefined && row.menuOrder !== null && !Number.isSafeInteger(row.menuOrder)) {
+    errors.push({ message: 'ترتیب منو باید عدد صحیح باشد.', path: 'menuOrder' })
+  }
+
+  if (Array.isArray(row.modifierGroups)) {
+    const groupIds = new Set<string>()
+    for (const [index, value] of row.modifierGroups.entries()) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        errors.push({ message: 'گروه افزودنی نامعتبر است.', path: `modifierGroups.${index}` })
+        continue
+      }
+      const group = value as Record<string, unknown>
+      const groupId = group?.sourceId
+      if (!isMenuSourceId(groupId) || groupIds.has(groupId)) {
+        errors.push({ message: 'شناسهٔ گروه افزودنی باید معتبر و در محصول یکتا باشد.', path: `modifierGroups.${index}.sourceId` })
+      } else groupIds.add(groupId)
+      const min = group.minSelections ?? 0
+      const max = group.maxSelections ?? 1
+      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || Number(min) < 0 || Number(max) < 1 || Number(max) > 100 || Number(min) > Number(max)) {
+        errors.push({ message: 'کمترین و بیشترین انتخاب باید عدد صحیح و سازگار باشند.', path: `modifierGroups.${index}.minSelections` })
+      }
+      if (group.menuOrder !== undefined && group.menuOrder !== null && !Number.isSafeInteger(group.menuOrder)) {
+        errors.push({ message: 'ترتیب گروه باید عدد صحیح باشد.', path: `modifierGroups.${index}.menuOrder` })
+      }
+      const optionIds = new Set<string>()
+      const options = Array.isArray(group.options) ? group.options : []
+      for (const [optionIndex, value] of options.entries()) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          errors.push({ message: 'گزینهٔ افزودنی نامعتبر است.', path: `modifierGroups.${index}.options.${optionIndex}` })
+          continue
+        }
+        const option = value as Record<string, unknown>
+        const optionId = option.sourceId
+        if (!isMenuSourceId(optionId) || optionIds.has(optionId)) {
+          errors.push({ message: 'شناسهٔ گزینه باید معتبر و در گروه یکتا باشد.', path: `modifierGroups.${index}.options.${optionIndex}.sourceId` })
+        } else optionIds.add(optionId)
+        if (option.menuOrder !== undefined && option.menuOrder !== null && !Number.isSafeInteger(option.menuOrder)) {
+          errors.push({ message: 'ترتیب گزینه باید عدد صحیح باشد.', path: `modifierGroups.${index}.options.${optionIndex}.menuOrder` })
+        }
+      }
+    }
+  }
+
   const productType =
     (typeof row.productType === 'string' && row.productType) ||
     (typeof stored.productType === 'string' && stored.productType) ||
@@ -148,12 +192,16 @@ export const validateProductCommerce: CollectionBeforeValidateHook = async ({
   // Media uploads (image, gallery and variation images) are deliberately not
   // re-checked here: the tenant-media-picker plugin validates every upload
   // relation against the destination site in `beforeChange`.
-  await checkMany('taxonomy-terms', row.terms, 'terms')
-  await checkMany('products', row.upsells, 'upsells')
-  await checkMany('products', row.crossSells, 'crossSells')
+  const siteChanged = Boolean(originalDoc && siteId !== siteIdOfWrite(stored))
+  const effectiveRelation = (key: string) =>
+    Object.hasOwn(row, key) ? row[key] : siteChanged ? stored[key] : undefined
+  await checkMany('taxonomy-terms', effectiveRelation('terms'), 'terms')
+  await checkMany('products', effectiveRelation('upsells'), 'upsells')
+  await checkMany('products', effectiveRelation('crossSells'), 'crossSells')
 
-  if (Array.isArray(row.groupedProducts)) {
-    for (const value of row.groupedProducts) {
+  const groupedProducts = effectiveRelation('groupedProducts')
+  if (Array.isArray(groupedProducts)) {
+    for (const value of groupedProducts) {
       const targetId = idOf(value)
       if (targetId && selfId && targetId === selfId) {
         failField(collection, req, [

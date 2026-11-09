@@ -11,7 +11,7 @@ const idOf = (value: unknown): null | string => {
 
 const isPaid = (order: null | Order | undefined): boolean => order?.status === 'paid'
 
-type StockLine = { productId: string; quantity: number; variationKey: null | string }
+type StockLine = { externalInventory: boolean; productId: string; quantity: number; variationKey: null | string }
 
 /**
  * Moves stock (and coupon usage) when an order crosses the paid line — and
@@ -96,11 +96,16 @@ export const settleStock: CollectionAfterChangeHook<Order> = async ({
       continue
     }
 
+    // Both the current owner and the order-time snapshot protect a POS stock
+    // projection. The latter also covers a later ownership change or a refund.
+    if (product.externalInventory || product.menuSourceSystem === 'biza_miz') continue
+
     const variations = (product.variations ?? []).map((variation) => ({ ...variation }))
     let variationsChanged = false
     let productUnits = 0
 
     for (const line of productLines) {
+      if (line.externalInventory) continue
       const variation = line.variationKey
         ? variations.find((candidate) => candidate.key === line.variationKey)
         : undefined
@@ -164,6 +169,7 @@ const stockLinesOf = (doc: Order): StockLine[] => {
 
       return [
         {
+          externalInventory: item.externalInventory === true,
           productId,
           quantity: Math.max(1, Math.trunc(Number(item.quantity ?? 1))),
           variationKey: item.variationKey?.trim() ? item.variationKey.trim() : null,
@@ -177,6 +183,7 @@ const stockLinesOf = (doc: Order): StockLine[] => {
 
   return [
     {
+      externalInventory: false,
       productId,
       quantity: Math.max(1, Math.trunc(Number(doc.quantity ?? 1))),
       variationKey: null,
@@ -244,7 +251,7 @@ const findOwnProduct = async (
     limit: 1,
     overrideAccess: true,
     req,
-    select: { inventory: true, site: true, trackInventory: true, variations: true },
+    select: { externalInventory: true, inventory: true, menuSourceSystem: true, site: true, trackInventory: true, variations: true },
     where: {
       and: [{ id: { equals: productId } }, { site: { equals: siteId } }],
     },

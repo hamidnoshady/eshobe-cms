@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import React from 'react'
 
-import { formatPrice, toLocaleDigits } from '@/lib/format'
+import { formatNumber, formatPrice, toLocaleDigits } from '@/lib/format'
 import { readOrderForReceipt } from '@/lib/order-receipt'
 import { getSiteContext } from '@/lib/site-context'
 import { uiString } from '@/lib/ui-strings'
@@ -79,8 +79,22 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
               )
             }
           />
-          <Row label={uiString('quantity', locale)} value={toLocaleDigits(String(order.quantity ?? 1), locale)} />
-          <Row label="محصول" value={order.productTitle ?? '—'} />
+          {(order.items?.length ?? 0) > 1 || order.items?.some((item) => (item.modifiers?.length ?? 0) > 0) ? (
+            <div className="space-y-3 py-3">
+              <dt className="text-muted-foreground">{uiString('productHeading', locale)}</dt>
+              {order.items?.map((item, index) => <dd className="flex justify-between gap-4" key={item.id ?? index}>
+                <span>{item.productTitle}{item.variationLabel ? ` — ${item.variationLabel}` : ''} × {formatNumber(item.quantity, locale)}
+                  {item.modifiers?.map((modifier) => <span className="block text-sm text-muted-foreground" key={modifier.id ?? `${modifier.groupSourceId}:${modifier.optionSourceId}`}>
+                    {modifier.groupLabel}: {modifier.optionLabel}
+                  </span>)}
+                </span>
+                <span>{formatPrice(item.total, order.currency, locale)}</span>
+              </dd>)}
+            </div>
+          ) : <>
+            <Row label={uiString('quantity', locale)} value={toLocaleDigits(String(order.quantity ?? 1), locale)} />
+            <Row label="محصول" value={order.productTitle ?? '—'} />
+          </>}
           <Row
             label="مبلغ کل"
             value={<span className="font-bold">{formatPrice(order.total, order.currency, locale)}</span>}

@@ -1,10 +1,10 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, NumberFieldSingleValidation } from 'payload'
 
-import { slugField } from 'payload'
+import { slugField, validations } from 'payload'
 
 import { authenticated } from '../access/authenticated'
 import { authenticatedOrPublished } from '../access/authenticatedOrPublished'
-import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
+import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite, forceApiKeySiteBeforeValidate } from '../access/siteApiKey'
 import { scopedPublishedRead } from '../access/siteRead'
 import { writeUnlessPublishing } from '../access/publish'
 import { PRODUCTS_BASE } from '@/lib/slug'
@@ -17,7 +17,14 @@ import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { validatePriceMinor } from '../lib/money'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
 import { migrationSourceField } from './fields/migrationSource'
+import { menuSourceFields } from './fields/menuSource'
+import { validateMenuSource } from './hooks/validateMenuSource'
 import { validateProductCommerce } from './hooks/validateProductCommerce'
+
+const validateInventory: NumberFieldSingleValidation = (value, options) => {
+  const data = options.data as { menuSourceSystem?: string | null } | undefined
+  return validations.number(value, { ...options, required: data?.menuSourceSystem === 'biza_miz' ? false : options.required })
+}
 
 /**
  * The catalogue of a `store` site: one product, one price, buyable straight from
@@ -36,6 +43,10 @@ import { validateProductCommerce } from './hooks/validateProductCommerce'
  */
 export const Products: CollectionConfig<'products'> = {
   slug: 'products',
+  // PostgreSQL treats NULLs as distinct, so native products remain unrestricted.
+  // Keep this in the schema as well as the migration: dev schema pushes must not
+  // discard the retry-safe POS identity constraint.
+  indexes: [{ fields: ['site', 'menuSourceSystem', 'menuSourceId'], unique: true }],
   access: {
     // A site API key (WAVE-9 §9.4) is that site's own headless client — full
     // catalogue read/write for the one site the key names, never a publish.
@@ -157,13 +168,13 @@ export const Products: CollectionConfig<'products'> = {
       min: 0,
       admin: {
         condition: (_, siblingData) => Boolean(siblingData?.trackInventory),
-        description: 'با پرداخت موفق هر سفارش به اندازهٔ تعدادش کم می‌شود.',
+        description: 'برای کالاهای عادی با پرداخت کم می‌شود؛ موجودی منوی مبدأ فقط همگام‌سازی می‌شود.',
       },
-      // `required` here is conditional by construction: Payload does not validate a
-      // field its `admin.condition` has hidden, so the count is only demanded when
-      // `trackInventory` is on. An empty count must not read as "unlimited" — that
-      // is what the checkbox is for.
+      // Native tracked stock still requires a count. A POS may temporarily
+      // report an unknown count; keep it null and fail closed at checkout rather
+      // than inventing zero or turning tracking off.
       required: true,
+      validate: validateInventory,
     },
     {
       name: 'body',
@@ -277,6 +288,75 @@ export const Products: CollectionConfig<'products'> = {
         { name: 'sourceStatus', type: 'text', label: 'وضعیت در مبدأ' },
       ],
     },
+    ...menuSourceFields(),
+    {
+      name: 'externalInventory',
+      type: 'checkbox',
+      label: 'موجودی در سامانهٔ مبدأ مدیریت می‌شود',
+      defaultValue: false,
+      admin: {
+        description: 'موجودی کالا فقط تصویری از سامانهٔ مبدأ است؛ پرداخت در ای‌شوب آن را کم نمی‌کند.',
+        readOnly: true,
+      },
+    },
+    {
+      name: 'menuAvailability',
+      type: 'select',
+      label: 'وضعیت عرضه در منو',
+      defaultValue: 'available',
+      options: [
+        { label: 'قابل سفارش', value: 'available' },
+        { label: 'تمام شده', value: 'sold_out' },
+        { label: 'غیرفعال', value: 'unavailable' },
+      ],
+    },
+    {
+      name: 'menuOrder',
+      type: 'number',
+      label: 'ترتیب در منو',
+      defaultValue: 0,
+      admin: { step: 1 },
+    },
+    {
+      name: 'modifierGroups',
+      type: 'array',
+      label: 'گروه‌های افزودنی منو',
+      maxRows: 50,
+      labels: { plural: 'گروه‌های افزودنی', singular: 'گروه افزودنی' },
+      admin: { description: 'افزودنی‌ها از تنوع‌های محصول جدا هستند؛ شناسه‌ها از سامانهٔ مبدأ می‌آیند.' },
+      fields: [
+        { name: 'sourceId', type: 'text', label: 'شناسهٔ پایدار گروه', required: true, maxLength: 128 },
+        { name: 'label', type: 'text', label: 'عنوان گروه', localized: true, required: true },
+        { name: 'minSelections', type: 'number', label: 'کمترین انتخاب', defaultValue: 0, min: 0, max: 100, required: true },
+        { name: 'maxSelections', type: 'number', label: 'بیشترین انتخاب', defaultValue: 1, min: 1, max: 100, required: true },
+        { name: 'active', type: 'checkbox', label: 'فعال', defaultValue: true },
+        { name: 'menuOrder', type: 'number', label: 'ترتیب نمایش', defaultValue: 0 },
+        {
+          name: 'options',
+          type: 'array',
+          label: 'گزینه‌های افزودنی',
+          maxRows: 100,
+          labels: { plural: 'گزینه‌ها', singular: 'گزینه' },
+          fields: [
+            { name: 'sourceId', type: 'text', label: 'شناسهٔ پایدار گزینه', required: true, maxLength: 128 },
+            { name: 'label', type: 'text', label: 'عنوان گزینه', localized: true, required: true },
+            {
+              name: 'priceDelta',
+              type: 'number',
+              label: 'تغییر قیمت (واحد خرد)',
+              defaultValue: 0,
+              required: true,
+              validate: (value: unknown) =>
+                typeof value === 'number' && Number.isSafeInteger(value)
+                  ? true
+                  : 'تغییر قیمت باید عدد صحیح در واحد خرد باشد.',
+            },
+            { name: 'active', type: 'checkbox', label: 'فعال', defaultValue: true },
+            { name: 'menuOrder', type: 'number', label: 'ترتیب نمایش', defaultValue: 0 },
+          ],
+        },
+      ],
+    },
     {
       name: 'terms',
       type: 'relationship',
@@ -336,6 +416,6 @@ export const Products: CollectionConfig<'products'> = {
     // Access only checked that a site key exists — never trust the payload's own
     // `site` value on a key-authorized write.
     beforeChange: [forceApiKeySite],
-    beforeValidate: [enforceQuota('products'), uniqueSlugPerSite, validateProductCommerce],
+    beforeValidate: [forceApiKeySiteBeforeValidate, enforceQuota('products'), uniqueSlugPerSite, validateMenuSource, validateProductCommerce],
   },
 }

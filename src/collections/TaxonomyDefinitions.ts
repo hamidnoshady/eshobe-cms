@@ -3,7 +3,7 @@ import type { CollectionConfig } from 'payload'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '../access/anyone'
 import { authenticated } from '../access/authenticated'
-import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
+import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite, forceApiKeySiteBeforeValidate } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
 import {
   archiveSlugMessage,
@@ -13,6 +13,7 @@ import {
 } from '@/lib/content-paths'
 import { migrationSourceField } from './fields/migrationSource'
 import { uniqueArchiveSlugPerSite, uniqueKeyPerSite } from './hooks/uniqueContentKeys'
+import { validateCafeTaxonomyIdentity } from './hooks/validateCafeTaxonomyIdentity'
 
 /**
  * One named taxonomy of a site (issue #166 §2) — WordPress `category`,
@@ -25,6 +26,7 @@ import { uniqueArchiveSlugPerSite, uniqueKeyPerSite } from './hooks/uniqueConten
  */
 export const TaxonomyDefinitions: CollectionConfig = {
   slug: 'taxonomy-definitions',
+  indexes: [{ fields: ['site', 'cafeMenuIdentity'], unique: true }],
   access: {
     create: apiKeyCreateAware(authenticated),
     delete: apiKeyAware(authenticated),
@@ -44,6 +46,9 @@ export const TaxonomyDefinitions: CollectionConfig = {
     singular: 'تعریف طبقه‌بندی',
   },
   fields: [
+    // The nullable marker makes only the reserved café key unique per site;
+    // its value is derived by validateCafeTaxonomyIdentity, not by callers.
+    { name: 'cafeMenuIdentity', type: 'text', admin: { hidden: true, readOnly: true } },
     {
       name: 'key',
       type: 'text',
@@ -128,6 +133,6 @@ export const TaxonomyDefinitions: CollectionConfig = {
   ],
   hooks: {
     beforeChange: [forceApiKeySite],
-    beforeValidate: [uniqueKeyPerSite, uniqueArchiveSlugPerSite],
+    beforeValidate: [forceApiKeySiteBeforeValidate, validateCafeTaxonomyIdentity, uniqueKeyPerSite, uniqueArchiveSlugPerSite],
   },
 }
