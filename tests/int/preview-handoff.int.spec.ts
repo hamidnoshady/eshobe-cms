@@ -146,12 +146,12 @@ describe('POST /api/handoff — admin handoff shape', () => {
   })
 
   it('rejects without a token', async () => {
-    const res = await callHandoff({ url: 'http://cms.example.com/api/handoff?secret=test-secret' })
+    const res = await callHandoff({ url: 'http://cms.example.com/api/handoff?secret=ci-preview-secret' })
     expect(res.status).toBe(400)
   })
 
   it('rejects an invalid token', async () => {
-    const res = await callHandoff({ token: 'not.a.jwt', url: 'http://cms.example.com/api/handoff?secret=test-secret' })
+    const res = await callHandoff({ token: 'not.a.jwt', url: 'http://cms.example.com/api/handoff?secret=ci-preview-secret' })
     // 403 — not 500 — the contract a builder matches on
     expect([400, 403].includes(res.status)).toBe(true)
   })

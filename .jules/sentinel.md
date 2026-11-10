@@ -10,3 +10,7 @@
 **Vulnerability:** Authorization bypass. The condition `if (expectedSecret && secret != null)` allowed the verification to be completely skipped if the `secret` parameter was not provided (making it `null` or `undefined`).
 **Learning:** Developers sometimes use short-circuiting incorrectly when checking for the presence of an expected configuration vs the user's input. The intention was likely to avoid throwing an error if the user didn't provide a secret, but the result was that it bypassed the check entirely.
 **Prevention:** When an environment secret is configured to protect an endpoint, explicit presence and validation of the user's input must be strictly enforced. Fail securely (e.g. return 403 Forbidden) if the expected input is missing.
+## 2025-02-09 - Fix auth bypass in handoff endpoint (Updated)
+**Vulnerability:** Same authorization bypass.
+**Learning:** Integration tests may rely on specific environment variables defined in the CI pipeline (e.g. `.github/workflows/ci.yml`). When fixing a bypass, tests might start failing if they don't provide the correct mock credentials.
+**Prevention:** Verify expected test credentials via codebase searches (e.g. `PREVIEW_SECRET=ci-preview-secret` in CI configs) to ensure tests correctly exercise the newly secured code paths.
