@@ -23,6 +23,25 @@ const PLATFORM_TIME_ZONE = 'Asia/Tehran'
 const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
 const numberFormatCache = new Map<string, Intl.NumberFormat>()
 
+// Fast deterministic cache key generation for Intl options (which are small objects, 1-3 keys usually)
+const stringifyOptions = (options: Record<string, unknown> | undefined): string => {
+  if (!options) return ''
+  const keys = Object.keys(options)
+  if (keys.length === 0) return ''
+  if (keys.length === 1) return `${keys[0]}:${String(options[keys[0]])}`
+  if (keys.length === 2) {
+    return keys[0]! < keys[1]!
+      ? `${keys[0]}:${String(options[keys[0]!])},${keys[1]}:${String(options[keys[1]!])}`
+      : `${keys[1]}:${String(options[keys[1]!])},${keys[0]}:${String(options[keys[0]!])}`
+  }
+  keys.sort()
+  let result = ''
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]!
+    result += `${key}:${String(options[key])}` + (i < keys.length - 1 ? ',' : '')
+  }
+  return result
+}
 
 export const formatDate = (
   date: Date | string | number | null | undefined,
@@ -31,7 +50,7 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  const cacheKey = `${locale}-${JSON.stringify(options)}`
+  const cacheKey = `${locale}-${stringifyOptions(options as Record<string, unknown>)}`
   let formatter = dateTimeFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.DateTimeFormat(intlLocale(locale), {
@@ -51,7 +70,7 @@ export const formatNumber = (
   locale: string,
   options?: Intl.NumberFormatOptions,
 ): string => {
-  const cacheKey = `${locale}-${JSON.stringify(options || {})}`
+  const cacheKey = `${locale}-${stringifyOptions(options as Record<string, unknown>)}`
   let formatter = numberFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.NumberFormat(intlLocale(locale), options)
