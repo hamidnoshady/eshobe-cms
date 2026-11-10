@@ -6,12 +6,14 @@ import React from 'react'
 import { Media } from '@/components/Media'
 import { LivePreviewListener } from '@/components/LivePreviewListener'
 import { formatPrice } from '@/lib/format'
+import { menuAvailability } from '@/lib/cafe-menu'
 import { getSiteContext } from '@/lib/site-context'
 import { paymentMethodsForSite, storeSettingsForSite } from '@/lib/store'
 import { uiString } from '@/lib/ui-strings'
 import { cn } from '@/utilities/ui'
 
 import { PurchaseForm } from '@/blocks/ProductGrid/PurchaseForm'
+import { CafeMenuClient } from '@/blocks/ProductGrid/CafeMenuClient'
 import { queryProduct } from './queries'
 
 /**
@@ -50,7 +52,9 @@ export const ProductDetail: React.FC<{ slug: string; variantKey?: string }> = as
     stockRow.trackInventory && typeof stockRow.inventory === 'number'
       ? Math.max(0, stockRow.inventory)
       : null
-  const soldOut = stock === 0
+  const availability = menuAvailability({ menuAvailability: product.menuAvailability, inventory: stockRow.inventory, trackInventory: stockRow.trackInventory })
+  const soldOut = availability !== 'available'
+  const hasModifiers = (product.modifierGroups ?? []).some((group) => group.active !== false)
 
   return (
     <article className="pb-24">
@@ -73,7 +77,7 @@ export const ProductDetail: React.FC<{ slug: string; variantKey?: string }> = as
             )}
             {soldOut && (
               <span className="absolute end-3 top-3 rounded-md bg-background/90 px-2 py-1 text-xs font-medium text-muted-foreground">
-                {uiString('outOfStock', locale)}
+                {uiString(availability === 'sold_out' ? 'outOfStock' : 'unavailable', locale)}
               </span>
             )}
           </div>
@@ -121,17 +125,39 @@ export const ProductDetail: React.FC<{ slug: string; variantKey?: string }> = as
             )}
 
             {!soldOut ? (
-              <PurchaseForm
-                availability={stock}
-                currency={currency}
-                locale={locale}
-                paymentMethods={paymentMethods}
-                productId={String(product.id)}
-                variation={variation?.key ?? undefined}
-              />
+              hasModifiers ? (
+                <CafeMenuClient
+                  key={`${product.id}-${variation?.key ?? ''}`}
+                  categories={[]}
+                  compact
+                  currency={currency}
+                  locale={locale}
+                  paymentMethods={paymentMethods}
+                  products={[{
+                    id: String(product.id), title: product.title, price: product.price,
+                    image: null, menuAvailability: product.menuAvailability, productType: product.productType,
+                    trackInventory: product.trackInventory, inventory: product.inventory, categoryIds: [],
+                    modifierGroups: product.modifierGroups ?? [],
+                    variations: [...activeVariations].sort((a, b) => a.key === variation?.key ? -1 : b.key === variation?.key ? 1 : 0).map((item) => ({
+                      key: item.key!, label: item.label || item.key!, price: item.price,
+                      trackInventory: item.trackInventory, inventory: item.inventory,
+                    })),
+                  }]}
+                  showBuyButton
+                />
+              ) : (
+                <PurchaseForm
+                  availability={stock}
+                  currency={currency}
+                  locale={locale}
+                  paymentMethods={paymentMethods}
+                  productId={String(product.id)}
+                  variation={variation?.key ?? undefined}
+                />
+              )
             ) : (
               <p className="rounded-md border border-border bg-muted p-4 text-center text-sm">
-                {uiString('outOfStock', locale)}
+                {uiString(availability === 'sold_out' ? 'outOfStock' : 'unavailable', locale)}
               </p>
             )}
           </div>

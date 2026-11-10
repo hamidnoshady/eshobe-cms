@@ -1,4 +1,4 @@
-import type { Access, CollectionBeforeChangeHook, PayloadRequest } from 'payload'
+import type { Access, CollectionBeforeChangeHook, CollectionBeforeValidateHook, PayloadRequest } from 'payload'
 
 import { isBillableCustomerApiPath } from '@/billing/meters/api-path'
 import { noteCustomerApiRequest } from '@/billing/meters/buffer'
@@ -180,5 +180,15 @@ export const isPlatformAdminOrPlatformKey = async (req: PayloadRequest, isPlatfo
 export const forceApiKeySite: CollectionBeforeChangeHook = async ({ data, req }) => {
   const key = await requestApiKey(req)
   if (key?.role !== 'site' || !key.siteId) return data
+  return { ...data, site: key.siteId }
+}
+
+/**
+ * Relationship and uniqueness hooks run in beforeValidate, earlier than
+ * beforeChange. They must validate the key's site, not a spoofed body site.
+ */
+export const forceApiKeySiteBeforeValidate: CollectionBeforeValidateHook = async ({ data, req }) => {
+  const key = await requestApiKey(req)
+  if (!data || key?.role !== 'site' || !key.siteId) return data
   return { ...data, site: key.siteId }
 }

@@ -5,10 +5,12 @@ import { slugField } from 'payload'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { anyone } from '../access/anyone'
 import { authenticated } from '../access/authenticated'
-import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
+import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite, forceApiKeySiteBeforeValidate } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
 import { slugifyField } from '@/lib/slug'
 import { migrationSourceField } from './fields/migrationSource'
+import { menuSourceFields } from './fields/menuSource'
+import { validateMenuSource } from './hooks/validateMenuSource'
 import { uniqueTermSlugPerTaxonomy } from './hooks/uniqueContentKeys'
 import { validateTaxonomyTerm } from './hooks/validateTaxonomyTerm'
 
@@ -22,6 +24,7 @@ import { validateTaxonomyTerm } from './hooks/validateTaxonomyTerm'
  */
 export const TaxonomyTerms: CollectionConfig = {
   slug: 'taxonomy-terms',
+  indexes: [{ fields: ['site', 'menuSourceSystem', 'menuSourceId'], unique: true }],
   access: {
     create: apiKeyCreateAware(authenticated),
     delete: apiKeyAware(authenticated),
@@ -119,10 +122,11 @@ export const TaxonomyTerms: CollectionConfig = {
       label: 'رکوردهای پیوسته به این واژه',
       on: 'term',
     },
+    ...menuSourceFields(),
     migrationSourceField(),
   ],
   hooks: {
     beforeChange: [forceApiKeySite],
-    beforeValidate: [validateTaxonomyTerm, uniqueTermSlugPerTaxonomy],
+    beforeValidate: [forceApiKeySiteBeforeValidate, validateMenuSource, validateTaxonomyTerm, uniqueTermSlugPerTaxonomy],
   },
 }

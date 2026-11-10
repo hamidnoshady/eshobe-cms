@@ -34,7 +34,7 @@ export const validateTaxonomyTerm: CollectionBeforeValidateHook = async ({
     ])
   }
 
-  const parentId = idOf(data.parent ?? originalDoc?.parent)
+  const parentId = idOf(Object.hasOwn(data, 'parent') ? data.parent : originalDoc?.parent)
 
   if (parentId) {
     if (taxonomy!.hierarchical !== true) {

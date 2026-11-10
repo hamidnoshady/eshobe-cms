@@ -155,7 +155,7 @@ export const validateOrderCommerce: CollectionBeforeValidateHook = async ({
       const item = items[index]!
       const productId = idOf(item.product)
       if (!productId) continue
-      const product = await findOnSite(req, 'products', productId, siteId, { title: true })
+      const product = await findOnSite(req, 'products', productId, siteId, { title: true, externalInventory: true, menuSourceSystem: true })
 
       if (!product) {
         // A synthesized legacy line defers to `snapshotOrder`, which has
@@ -165,9 +165,20 @@ export const validateOrderCommerce: CollectionBeforeValidateHook = async ({
         failField(collection, req, [
           { message: 'محصول سطر سفارش باید از همین فروشگاه باشد.', path: `items.${index}.product` },
         ])
-      } else if (typeof item.productTitle !== 'string' || !item.productTitle) {
-        const title = (product as Record<string, unknown>).title
-        item.productTitle = typeof title === 'string' ? title : ''
+      } else {
+        // The stock-owner snapshot is server-owned, not an order writer's way
+        // to suppress settlement for native products. Preserve an existing true
+        // snapshot for the same line even if its product later changes ownership.
+        const previousItems = Array.isArray(stored.items) ? stored.items as Record<string, unknown>[] : []
+        const previousItem = (typeof item.id === 'string'
+          ? previousItems.find((previous) => previous.id === item.id)
+          : previousItems[index])
+        const previouslyExternal = previousItem && idOf(previousItem.product) === productId && previousItem.externalInventory === true
+        item.externalInventory = product.externalInventory === true || product.menuSourceSystem === 'biza_miz' || Boolean(previouslyExternal)
+        if (typeof item.productTitle !== 'string' || !item.productTitle) {
+          const title = product.title
+          item.productTitle = typeof title === 'string' ? title : ''
+        }
       }
     }
   }

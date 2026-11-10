@@ -171,7 +171,9 @@ jobs:
   # ---------- End-to-end tests (Playwright against `pnpm dev`) ----------
   test-e2e:
     name: E2E tests
-    runs-on: ubuntu-latest
+    # Playwright 1.59's browser/dependency installer supports Ubuntu 24.04,
+    # not the Ubuntu 26.04 image rolling out behind ubuntu-latest.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine

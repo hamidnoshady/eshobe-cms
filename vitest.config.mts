@@ -24,6 +24,6 @@ export default defineConfig({
      */
     testTimeout: 60_000,
     setupFiles: ['./vitest.setup.ts'],
-    include: ['tests/int/**/*.int.spec.ts'],
+    include: ['tests/int/**/*.int.spec.{ts,tsx}'],
   },
 })

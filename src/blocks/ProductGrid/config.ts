@@ -6,16 +6,25 @@ import { columnsField, sectionIntro } from '../fields'
  * The store's catalogue — `store` sites only, which is what `src/blocks/index.ts`
  * decides by table, not by a `custom` key a typo could break.
  *
- * Deliberately *not* a cart: PLAN decision #5 is "catalog + checkout first, cart
- * later", and the Wave 7 spike kept it there. This block goes on any page, the card
- * asks for a name and a phone number, and the money is settled against one order row.
- * A store that grows into a cart adds a block; it does not replace this one.
+ * The original catalog/one-product checkout remains the default. Café mode
+ * projects the site's POS categories and products into a client-side cart.
  */
 export const ProductGrid: Block = {
   slug: 'productGrid',
   interfaceName: 'ProductGridBlock',
   fields: [
     ...sectionIntro,
+    {
+      name: 'mode',
+      type: 'select',
+      label: 'نمایش فروشگاه',
+      defaultValue: 'catalog',
+      options: [
+        { label: 'فهرست معمول محصولات', value: 'catalog' },
+        { label: 'منوی کافه و سبد خرید', value: 'cafe' },
+      ],
+      admin: { description: 'منوی کافه کالاها و دسته‌های همگام‌شدهٔ همین سایت را به ترتیب مبدأ نمایش می‌دهد.' },
+    },
     {
       name: 'populateBy',
       type: 'select',

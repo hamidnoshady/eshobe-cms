@@ -33,6 +33,7 @@ import { jalaliDates } from './jalaliDates'
 import { mcp } from './mcp'
 import { publicReadLimits } from '@/lib/public-read-limits'
 import { tenantMediaPicker } from '@/plugins/tenant-media-picker'
+import { siteKeyTenantAssignment } from '@/plugins/site-key-tenant-assignment'
 import { storage } from './storage'
 import { siteUrlForDoc } from '@/lib/site-url'
 import { getServerSideURL } from '@/utilities/getURL'
@@ -444,6 +445,9 @@ export const plugins: Plugin[] = [
     tenantsSlug: 'sites',
     userHasAccessToAllTenants: isPlatformAdmin,
   }),
+  // A site key is a tenant principal even though it has no admin user session.
+  // Wrap only the plugin's new tenant checks for the collections that accept it.
+  siteKeyTenantAssignment,
   // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
   // tenant-scoped collection already exists in config.
   mcp,

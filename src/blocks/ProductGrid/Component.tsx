@@ -8,6 +8,7 @@ import type { Product } from '@/payload-types'
 
 import { Media } from '@/components/Media'
 import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
+import { menuAvailability } from '@/lib/cafe-menu'
 import { formatPrice } from '@/lib/format'
 import { idOf } from '@/lib/ids'
 import { localeHref } from '@/lib/locales'
@@ -20,6 +21,7 @@ import { cn } from '@/utilities/ui'
 
 import { columnClass } from '../fields'
 import { PurchaseForm } from './PurchaseForm'
+import { CafeMenu } from './CafeMenu'
 
 const available = (product: Product): null | number =>
   product.trackInventory && typeof product.inventory === 'number'
@@ -31,6 +33,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
   heading,
   intro,
   limit,
+  mode,
   populateBy,
   products: selected,
   showBuyButton,
@@ -49,6 +52,10 @@ export const ProductGridBlock: React.FC<Props> = async ({
   const paymentMethods = site
     ? await paymentMethodsForSite(String(site.id), { currency, locale })
     : []
+
+  if (mode === 'cafe') {
+    return site ? <CafeMenu currency={currency} heading={heading} intro={intro} locale={locale} paymentMethods={paymentMethods} showBuyButton={showBuyButton !== false} siteId={String(site.id)} /> : null
+  }
 
   let items: Product[] = []
 
@@ -93,7 +100,9 @@ export const ProductGridBlock: React.FC<Props> = async ({
       <div className={cn('grid items-start gap-6', columnClass[columns ?? '3'])}>
         {items.map((product) => {
           const stock = available(product)
-          const soldOut = stock === 0
+          const state = menuAvailability(product)
+          const soldOut = state !== 'available'
+          const hasModifiers = (product.modifierGroups ?? []).some((group) => group.active !== false)
 
           return (
             <article
@@ -111,7 +120,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
                 )}
                 {soldOut && (
                   <span className="absolute end-3 top-3 rounded-md bg-background/90 px-2 py-1 text-xs font-medium text-muted-foreground">
-                    {uiString('outOfStock', locale)}
+                    {uiString(state === 'sold_out' ? 'outOfStock' : 'unavailable', locale)}
                   </span>
                 )}
               </div>
@@ -141,7 +150,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
                 </p>
 
                 {showBuyButton !== false && !soldOut && (
-                  (product.productType ?? 'simple') === 'variable' ? (
+                  (product.productType ?? 'simple') === 'variable' || hasModifiers ? (
                     <Link
                       className="mt-2 rounded-md border border-border px-3 py-2 text-center text-sm font-medium hover:bg-muted/50"
                       href={localeHref(productPath(product.slug), locale, site?.defaultLocale ?? 'fa')}
