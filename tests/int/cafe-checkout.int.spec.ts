@@ -702,7 +702,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     )
   })
 
-  it('scopes the poll feed to the submitting site and carries the token verbatim', async () => {
+  it('puts order.submitted on the poll feed with a stable id and the token verbatim', async () => {
     const { platformEvents } = await import('@/platform/events')
     const order = await orderById(createdOrderIds[0]!)
     const feed = await platformEvents(await request({ method: 'GET', path: '/api/platform/events' }), { limit: 500 })
