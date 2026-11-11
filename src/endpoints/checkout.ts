@@ -1,6 +1,6 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
-import { addDataAndFileToRequest, ValidationError } from 'payload'
+import { addDataAndFileToRequest } from 'payload'
 
 import type { PaymentProvider } from '@/payments'
 import type { Coupon, Order, Product, Site } from '@/payload-types'
@@ -12,6 +12,7 @@ import {
   cartFingerprint,
   COUNTER_PROVIDER,
   isCafeCheckout,
+  isCheckoutRequestConflict,
   isCheckoutRequestId,
   isPaymentChoice,
   refuseServiceMode,
@@ -805,15 +806,15 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     })) as Order
   } catch (error) {
     /**
-     * The unique index on `(site, checkoutRequestId)` fired: two requests with the same
-     * key raced, and this one lost. That is the *success* case for idempotency — the
+     * The unique index on `(site, cafe.checkoutRequestId)` fired: two requests with the
+     * same key raced, and this one lost. That is the *success* case for idempotency — the
      * winner's order exists, so answer with it exactly as a later retry would.
      *
-     * A unique-name lookup rather than a message match, because Payload wraps the
-     * driver's `23505` in a `ValidationError` whose field path names the columns.
+     * Recognition lives in `isCheckoutRequestConflict` (`src/lib/cafe-order.ts`), so it is
+     * testable without a database — see its comment for the two error shapes that reach
+     * it.
      */
-    const conflict = error instanceof ValidationError &&
-      (error.data?.errors ?? []).some((entry) => String(entry.path ?? '').includes('checkout_request_id'))
+    const conflict = isCheckoutRequestConflict(error)
 
     if (conflict && checkoutRequestId) {
       const existing = await findIdempotentOrder({ requestId: checkoutRequestId, req, siteId: String(site.id) })

@@ -298,3 +298,43 @@ export const orderSubmittedData = (order: Record<string, unknown>): Record<strin
     total: order.total ?? null,
   }
 }
+
+/**
+ * Whether a caught error is the `(site, checkoutRequestId)` unique index firing.
+ *
+ * Extracted from the create's `catch` so it can be tested without a database: the strings
+ * it has to recognise only appear once Postgres has actually rejected an insert, and the
+ * consequence of getting it wrong is the difference between an idempotent retry returning
+ * the winning order and a 500.
+ *
+ * Two shapes reach here in practice, and both are covered:
+ *  - Payload's `ValidationError`, whose `path` is Postgres's column list from
+ *    `Key (site_id, cafe_checkout_request_id)=(…) already exists`.
+ *  - The bare driver error, when something rethrows it unwrapped.
+ *
+ * Deliberately *not* a match on `valueMustBeUnique`: that string is translated, and on
+ * this deployment's Persian locale it reads «این مقدار باید منحصر به فرد باشد.» — an
+ * English-only check would miss the race.
+ */
+export const isCheckoutRequestConflict = (error: unknown): boolean => {
+  const candidates: unknown[] = [error, (error as { cause?: unknown })?.cause]
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue
+
+    if ((candidate as { code?: string }).code === '23505') {
+      const detail = String((candidate as { detail?: string }).detail ?? '')
+      const constraint = String((candidate as { constraint?: string }).constraint ?? '')
+
+      if (/cafe_checkout_request_id/.test(detail) || /cafe_checkout_request_id/i.test(constraint)) return true
+    }
+
+    for (const entry of (candidate as { data?: { errors?: { path?: string }[] } }).data?.errors ?? []) {
+      const fields = String(entry.path ?? '').split(',').map((field) => field.trim())
+
+      if (fields.includes('site_id') && fields.includes('cafe_checkout_request_id')) return true
+    }
+  }
+
+  return false
+}

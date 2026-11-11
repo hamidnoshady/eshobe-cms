@@ -7,6 +7,7 @@ import {
   cartFingerprint,
   COUNTER_PROVIDER,
   isCafeCheckout,
+  isCheckoutRequestConflict,
   isCheckoutRequestId,
   isFulfillmentState,
   isPaymentChoice,
@@ -206,5 +207,46 @@ describe('order.submitted payload', () => {
       tableToken: null,
       total: null,
     })
+  })
+})
+
+
+/**
+ * The race-loser path, which is the one place a *successful* idempotent retry can look
+ * like a failure. These shapes are copied from what Postgres and Payload actually
+ * produce; the translated message is included on purpose, because an earlier version of
+ * this check matched the English word "unique" and would have turned every concurrent
+ * retry on a Persian-locale deployment into a 500.
+ */
+describe('checkout request conflict recognition', () => {
+  it('recognises the ValidationError Payload builds from a 23505', () => {
+    expect(isCheckoutRequestConflict({
+      data: { errors: [{ message: 'این مقدار باید منحصر به فرد باشد.', path: 'site_id, cafe_checkout_request_id' }] },
+    })).toBe(true)
+  })
+
+  it('recognises the raw driver error, wrapped or not', () => {
+    const driver = {
+      code: '23505',
+      detail: 'Key (site_id, cafe_checkout_request_id)=(1, abc12345) already exists.',
+    }
+
+    expect(isCheckoutRequestConflict(driver)).toBe(true)
+    expect(isCheckoutRequestConflict({ cause: driver })).toBe(true)
+  })
+
+  it('does not confuse it with another unique index or a plain validation failure', () => {
+    // A product's own unique index, on the same collection of errors.
+    expect(isCheckoutRequestConflict({
+      data: { errors: [{ message: 'Value must be unique', path: 'reference' }] },
+    })).toBe(false)
+
+    // One of the two columns is not enough.
+    expect(isCheckoutRequestConflict({
+      data: { errors: [{ message: 'Value must be unique', path: 'cafe_checkout_request_id' }] },
+    })).toBe(false)
+
+    expect(isCheckoutRequestConflict(null)).toBe(false)
+    expect(isCheckoutRequestConflict(new Error('boom'))).toBe(false)
   })
 })
