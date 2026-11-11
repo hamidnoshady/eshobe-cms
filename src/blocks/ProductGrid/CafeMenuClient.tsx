@@ -6,6 +6,8 @@ import type { ModifierChoice, ModifierSnapshot } from '@/lib/cafe-menu'
 import type { PaymentMethodOption } from '@/lib/checkout'
 import type { CurrencyCode } from '@/lib/money'
 
+import { Loader2 } from 'lucide-react'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -153,7 +155,10 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
                 </label>)}
               </fieldset>}
               <input aria-hidden autoComplete="off" className="hidden" name="company" tabIndex={-1} type="text" />
-              <Button className="w-full" disabled={status === 'sending'} type="submit">{status === 'sending' ? uiString('submitting', locale) : uiString('submit', locale)}</Button>
+              <Button className="w-full" disabled={status === 'sending'} type="submit">
+                {status === 'sending' && <Loader2 className="animate-spin" />}
+                {status === 'sending' ? uiString('submitting', locale) : uiString('submit', locale)}
+              </Button>
               {error && <p aria-live="polite" className="text-sm text-destructive">{error}</p>}
             </form>
           </>}

@@ -3,6 +3,8 @@
 import type { CurrencyCode } from '@/lib/money'
 import type { PaymentMethodOption } from '@/lib/checkout'
 
+import { Loader2 } from 'lucide-react'
+
 import { Button } from '@/components/ui/button'
 import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
 import { formatPrice } from '@/lib/format'
@@ -261,6 +263,7 @@ export const PurchaseForm: React.FC<{
       />
 
       <Button className="w-full" disabled={status === 'sending'} type="submit">
+        {status === 'sending' && <Loader2 className="animate-spin" />}
         {status === 'sending' ? uiString('submitting', locale) : uiString('buyNow', locale)}
       </Button>
 

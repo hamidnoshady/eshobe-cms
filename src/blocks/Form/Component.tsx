@@ -4,6 +4,7 @@ import type { FormFieldBlock, Form as FormType } from '@payloadcms/plugin-form-b
 import { useRouter } from 'next/navigation'
 import React, { useCallback, useState } from 'react'
 import { useForm, FormProvider } from 'react-hook-form'
+import { Loader2 } from 'lucide-react'
 import RichText from '@/components/RichText'
 import { Button } from '@/components/ui/button'
 import type { DefaultTypedEditorState } from '@payloadcms/richtext-lexical'
@@ -128,7 +129,6 @@ export const FormBlock: React.FC<
           {!isLoading && hasSubmitted && confirmationType === 'message' && (
             <RichText data={confirmationMessage} />
           )}
-          {isLoading && !hasSubmitted && <p>در حال ارسال…</p>}
           {error && (
             /**
              * `role="alert"` so a screen reader announces a failed submission — the
@@ -177,6 +177,7 @@ export const FormBlock: React.FC<
               </div>
 
               <Button disabled={isLoading || isSubmitting} form={formID} type="submit" variant="default">
+                {(isLoading || isSubmitting) && <Loader2 className="animate-spin" />}
                 {submitButtonLabel}
               </Button>
             </form>
