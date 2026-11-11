@@ -23,6 +23,18 @@ const PLATFORM_TIME_ZONE = 'Asia/Tehran'
 const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>()
 const numberFormatCache = new Map<string, Intl.NumberFormat>()
 
+// Fast manual stringification for cache keys. Benchmarks show `JSON.stringify`
+// on options objects degrades performance in this hot path due to allocation
+// and sorting overhead, so we use manual concatenation instead.
+const getCacheKey = (locale: string, options?: object): string => {
+  let key = locale
+  if (options) {
+    for (const k in options) {
+      key += '|' + k + ':' + (options as any)[k]
+    }
+  }
+  return key
+}
 
 export const formatDate = (
   date: Date | string | number | null | undefined,
@@ -31,7 +43,7 @@ export const formatDate = (
 ): string => {
   if (date === null || date === undefined || date === '') return ''
 
-  const cacheKey = `${locale}-${JSON.stringify(options)}`
+  const cacheKey = getCacheKey(locale, options)
   let formatter = dateTimeFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.DateTimeFormat(intlLocale(locale), {
@@ -51,7 +63,7 @@ export const formatNumber = (
   locale: string,
   options?: Intl.NumberFormatOptions,
 ): string => {
-  const cacheKey = `${locale}-${JSON.stringify(options || {})}`
+  const cacheKey = getCacheKey(locale, options)
   let formatter = numberFormatCache.get(cacheKey)
   if (!formatter) {
     formatter = new Intl.NumberFormat(intlLocale(locale), options)
