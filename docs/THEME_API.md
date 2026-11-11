@@ -2,6 +2,8 @@
 
 **For AI agents and human developers building headless themes (including ecommerce).**
 
+**Required cross-theme authoring standard:** [Universal Theme Settings & Typography Development Standard](./THEME_SETTINGS_STANDARD.md). All new themes must follow the shared CMS settings system; responsive px field syntax is currently a **planned** extension and must not be emitted by themes until the CMS parser supports it.
+
 *Version: `contractVersion = 1` — `GET /api/site` returns this number. Bump = breaking change.*
 *Stack: Payload 3.90 + Next 16 + Postgres + Tailwind v4. Platform is Persian-first, RTL by default, multi-tenant via `Host`.*
 *Base: this repo `hamidnoshady/eshobe-cms`. Docs cover REST + Payload API, blocks, theming, i18n, money, routing and checkout.*
