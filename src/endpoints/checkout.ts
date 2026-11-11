@@ -1,6 +1,6 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
-import { addDataAndFileToRequest } from 'payload'
+import { addDataAndFileToRequest, ValidationError } from 'payload'
 
 import type { PaymentProvider } from '@/payments'
 import type { Coupon, Order, Product, Site } from '@/payload-types'
@@ -8,6 +8,16 @@ import type { Coupon, Order, Product, Site } from '@/payload-types'
 import { isGatewayId, listEnabledGateways, verifyGatewayState } from '@/payments/gateways'
 
 import { newOrderReference } from '@/collections/hooks/snapshotOrder'
+import {
+  cartFingerprint,
+  COUNTER_PROVIDER,
+  isCafeCheckout,
+  isCheckoutRequestId,
+  isPaymentChoice,
+  refuseServiceMode,
+  type PaymentChoice,
+  type ServiceMode,
+} from '@/lib/cafe-order'
 import { toAsciiDigits } from '@/lib/digits'
 import { resolveModifiers } from '@/lib/cafe-menu'
 import { withDerivedSiteWrite } from '@/lib/derived-site-write'
@@ -44,6 +54,16 @@ import { PaymentGatewayNotConfigured, resolvePaymentProvider } from '@/payments'
  * `/api` is blocked on customer domains by Caddy (Wave 4) except for a short list of
  * carve-outs; `/api/checkout*` is one of them (`Caddyfile`), because the buyer's
  * browser posts it from their own domain.
+ *
+ * ## Café orders (ESH-150)
+ *
+ * A request carrying any café field (`serviceMode`, `tableToken`, `paymentChoice`,
+ * `checkoutRequestId`) is a café order and gets the café rules: dine-in needs an opaque
+ * Biza table token, takeaway must not carry one, pay-at-counter creates an unpaid order
+ * without touching a gateway, and the whole request is idempotent on
+ * (request id, cart fingerprint). A request carrying none of them is the legacy
+ * storefront and runs the code it always ran — see `src/lib/cafe-order.ts` for the
+ * vocabulary and the policies those rules are written against.
  */
 
 /**
@@ -124,6 +144,21 @@ const refused = (req: PayloadRequest, reason: string, status = 409) => {
     { message: 'این خرید هم‌اکنون ممکن نیست. لطفاً دوباره تلاش کنید.', ok: false },
     { headers: noStore, status },
   )
+}
+
+/**
+ * A café refusal has a *reason the guest can act on* — «این میز شناسایی نشد، QR را
+ * دوباره اسکن کنید» — because the failure is almost always a stale QR code or a table
+ * closed by staff, and a generic error sends them to the counter to ask.
+ *
+ * The wording is still deliberately coarse for anything that could be probed: an invalid
+ * token and a token from another tenant answer identically, and the detail goes to the
+ * log.
+ */
+const refusedCafe = (req: PayloadRequest, reason: string, message: string, status = 400) => {
+  req.payload.logger.warn({ msg: `checkout/cafe: ${reason}` })
+
+  return Response.json({ message, ok: false }, { headers: noStore, status })
 }
 
 /**
@@ -230,6 +265,70 @@ const resolveCheckoutCoupon = async ({
   return discount > 0 ? { coupon, discount } : null
 }
 
+/**
+ * The order already created for this (site, request id), or null.
+ *
+ * `depth: 0` and one row: this runs on the retry path, where the answer is usually
+ * "yes" and the only thing wanted back is the document the buyer has already been shown.
+ */
+const findIdempotentOrder = async ({
+  requestId,
+  req,
+  siteId,
+}: {
+  requestId: string
+  req: PayloadRequest
+  siteId: string
+}): Promise<Order | null> => {
+  const { docs } = await req.payload.find({
+    collection: 'orders',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    req,
+    where: {
+      and: [{ site: { equals: siteId } }, { 'cafe.checkoutRequestId': { equals: requestId } }],
+    },
+  })
+
+  return (docs[0] as Order | undefined) ?? null
+}
+
+/**
+ * Public storefront: the guest's cart, for a *retry*.
+ *
+ * Deliberately the same document the first response produced — same order id, same
+ * receipt URL — because the point of idempotency is that the browser cannot tell a
+ * lost response from a first one. Nothing here re-initiates a payment: a retry that
+ * returned a *new* PSP attempt for the same order would give the guest two live
+ * transaction windows and the shop one order to reconcile.
+ */
+const retryResponse = ({
+  locale,
+  order,
+  site,
+  siteId,
+}: {
+  locale: string
+  order: Order
+  site: Site
+  siteId: string
+}) =>
+  Response.json(
+    {
+      confirmationUrl: confirmationUrl({ locale, orderId: String(order.id), site, siteId }),
+      ok: true,
+      orderId: String(order.id),
+      reference: order.reference ?? null,
+      // A retry never redirects: the first attempt already answered with the gateway's
+      // URL, or with none (counter). Sending the browser somewhere new is how a retried
+      // click becomes a second charge attempt.
+      redirectUrl: null,
+      retry: true,
+    },
+    { headers: noStore },
+  )
+
 export const startCheckout: Endpoint['handler'] = async (req) => {
   await addDataAndFileToRequest(req)
 
@@ -264,6 +363,81 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     )
   }
 
+  /* ------------------------------------------------------------------ café mode */
+
+  const cafe = isCafeCheckout(data)
+  const paymentChoiceRaw = data.paymentChoice
+  const paymentChoice: null | PaymentChoice = isPaymentChoice(paymentChoiceRaw)
+    ? paymentChoiceRaw
+    : null
+  const serviceMode: null | ServiceMode =
+    data.serviceMode === 'dine_in' || data.serviceMode === 'takeaway'
+      ? (data.serviceMode as ServiceMode)
+      : null
+  const tableToken =
+    typeof data.tableToken === 'string' && data.tableToken.trim() ? data.tableToken.trim() : null
+  const checkoutRequestId = isCheckoutRequestId(data.checkoutRequestId)
+    ? data.checkoutRequestId
+    : null
+
+  if (cafe && data.paymentChoice !== undefined && paymentChoice === null) {
+    return refusedCafe(req, 'unknown payment choice', 'این روش پرداخت در دسترس نیست.', 400)
+  }
+
+  if (cafe) {
+    // A service mode that was *supplied* but is not one of the two is refused, never
+    // coerced: "delivery" quietly becoming "takeaway" is an order the kitchen cannot
+    // deliver and a guest who cannot be found.
+    if (data.serviceMode !== undefined && serviceMode === null) {
+      return refusedCafe(
+        req,
+        `unsupported service mode ${String(data.serviceMode)}`,
+        'این نوع سرویس در دسترس نیست؛ فقط سفارش حضوری یا بیرون‌بر ممکن است.',
+        400,
+      )
+    }
+
+    const serviceRefusal = refuseServiceMode({ serviceMode, tableToken })
+    if (serviceRefusal) {
+      const message =
+        serviceRefusal === 'dine_in_requires_table_token' || serviceRefusal === 'table_token_invalid'
+          ? 'نشان میز معتبر نیست. لطفاً QR روی میز را دوباره اسکن کنید یا سفارش بیرون‌بر ثبت کنید.'
+          : serviceRefusal === 'takeaway_forbids_table_token'
+            ? 'برای سفارش بیرون‌بر نمی‌توان میز انتخاب کرد. صفحه را دوباره باز کنید.'
+            : 'این سفارش پذیرفته نشد؛ صفحه را دوباره باز کنید.'
+
+      return refusedCafe(req, serviceRefusal, message, 400)
+    }
+
+    if (data.checkoutRequestId !== undefined && !checkoutRequestId) {
+      return refusedCafe(req, 'malformed checkout request id', 'این سفارش پذیرفته نشد؛ صفحه را دوباره باز کنید.', 400)
+    }
+
+    /**
+     * A café order must carry the key, and this is the one place that is *strict*.
+     *
+     * Everything else about the café path can be made safe without the client: prices
+     * are recomputed, the table token is only ever passed through, and the payment
+     * provider is chosen server-side. Retry safety cannot. Without a request id the
+     * endpoint has no fact that distinguishes "the response was lost, send it again"
+     * from "two more coffees", so the two possible behaviours are both wrong: accept and
+     * risk a duplicate ticket in the kitchen, or refuse and break a legitimate second
+     * order from the same table.
+     *
+     * The storefront client always generates one (see `CafeMenuClient`), so this only
+     * ever fires for a headless caller — which is exactly the caller that must be told
+     * the rule rather than have its retries guessed at.
+     */
+    if (!checkoutRequestId) {
+      return refusedCafe(
+        req,
+        'cafe checkout without checkout request id',
+        'این سفارش پذیرفته نشد؛ صفحه را دوباره باز کنید و سفارش تازه‌ای ثبت کنید.',
+        400,
+      )
+    }
+  }
+
   // The legacy product/quantity request remains unchanged. A cart is an
   // explicit items[] request, bounded before any reads; client prices are ignored.
   const isCart = data.items !== undefined
@@ -281,7 +455,15 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     const quantity = Number(line.quantity ?? 1)
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ORDER_QUANTITY) return badRequest('quantity out of range')
     if (line.variation !== undefined && typeof line.variation !== 'string') return badRequest('invalid variation')
+    if (line.modifiers !== undefined && !Array.isArray(line.modifiers)) return badRequest('invalid modifiers')
     requestedLines.push({ productId: line.product, quantity, variation: typeof line.variation === 'string' ? line.variation.trim() : '', modifiers: line.modifiers })
+  }
+  // A café order is a café order: several lines, a table or a bag, no shipping. A
+  // request that names no table and no bag but sends a café field is a client that half
+  // updated — it gets a refusal rather than a silent assignment of "takeaway", because
+  // guessing would hand the kitchen a mode the guest never chose.
+  if (cafe && serviceMode === null) {
+    return refusedCafe(req, 'cafe checkout without service mode', 'نوع سرویس سفارش مشخص نیست؛ صفحه را دوباره باز کنید.', 400)
   }
 
   const name = typeof data.name === 'string' ? data.name.trim() : ''
@@ -378,9 +560,65 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
   const quantity = first.quantity
   const unitPrice = first.unitPrice
 
+  /**
+   * Idempotency, for a café cart.
+   *
+   * The client's request id is chosen once per cart composition. Two requests with the
+   * same id and the same basket are one order — the second one gets the first one's
+   * receipt URL and creates nothing. Two requests with the same id and a *different*
+   * basket are a client reusing a key, which is refused: returning the old order would
+   * hand over food the guest already edited, and creating a new one would break the
+   * promise the key makes.
+   *
+   * Looked up *before* the duplicate guard and *before* order creation, because the whole
+   * point is that a retry costs one indexed read and no writes at all. The unique index
+   * on `(site, checkoutRequestId)` closes the race two simultaneous retries would
+   * otherwise win twice; the create below catches that conflict and re-reads.
+   */
+  const fingerprint = cartFingerprint(resolvedLines.map((line) => ({
+    modifiers: (line.modifiers ?? []).map((modifier) => ({ groupId: modifier.groupSourceId, optionIds: [modifier.optionSourceId] })),
+    productId: String(line.product),
+    quantity: line.quantity,
+    variation: line.variationKey ?? '',
+  })))
+
+  const replay = async (): Promise<null | Response> => {
+    if (!checkoutRequestId) return null
+
+    const existing = await findIdempotentOrder({ requestId: checkoutRequestId, req, siteId: String(site.id) })
+    if (!existing) return null
+
+    if (existing.cafe?.cartFingerprint && existing.cafe.cartFingerprint !== fingerprint) {
+      return refusedCafe(
+        req,
+        `checkout request ${checkoutRequestId} replayed with a different cart`,
+        'سبد سفارش شما تغییر کرده است. صفحه را دوباره باز کنید و سفارش تازه‌ای ثبت کنید.',
+        409,
+      )
+    }
+
+    req.payload.logger.info({ msg: `checkout: replay of order ${existing.id} for request ${checkoutRequestId}` })
+
+    return retryResponse({ locale: requestedLocale, order: existing, site, siteId: String(site.id) })
+  }
+
+  const replayed = await replay()
+  if (replayed) return replayed
+
+  /**
+   * The duplicate guard — **storefront only**.
+   *
+   * It exists because a script that rotates IPs is still one phone number, and a table
+   * full of `pending` rows is the thing it produces. It is the wrong rule for a café: a
+   * table of four ordering separately, or one guest sending a coffee and then a cake, are
+   * legitimate distinct orders with one phone between them, and refusing the second is a
+   * customer standing at the counter asking why. A café order is instead deduplicated by
+   * its request id above, which is the only key that can tell "the same basket twice"
+   * from "two baskets".
+   */
   const duplicateWindow = duplicateWindowMs()
 
-  if (!isCart && duplicateWindow > 0) {
+  if (!isCart && !cafe && duplicateWindow > 0) {
     const { totalDocs: alreadyPending } = await req.payload.count({
       collection: 'orders',
       overrideAccess: true,
@@ -446,94 +684,172 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
    * minutes. `listEnabledGateways` answers it without decrypting anything: a gateway the
    * site has not switched on, has not configured, or whose amount window excludes this
    * basket is simply not in the list.
+   *
+   * ## Pay at the counter (ESH-150)
+   *
+   * `paymentChoice: 'counter'` short-circuits the whole selection: the order is created
+   * unpaid with `payment.provider: 'counter'`, no gateway list is read and no PSP is
+   * called. A `gateway` sent alongside it is ignored rather than refused — a storefront
+   * that keeps its gateway picker rendered while the guest switches to «پرداخت در صندوق»
+   * is behaving correctly, and the choice is the buyer's, not the picker's.
    */
-  const requested = typeof data.gateway === 'string' && data.gateway.trim() ? data.gateway.trim() : null
+  const payAtCounter = cafe && paymentChoice === 'counter'
+  const requestedGateway = payAtCounter
+    ? null
+    : typeof data.gateway === 'string' && data.gateway.trim() ? data.gateway.trim() : null
 
-  if (requested !== null && !isGatewayId(requested)) return badRequest('unknown gateway')
-
-  const methods = await listEnabledGateways({
-    amount: total,
-    currency,
-    req,
-    siteId: String(site.id),
-  })
+  if (requestedGateway !== null && !isGatewayId(requestedGateway)) return badRequest('unknown gateway')
 
   let provider: PaymentProvider
 
-  if (requested) {
-    const method = methods.find(({ id }) => id === requested)
-
-    if (!method) {
-      // Telling the buyer *why* is safe here for the same reason `/api/payments/methods`
-      // is public: which gateways this site has switched on is already readable from its
-      // own domain. The reasons come from `resolveGateway` and are deliberately coarse —
-      // "unavailable" and "amount out of range", never "misconfigured".
-      const refusal =
-        methods.length === 0
-          ? 'پرداخت آنلاین در حال حاضر برای این فروشگاه فعال نیست.'
-          : 'این روش پرداخت برای مبلغ سفارش شما در دسترس نیست. روش دیگری را انتخاب کنید.'
-
-      return Response.json({ message: refusal, methods, ok: false }, { headers: noStore, status: 409 })
-    }
-
-    provider = resolvePaymentProvider(method.id)
-  } else if (methods.length > 0 && !isGatewayId(paymentProvider ?? undefined)) {
-    /**
-     * The site's configured method is a *method* (`bank`, `http`) but it has switched a
-     * gateway on. Switching one on is an explicit statement of intent — "take money this
-     * way" — and `store.paymentProvider` is a default most tenants never visit, so the
-     * top-priority enabled gateway wins. A headless renderer that has not been updated to
-     * send `gateway` therefore gets the merchant's new PSP instead of silently falling
-     * back to card-to-card, and the storefront picker still overrides this per buyer.
-     */
-    provider = resolvePaymentProvider(methods[0]?.id ?? paymentProvider)
+  if (payAtCounter) {
+    provider = resolvePaymentProvider(COUNTER_PROVIDER)
   } else {
-    provider = resolvePaymentProvider(paymentProvider)
+    const methods = await listEnabledGateways({
+      amount: total,
+      currency,
+      req,
+      siteId: String(site.id),
+    })
+
+    if (requestedGateway) {
+      const method = methods.find(({ id }) => id === requestedGateway)
+
+      if (!method) {
+        // Telling the buyer *why* is safe here for the same reason `/api/payments/methods`
+        // is public: which gateways this site has switched on is already readable from its
+        // own domain. The reasons come from `resolveGateway` and are deliberately coarse —
+        // "unavailable" and "amount out of range", never "misconfigured".
+        const refusal =
+          methods.length === 0
+            ? 'پرداخت آنلاین در حال حاضر برای این فروشگاه فعال نیست.'
+            : 'این روش پرداخت برای مبلغ سفارش شما در دسترس نیست. روش دیگری را انتخاب کنید.'
+
+        return Response.json({ message: refusal, methods, ok: false }, { headers: noStore, status: 409 })
+      }
+
+      provider = resolvePaymentProvider(method.id)
+    } else if (methods.length > 0 && !isGatewayId(paymentProvider ?? undefined)) {
+      /**
+       * The site's configured method is a *method* (`bank`, `http`) but it has switched a
+       * gateway on. Switching one on is an explicit statement of intent — "take money this
+       * way" — and `store.paymentProvider` is a default most tenants never visit, so the
+       * top-priority enabled gateway wins. A headless renderer that has not been updated to
+       * send `gateway` therefore gets the merchant's new PSP instead of silently falling
+       * back to card-to-card, and the storefront picker still overrides this per buyer.
+       */
+      provider = resolvePaymentProvider(methods[0]?.id ?? paymentProvider)
+    } else {
+      provider = resolvePaymentProvider(paymentProvider)
+    }
   }
 
-  const order = await withDerivedSiteWrite(req, () => req.payload.create({
-    collection: 'orders',
-    data: {
-      buyer,
-      currency,
-      // The multi-line shape, with the legacy single-product fields kept as
-      // the mirror older receipts/integrations read.
-      items: resolvedLines,
-      discountTotal,
-      ...(appliedCoupon
-        ? {
-            coupons: [
-              {
-                code: appliedCoupon.coupon.code,
-                coupon: appliedCoupon.coupon.id,
-                discount: discountTotal,
-              },
-            ],
-          }
-        : {}),
-      payment: { provider: provider.name },
-      reference: newOrderReference(),
-      product: product.id,
-      productTitle: first.productTitle || product.title,
-      quantity,
-      shippingTotal: 0,
-      // The tenant, from the Host — see the header comment.
-      site: site.id,
-      status: 'pending',
-      subtotal,
-      taxTotal: 0,
-      total,
-      unitPrice,
-    },
-    depth: 0,
-    // The collection's own `create` is staff-only on purpose, so that anonymous REST
-    // writes to an orders table are impossible. This is the one sanctioned door: the
-    // tenant is resolved, the price is computed, and the buyer's details are validated.
-    overrideAccess: true,
-    req,
-  }))
+  const orderData = {
+    buyer,
+    currency,
+    // The multi-line shape, with the legacy single-product fields kept as
+    // the mirror older receipts/integrations read.
+    items: resolvedLines,
+    discountTotal,
+    ...(appliedCoupon
+      ? {
+          coupons: [
+            {
+              code: appliedCoupon.coupon.code,
+              coupon: appliedCoupon.coupon.id,
+              discount: discountTotal,
+            },
+          ],
+        }
+      : {}),
+    // The café facts, only when this is a café order: an ordinary store order must not
+    // grow an `awaiting_approval` it will never leave.
+    ...(cafe
+      ? {
+          cafe: {
+            ...(checkoutRequestId ? { cartFingerprint: fingerprint, checkoutRequestId } : {}),
+            fulfillment: 'awaiting_approval' as const,
+            ...(paymentChoice ? { paymentChoice } : {}),
+            serviceMode: serviceMode as ServiceMode,
+            ...(tableToken ? { tableToken } : {}),
+          },
+        }
+      : {}),
+    payment: { provider: provider.name },
+    reference: newOrderReference(),
+    product: product.id,
+    productTitle: first.productTitle || product.title,
+    quantity,
+    shippingTotal: 0,
+    // The tenant, from the Host — see the header comment.
+    site: site.id,
+    status: 'pending' as const,
+    subtotal,
+    taxTotal: 0,
+    total,
+    unitPrice,
+  }
+
+  let order: Order
+
+  try {
+    order = await withDerivedSiteWrite(req, () => req.payload.create({
+      collection: 'orders',
+      data: orderData,
+      depth: 0,
+      // The collection's own `create` is staff-only on purpose, so that anonymous REST
+      // writes to an orders table are impossible. This is the one sanctioned door: the
+      // tenant is resolved, the price is computed, and the buyer's details are validated.
+      overrideAccess: true,
+      req,
+    })) as Order
+  } catch (error) {
+    /**
+     * The unique index on `(site, checkoutRequestId)` fired: two requests with the same
+     * key raced, and this one lost. That is the *success* case for idempotency — the
+     * winner's order exists, so answer with it exactly as a later retry would.
+     *
+     * A unique-name lookup rather than a message match, because Payload wraps the
+     * driver's `23505` in a `ValidationError` whose field path names the columns.
+     */
+    const conflict = error instanceof ValidationError &&
+      (error.data?.errors ?? []).some((entry) => String(entry.path ?? '').includes('checkout_request_id'))
+
+    if (conflict && checkoutRequestId) {
+      const existing = await findIdempotentOrder({ requestId: checkoutRequestId, req, siteId: String(site.id) })
+
+      if (existing) return retryResponse({ locale, order: existing, site, siteId: String(site.id) })
+    }
+
+    throw error
+  }
 
   const checkoutOrder = toCheckoutOrder({ locale, order, site })
+
+  /**
+   * Pay at the counter ends here, deliberately.
+   *
+   * No `provider.initiate`, because there is nothing to initiate: `counterProvider`
+   * returns no redirect and the money moves in the POS's till. The order stands as an
+   * ordinary `pending` CMS order — the same state a card-to-card transfer waits in —
+   * and the buyer gets the signed receipt URL to show at the counter.
+   */
+  if (payAtCounter) {
+    return Response.json(
+      {
+        confirmationUrl: confirmationUrl({ locale, orderId: String(order.id), site, siteId: String(site.id) }),
+        message: 'سفارش شما ثبت شد؛ پرداخت را در صندوق انجام دهید.',
+        ok: true,
+        orderId: String(order.id),
+        reference: order.reference ?? null,
+        // Says which of the two outcomes this is, so a client never has to infer it from
+        // a missing redirect.
+        paymentChoice: 'counter',
+        redirectUrl: null,
+      },
+      { headers: noStore },
+    )
+  }
 
   let redirectUrl: null | string = null
   let paymentReference: string | undefined
@@ -599,6 +915,8 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
     {
       confirmationUrl: confirmationUrl({ locale, orderId: String(order.id), site, siteId: String(site.id) }),
       ok: true,
+      orderId: String(order.id),
+      ...(cafe ? { paymentChoice: paymentChoice ?? 'online' } : {}),
       redirectUrl,
     },
     { headers: noStore },
@@ -682,9 +1000,19 @@ export const completeCheckout: Endpoint['handler'] = async (req) => {
   const provider = resolvePaymentProvider(order.payment?.provider)
 
   if (!provider.confirm) {
-    // Card to card has nothing to ask. The order waits for the store owner, who
-    // settles stock by moving the status in the admin.
-    const message = 'سفارش شما ثبت شد؛ پس از واریز، فروشگاه آن را تأیید می‌کند.'
+    /**
+     * Card to card and pay-at-counter have nothing to ask: no provider recorded the
+     * money, so there is no server-side fact to verify and the order waits for a human.
+     *
+     * For a counter order this branch is also the *only* path a callback can take — a
+     * URL naming a counter order reaches here and stops, which is what makes "no query
+     * string, flag or callback body can make an order paid" true for the method with no
+     * adapter behind it.
+     */
+    const message =
+      order.payment?.provider === COUNTER_PROVIDER
+        ? 'سفارش شما ثبت شد؛ پرداخت را در صندوق انجام دهید.'
+        : 'سفارش شما ثبت شد؛ پس از واریز، فروشگاه آن را تأیید می‌کند.'
 
     return isBrowser
       ? redirect(back)

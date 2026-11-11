@@ -28,7 +28,14 @@ const available = (product: Product): null | number =>
     ? Math.max(0, Math.min(MAX_ORDER_QUANTITY, product.inventory))
     : null
 
-export const ProductGridBlock: React.FC<Props> = async ({
+/**
+ * `tableToken` is not a field of the block: it comes from the page's URL (`?t=…`) through
+ * `RenderBlocks`, because a table QR is a property of *where the guest is sitting*, not of
+ * the menu. It is only consulted in café mode, and only for a dine-in order.
+ */
+type BlockProps = Props & { tableToken?: null | string }
+
+export const ProductGridBlock: React.FC<BlockProps> = async ({
   columns,
   heading,
   intro,
@@ -37,6 +44,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
   populateBy,
   products: selected,
   showBuyButton,
+  tableToken,
 }) => {
   const { locale, site } = await getSiteContext()
 
@@ -54,7 +62,7 @@ export const ProductGridBlock: React.FC<Props> = async ({
     : []
 
   if (mode === 'cafe') {
-    return site ? <CafeMenu currency={currency} heading={heading} intro={intro} locale={locale} paymentMethods={paymentMethods} showBuyButton={showBuyButton !== false} siteId={String(site.id)} /> : null
+    return site ? <CafeMenu currency={currency} heading={heading} intro={intro} locale={locale} paymentMethods={paymentMethods} showBuyButton={showBuyButton !== false} siteId={String(site.id)} tableToken={tableToken ?? null} /> : null
   }
 
   let items: Product[] = []

@@ -41,6 +41,7 @@ type SiteSearchParams = {
   [key: string]: string | string[] | undefined
   m?: string
   page?: string
+  t?: string
   q?: string
   r?: string
   variant?: string
@@ -135,7 +136,16 @@ export default async function SiteRoute({ params, searchParams }: Args) {
       return <SearchResults page={pageNumber(query.page)} q={query.q} />
 
     case 'page':
-      return <SitePage page={pageNumber(query.page)} slug={route.slug} />
+      return (
+        <SitePage
+          page={pageNumber(query.page)}
+          slug={route.slug}
+          // A café's table QR is a link to this page with an opaque token on it. The
+          // param is carried, never interpreted: whether it names a real table is
+          // Biza's question and is answered when the order is submitted.
+          tableToken={typeof query.t === 'string' ? query.t : null}
+        />
+      )
   }
 }
 

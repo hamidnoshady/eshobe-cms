@@ -42,6 +42,9 @@ export const PLATFORM_EVENTS = {
   'deployment.stopped': 'استقرار پوسته متوقف شد',
   'storage.changed': 'اتصال ذخیره‌سازی تغییر کرد',
   'cdn.synced': 'CDN همگام شد',
+  // ESH-150: the café/POS intake signal, emitted once when an order is *submitted* —
+  // independent of payment. `order.paid` keeps its own meaning and timing.
+  'order.submitted': 'سفارش ثبت شد',
   'order.paid': 'سفارش پرداخت شد',
   'order.refunded': 'سفارش بازپرداخت شد',
   'order.cancelled': 'سفارش لغو شد',

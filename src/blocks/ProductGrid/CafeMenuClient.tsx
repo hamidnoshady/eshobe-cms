@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useId, useState } from 'react'
+import React, { useId, useMemo, useRef, useState } from 'react'
 
 import type { ModifierChoice, ModifierSnapshot } from '@/lib/cafe-menu'
 import type { PaymentMethodOption } from '@/lib/checkout'
@@ -9,6 +9,7 @@ import type { CurrencyCode } from '@/lib/money'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cartFingerprint } from '@/lib/cafe-order'
 import { menuAvailability, menuSort, resolveModifiers } from '@/lib/cafe-menu'
 import { MAX_ORDER_QUANTITY } from '@/lib/checkout'
 import { formatNumber, formatPrice } from '@/lib/format'
@@ -38,11 +39,26 @@ type Props = {
   paymentMethods: PaymentMethodOption[]
   products: CafeMenuItem[]
   showBuyButton: boolean
+  /**
+   * The opaque Biza table token the QR link carried (`?t=…`), if any.
+   *
+   * The *server* reads it from the URL and passes it down; the client never invents
+   * one, never shows it and never edits it. It only decides whether «حضوری» is
+   * selectable — and the endpoint re-validates it regardless, because a token that only
+   * the browser checked is a token a browser can change.
+   */
+  tableToken?: null | string
 }
 
 /** No account or browser total is authoritative. The cart is only a local draft. */
-export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, currency, heading, intro, locale, paymentMethods, products, showBuyButton }) => {
+export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, currency, heading, intro, locale, paymentMethods, products, showBuyButton, tableToken }) => {
   const id = useId().replace(/:/g, '')
+  const hasTable = Boolean(tableToken)
+  const [serviceMode, setServiceMode] = useState<'dine_in' | 'takeaway'>(hasTable ? 'dine_in' : 'takeaway')
+  const [paymentChoice, setPaymentChoice] = useState<'counter' | 'online'>(paymentMethods.length > 0 ? 'online' : 'counter')
+  // One key per cart composition, regenerated whenever the cart changes: a retry of the
+  // *same* basket is the same order, and a basket the guest edited is a new one.
+  const requestId = useRef<string>('')
   const [cart, setCart] = useState<CartLine[]>([])
   const [status, setStatus] = useState<'idle' | 'sending' | 'error'>('idle')
   const [error, setError] = useState('')
@@ -64,10 +80,44 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
     })
   }
 
+  /**
+   * The idempotency key for *this* basket.
+   *
+   * Derived from the cart's own composition — the same signature the cart uses to
+   * decide whether a line is the same line — and regenerated when the guest changes
+   * anything. Holding it across a failed submit is the entire point: a lost response
+   * followed by a second click must reach the server as a retry, not a second order.
+   */
+  const basketKey = useMemo(
+    // The *same* pure function the endpoint re-computes from server prices, so a client
+    // key and a server fingerprint can never disagree about what counts as one basket:
+    // changing a quantity, a modifier or a variation all move the key, and re-rendering
+    // the same cart does not.
+    () => cartFingerprint(cart.map((line) => ({
+      modifiers: line.choices,
+      productId: line.productId,
+      quantity: line.quantity,
+      variation: line.variation ?? '',
+    }))),
+    [cart],
+  )
+
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!cart.length || status === 'sending') return
+    if (serviceMode === 'dine_in' && !hasTable) {
+      setStatus('error')
+      setError(uiString('tableRequired', locale))
+      return
+    }
     const form = new FormData(event.currentTarget)
+    // One key per basket, not per attempt. `crypto.randomUUID` needs a secure context
+    // (https, or localhost); a café's preview on http would otherwise throw on submit,
+    // so the fallback is the same shape from `Math.random` + the clock.
+    const randomId = () => (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID().replace(/-/g, '')
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`)
+    if (requestId.current.split(':')[1] !== basketKey) requestId.current = `${randomId()}:${basketKey}`
     setStatus('sending')
     setError('')
     try {
@@ -79,7 +129,14 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
           email: String(form.get('email') ?? '').trim() || undefined,
           note: String(form.get('note') ?? '').trim() || undefined,
           locale,
-          ...(gateway ? { gateway } : {}),
+          serviceMode,
+          paymentChoice,
+          // The key is the half before the colon; the basket signature stays client-side
+          // so the server computes its own fingerprint from the prices it re-read, not
+          // from anything this component believes.
+          checkoutRequestId: requestId.current.split(':')[0],
+          ...(serviceMode === 'dine_in' && tableToken ? { tableToken } : {}),
+          ...(paymentChoice === 'online' && gateway ? { gateway } : {}),
           items: cart.map(({ productId, quantity, variation, choices }) => ({
             product: productId, quantity, ...(variation ? { variation } : {}), modifiers: choices,
           })),
@@ -142,16 +199,38 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
             <div className="flex justify-between gap-2 border-t border-border pt-4 font-bold"><span>{uiString('cartEstimate', locale)}</span><span>{formatPrice(estimatedTotal, currency, locale)}</span></div>
             <p className="mt-1 text-xs text-muted-foreground">{uiString('cartPriceNotice', locale)}</p>
             <form className="mt-5 space-y-3" onSubmit={submit}>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">{uiString('serviceMode', locale)}</legend>
+                <label className={hasTable ? 'flex items-center gap-2 text-sm' : 'flex items-center gap-2 text-sm opacity-60'}>
+                  <input checked={serviceMode === 'dine_in'} disabled={!hasTable} name="serviceMode" onChange={() => setServiceMode('dine_in')} type="radio" value="dine_in" />
+                  <span>{uiString('dineIn', locale)}{!hasTable && <span className="block text-xs text-muted-foreground">{uiString('tableCodeHint', locale)}</span>}</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input checked={serviceMode === 'takeaway'} name="serviceMode" onChange={() => setServiceMode('takeaway')} type="radio" value="takeaway" />
+                  <span>{uiString('takeaway', locale)}</span>
+                </label>
+              </fieldset>
               <div><Label htmlFor={`${id}-name`}>{uiString('name', locale)}</Label><Input autoComplete="name" id={`${id}-name`} name="name" required /></div>
               <div><Label htmlFor={`${id}-phone`}>{uiString('phone', locale)}</Label><Input autoComplete="tel" dir="ltr" id={`${id}-phone`} inputMode="tel" name="phone" required /></div>
               <div><Label htmlFor={`${id}-email`}>{uiString('email', locale)}</Label><Input autoComplete="email" dir="ltr" id={`${id}-email`} name="email" type="email" /></div>
               <div><Label htmlFor={`${id}-note`}>{uiString('note', locale)}</Label><Input id={`${id}-note`} maxLength={500} name="note" /></div>
-              {methods.length > 0 && <fieldset className="space-y-2"><legend className="text-sm font-medium">{uiString('paymentMethod', locale)}</legend>
-                {methods.map((method) => <label className="flex items-start gap-2 rounded border border-border p-2 text-sm" key={method.id}>
+              <fieldset className="space-y-2"><legend className="text-sm font-medium">{uiString('paymentMethod', locale)}</legend>
+                {/* Pay at the counter is always offered: the shop is the one place a
+                    café guest definitely can pay, and its absence would leave a site
+                    with no gateway unable to take an order at all. */}
+                <label className="flex items-start gap-2 rounded border border-border p-2 text-sm">
+                  <input checked={paymentChoice === 'counter'} name="paymentChoice" onChange={() => setPaymentChoice('counter')} type="radio" value="counter" />
+                  <span>{uiString('payAtCounter', locale)}<span className="block text-xs text-muted-foreground">{uiString('payAtCounterHint', locale)}</span></span>
+                </label>
+                {methods.length > 0 && <label className="flex items-start gap-2 rounded border border-border p-2 text-sm">
+                  <input checked={paymentChoice === 'online'} name="paymentChoice" onChange={() => setPaymentChoice('online')} type="radio" value="online" />
+                  <span>{uiString('payOnline', locale)}</span>
+                </label>}
+                {paymentChoice === 'online' && methods.map((method) => <label className="flex items-start gap-2 rounded border border-border p-2 text-sm" key={method.id}>
                   <input checked={gateway === method.id} name="gateway" onChange={() => setGateway(method.id)} type="radio" value={method.id} />
                   <span>{locale === 'fa' ? method.label : method.labelEn || method.label}{method.kind === 'bnpl' && ` — ${uiString('instalments', locale)}`}{method.mode === 'sandbox' && ` — ${uiString('sandbox', locale)}`}{method.requiresMobile && <span className="block text-xs text-muted-foreground">{uiString('mobileHint', locale)}</span>}</span>
                 </label>)}
-              </fieldset>}
+              </fieldset>
               <input aria-hidden autoComplete="off" className="hidden" name="company" tabIndex={-1} type="text" />
               <Button className="w-full" disabled={status === 'sending'} type="submit">{status === 'sending' ? uiString('submitting', locale) : uiString('submit', locale)}</Button>
               {error && <p aria-live="polite" className="text-sm text-destructive">{error}</p>}

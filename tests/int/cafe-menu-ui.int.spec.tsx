@@ -61,6 +61,93 @@ describe('café menu UI', () => {
     ])
     expect(body.total).toBeUndefined()
     expect(body.items[0].unitPrice).toBeUndefined()
+    // ESH-150: with no table token on the page, the cart submits itself as a takeaway
+    // order and names a payment choice — never a table id, and never a client price.
+    expect(body.serviceMode).toBe('takeaway')
+    expect(body.tableToken).toBeUndefined()
+    expect(typeof body.checkoutRequestId).toBe('string')
+    expect(body.checkoutRequestId.length).toBeGreaterThanOrEqual(8)
     expect(await screen.findByText('Price changed')).toBeTruthy()
+  })
+
+  it('defaults to dine-in when the QR link carried a table token, and offers pay at the counter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ message: 'nope' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CafeMenuClient categories={[{ id: 'drinks', name: 'Drinks' }]} currency="IRT" locale="en" paymentMethods={[]} products={products} showBuyButton tableToken="TBL_9f2c1a4e77b04d0f8c31ab77" />)
+
+    const cart = within(screen.getByRole('complementary', { name: 'Your cart' }))
+    const coffee = within(screen.getAllByRole('article')[0]!)
+    fireEvent.click(coffee.getByRole('checkbox', { name: /Oat/ }))
+    fireEvent.click(coffee.getByRole('button', { name: 'Add to cart' }))
+
+    // A scanned table preselects dine-in…
+    expect((cart.getByRole('radio', { name: /At a table/ }) as HTMLInputElement).checked).toBe(true)
+    // …and a site with no gateway still offers pay at the counter, preselected.
+    expect((cart.getByRole('radio', { name: /Pay at the counter/ }) as HTMLInputElement).checked).toBe(true)
+    // No gateway is configured on this site, so online payment is not offered at all.
+    expect(cart.queryByRole('radio', { name: 'Pay online' })).toBeNull()
+
+    fireEvent.change(cart.getByLabelText('Full name'), { target: { value: 'Table Four' } })
+    fireEvent.change(cart.getByLabelText('Phone'), { target: { value: '09123456789' } })
+    fireEvent.submit(cart.getByRole('button', { name: 'Submit' }).closest('form')!)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body)
+    expect(body.serviceMode).toBe('dine_in')
+    expect(body.tableToken).toBe('TBL_9f2c1a4e77b04d0f8c31ab77')
+    expect(body.paymentChoice).toBe('counter')
+    expect(body.gateway).toBeUndefined()
+  })
+
+  it('refuses to submit a dine-in choice the page cannot honour', async () => {
+    // No `?t=` on the page: there is no table to attribute the order to, so the dine-in
+    // radio is inert and the cart submits as takeaway.
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CafeMenuClient categories={[]} currency="IRT" locale="en" paymentMethods={[]} products={products} showBuyButton />)
+    const cart = within(screen.getByRole('complementary', { name: 'Your cart' }))
+    fireEvent.click(within(screen.getAllByRole('article')[1]!).getByRole('button', { name: 'Add to cart' }))
+
+    expect((cart.getByRole('radio', { name: /At a table/ }) as HTMLInputElement).disabled).toBe(true)
+    expect((cart.getByRole('radio', { name: 'Takeaway' }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.change(cart.getByLabelText('Full name'), { target: { value: 'No Table' } })
+    fireEvent.change(cart.getByLabelText('Phone'), { target: { value: '09123456789' } })
+    fireEvent.submit(cart.getByRole('button', { name: 'Submit' }).closest('form')!)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body)
+    expect(body.serviceMode).toBe('takeaway')
+    expect(body.tableToken).toBeUndefined()
+  })
+
+  it('keeps one request id across a retried submit and changes it when the basket does', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'Network blip' }) })
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ message: 'Network blip' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CafeMenuClient categories={[{ id: 'drinks', name: 'Drinks' }]} currency="IRT" locale="en" paymentMethods={[]} products={products} showBuyButton />)
+
+    const cart = within(screen.getByRole('complementary', { name: 'Your cart' }))
+    const cake = within(screen.getAllByRole('article')[1]!)
+    fireEvent.click(cake.getByRole('button', { name: 'Add to cart' }))
+    fireEvent.change(cart.getByLabelText('Full name'), { target: { value: 'Retry Buyer' } })
+    fireEvent.change(cart.getByLabelText('Phone'), { target: { value: '09123456789' } })
+    const form = cart.getByRole('button', { name: 'Submit' }).closest('form')!
+
+    fireEvent.submit(form)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    // An unchanged basket retried is the same order: same key.
+    fireEvent.submit(form)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+
+    const firstId = JSON.parse(fetchMock.mock.calls[0]![1].body).checkoutRequestId
+    const secondId = JSON.parse(fetchMock.mock.calls[1]![1].body).checkoutRequestId
+    expect(secondId).toBe(firstId)
+
+    // Adding a second cake makes it a different order, so the key moves with it.
+    fireEvent.click(cake.getByRole('button', { name: 'Add to cart' }))
+    fireEvent.submit(form)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(fetchMock.mock.calls[2]![1].body).checkoutRequestId).not.toBe(firstId)
   })
 })

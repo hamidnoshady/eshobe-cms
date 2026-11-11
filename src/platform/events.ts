@@ -1,5 +1,6 @@
 import type { PayloadRequest } from 'payload'
 
+import { orderSubmittedData } from '@/lib/cafe-order'
 import {
   clampLimit,
   compareEventsDesc,
@@ -88,6 +89,61 @@ export const platformEvents = async (
         siteId: id,
       })
     }
+  }
+
+  /**
+   * ESH-150 — the *submitted* half of a café order, on the same cursor Biza already
+   * polls.
+   *
+   * The durable `order.submitted` event goes out over the webhook immediately; this is
+   * the other delivery path the issue requires, and it exists because a café's POS may
+   * be behind a NAT with no inbound URL. The record is derived from the order row (the
+   * audit row is the operator's copy, not this feed's), and its `id` carries the instant
+   * so a re-poll after `since` cannot double-count one submission.
+   *
+   * Scoped to café orders by `cafe.serviceMode`: an ordinary store order shows up below
+   * as `order.placed`, exactly as before, and must not appear in Biza's approval queue.
+   */
+  const cafeOrders = await req.payload.find({
+    collection: 'orders',
+    depth: 1,
+    limit,
+    overrideAccess: true,
+    req,
+    select: {
+      cafe: true,
+      createdAt: true,
+      currency: true,
+      payment: true,
+      reference: true,
+      site: true,
+      status: true,
+      total: true,
+    },
+    sort: '-createdAt',
+    where: {
+      and: [
+        { createdAt: { greater_than: sinceIso } },
+        { 'cafe.serviceMode': { exists: true } },
+      ],
+    },
+  })
+
+  for (const doc of cafeOrders.docs as unknown as Record<string, unknown>[]) {
+    const site = siteLabel(doc.site)
+    const at = String(doc.createdAt ?? sinceIso)
+    events.push({
+      at,
+      // The same builder the webhook hook uses. A poller and a webhook receiver must
+      // see one contract, not two that happen to agree today.
+      data: orderSubmittedData(doc),
+      id: `order:submitted:${String(doc.id)}:${at}`,
+      kind: 'order.submitted',
+      level: 'info',
+      message: `سفارش کافه ${doc.reference ?? doc.id} ثبت شد.`,
+      siteDomain: site.domain,
+      siteId: site.id,
+    })
   }
 
   const orders = await req.payload.find({

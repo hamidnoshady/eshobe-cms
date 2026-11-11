@@ -4,6 +4,7 @@ import { authenticated } from '../access/authenticated'
 import { platformAdmin } from '../access/platformAdmin'
 import { hiddenFromOperators } from '@/admin/visibility'
 import { apiKeyAware } from '../access/siteApiKey'
+import { FULFILLMENT_STATES } from '@/lib/cafe-order'
 import { currencyCodes, validatePriceMinor } from '../lib/money'
 import { isMigrationWrite } from '../lib/migration-context'
 import { idOf } from '../lib/ids'
@@ -11,6 +12,7 @@ import { isGatewayProvider, paymentProviderOptions } from '../payments'
 import { restrictApiKeyOrderWrite } from './hooks/restrictApiKeyOrderWrite'
 import { snapshotOrder } from './hooks/snapshotOrder'
 import { emitOrderPaid } from './hooks/emitOrderPaid'
+import { emitOrderSubmitted } from './hooks/emitOrderSubmitted'
 import { emitOrderReversal } from './hooks/emitOrderReversal'
 import { settleStock } from './hooks/settleStock'
 import { migrationSourceField } from './fields/migrationSource'
@@ -59,6 +61,19 @@ export const Orders: CollectionConfig<'orders'> = {
     singular: 'سفارش',
     plural: 'سفارش‌ها',
   },
+  /**
+   * The café idempotency boundary (ESH-150).
+   *
+   * A checkout retry must return the order it already created, so "is there one for this
+   * key?" has to be a single indexed lookup and has to be race-safe: two requests that
+   * arrived within the same millisecond both read "no", both create, and the kitchen gets
+   * two tickets. The **unique** index is what makes the loser of that race fail loudly
+   * instead of silently duplicating; the endpoint catches the conflict and re-reads.
+   *
+   * PostgreSQL permits any number of `NULL`s in a unique index, so every legacy and
+   * admin-created order — which carries no key — is unaffected.
+   */
+  indexes: [{ fields: ['site', 'cafe.checkoutRequestId'], unique: true }],
   fields: [
     {
       // What the buyer reads out on the phone. Random rather than sequential on
@@ -76,9 +91,13 @@ export const Orders: CollectionConfig<'orders'> = {
     {
       name: 'status',
       type: 'select',
-      label: 'وضعیت',
+      label: 'وضعیت پرداخت',
       defaultValue: 'pending',
       index: true,
+      admin: {
+        description:
+          'چرخهٔ پرداخت، جدا از تأیید کافه. «پرداخت‌شده» یعنی پول رسیده، نه اینکه سفارش پذیرفته یا آماده شده باشد.',
+      },
       options: [
         { label: 'در انتظار پرداخت', value: 'pending' },
         { label: 'پرداخت‌شده', value: 'paid' },
@@ -163,6 +182,127 @@ export const Orders: CollectionConfig<'orders'> = {
             readOnly: true,
             width: '50',
           },
+        },
+      ],
+    },
+    /**
+     * ESH-150 — how this order is served and how it is paid.
+     *
+     * A **group**, not a flat scattering of fields, because these five belong to one
+     * question ("where is this order and who is it for") and the answer is written once,
+     * by the checkout endpoint, from the submitted service mode — never by a client
+     * naming a site or a table id.
+     *
+     * `tableToken` is opaque: the CMS stores it to pass to Biza on `order.submitted` and
+     * deliberately never resolves it. There is no `table` relationship here because this
+     * deployment does not own tables; inventing one would make a CMS row the authority
+     * for a floor plan it cannot see.
+     */
+    {
+      name: 'cafe',
+      type: 'group',
+      label: 'سرویس کافه',
+      admin: {
+        description:
+          'فقط برای سفارش‌های کافه پر می‌شود. سفارش‌های فروشگاهی این گروه را خالی دارند و رفتارشان تغییری نکرده است.',
+      },
+      fields: [
+        {
+          name: 'serviceMode',
+          type: 'select',
+          label: 'نوع سرویس',
+          index: true,
+          admin: {
+            description: '«حضوری» با نشان میز، «بیرون‌بر» بدون میز. ارسال و رزرو در این جریان پذیرفته نمی‌شود.',
+            readOnly: true,
+          },
+          options: [
+            { label: 'حضوری (سر میز)', value: 'dine_in' },
+            { label: 'بیرون‌بر', value: 'takeaway' },
+          ],
+        },
+        {
+          name: 'tableToken',
+          type: 'text',
+          label: 'نشان میز (توکن بیزا)',
+          maxLength: 512,
+          admin: {
+            description:
+              'توکن ماتِ صادرشده توسط بیزا؛ خودِ آیدی میز نیست و در این سامانه ترجمه نمی‌شود. کافه فقط همین را می‌شناسد.',
+            readOnly: true,
+          },
+        },
+        {
+          name: 'paymentChoice',
+          type: 'select',
+          label: 'انتخاب پرداخت',
+          admin: { readOnly: true },
+          options: [
+            { label: 'پرداخت آنلاین', value: 'online' },
+            { label: 'پرداخت در صندوق', value: 'counter' },
+          ],
+        },
+        {
+          name: 'checkoutRequestId',
+          type: 'text',
+          label: 'شناسهٔ درخواست ثبت',
+          index: true,
+          maxLength: 128,
+          admin: {
+            description:
+              'کلید یکتای دوباره‌فرستادن؛ تلاش مجدد با همین کلید همان سفارش را برمی‌گرداند و سفارش دوم نمی‌سازد.',
+            readOnly: true,
+          },
+        },
+        {
+          name: 'cartFingerprint',
+          type: 'text',
+          label: 'اثر انگشت سبد',
+          maxLength: 64,
+          admin: {
+            description:
+              'خلاصهٔ خطوط همان لحظه؛ با شناسهٔ درخواست جفت می‌شود تا سبدِ عوض‌شده با کلید قبلی به سفارش قدیمی نچسبد.',
+            readOnly: true,
+          },
+        },
+        /**
+         * The POS's own answer, written by Biza through its site key.
+         *
+         * `orders.status` cannot carry it: the kitchen accepting an unpaid counter order
+         * and the guest paying online are independent facts, and an enum that tried to
+         * hold both would make one of them unrepresentable.
+         */
+        {
+          name: 'fulfillment',
+          type: 'select',
+          label: 'وضعیت آماده‌سازی',
+          defaultValue: 'awaiting_approval',
+          index: true,
+          admin: {
+            description:
+              'کارِ صندوق است، نه خریدار. تا وقتی کافه سفارش را نپذیرد، آشپزخانه چیزی دریافت نمی‌کند.',
+          },
+          options: FULFILLMENT_STATES.map((value) => ({
+            label:
+              value === 'awaiting_approval'
+                ? 'در انتظار تأیید کافه'
+                : value === 'accepted'
+                  ? 'پذیرفته شد'
+                  : value === 'preparing'
+                    ? 'در حال آماده‌سازی'
+                    : value === 'ready'
+                      ? 'آماده'
+                      : value === 'served'
+                        ? 'تحویل شد'
+                        : 'رد شد',
+            value,
+          })),
+        },
+        {
+          name: 'fulfillmentAt',
+          type: 'date',
+          label: 'زمان آخرین تغییر آماده‌سازی',
+          admin: { readOnly: true },
         },
       ],
     },
@@ -474,7 +614,11 @@ export const Orders: CollectionConfig<'orders'> = {
     migrationSourceField({ optional: true }),
   ],
   hooks: {
-    afterChange: [settleStock, emitOrderPaid, emitOrderReversal],
+    // `emitOrderSubmitted` sits beside the others, not before `settleStock`: create-time
+    // and status-change-time hooks are independent, and the order in this array is only
+    // about which write happens first for a row that is both (never here — create cannot
+    // also be a paid transition).
+    afterChange: [settleStock, emitOrderSubmitted, emitOrderPaid, emitOrderReversal],
     beforeChange: [restrictApiKeyOrderWrite],
     beforeValidate: [validateOrderCommerce, snapshotOrder],
   },

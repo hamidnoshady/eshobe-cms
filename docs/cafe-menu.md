@@ -1,4 +1,4 @@
-# POS-managed café menu (ESH-149 / #196)
+# POS-managed café menu and checkout (ESH-149 / #196, ESH-150 / #197)
 
 This extends the existing `products`, `taxonomy-definitions`, `taxonomy-terms`,
 `orders` and `productGrid`; it does not use the navigation `menus` collection or
@@ -91,7 +91,7 @@ through the existing authorized workflow. Image IDs must be from the same site.
 The POS outbox must re-read current desired data on retries and serialize writes
 for an item: these endpoints provide stable identity, not source-version ordering.
 
-## Checkout contract and remaining companion work
+## Cart checkout contract (ESH-148 / #195)
 
 `POST /api/checkout` retains the legacy `{product, quantity, ...buyer}` form. A
 cart sends `items` (1–50 lines), `name`, `phone`, optional `email`, `note`,
@@ -118,10 +118,107 @@ quantities and external stock ownership; the old first-line fields remain a mirr
 Coupons continue to work on the legacy single-product request, but are explicitly
 rejected for cart requests until a multi-line coupon allocation is designed.
 
-This change uses the existing payment gateway and signed receipt flow. **It does
-not implement the separate café checkout issue #197 / ESH-150**: dine-in table
-QR tokens, takeaway/counter payment, durable `order.submitted` events, and
-checkout-request idempotency are still required before deploying the full POS
-order-intake workflow. In particular, do not treat the draft cart as an order or
-assume a lost checkout response is safe to resubmit. Biza's menu projection and
-outbox implementation are tracked separately in biza-miz #1303 / ESH-145.
+## Café checkout: dine-in, takeaway and pay at the counter (ESH-150 / #197)
+
+The cart contract above is the base. A café order adds four optional fields, and
+sending any one of them puts the request on the café path:
+
+```json
+{
+  "name": "میزبان", "phone": "09123456789",
+  "checkoutRequestId": "9f2c1a4e77b04d0f8c31ab77e0d5",
+  "serviceMode": "dine_in",
+  "tableToken": "<opaque Biza token from the QR link, verbatim>",
+  "paymentChoice": "counter",
+  "items": [{ "product": "<CMS product UUID>", "quantity": 1,
+              "modifiers": [{ "groupId": "milk", "optionIds": ["oat"] }] }]
+}
+```
+
+**Service mode.** `dine_in` requires `tableToken`; `takeaway` must not carry one.
+Delivery and reservation modes are not offered and are rejected rather than
+coerced. The token is opaque to this CMS: it is length/charset-checked, stored
+verbatim and handed to Biza, which resolves it against its own business,
+location and table records. The CMS never stores a table id, never derives one
+from the token, and never answers a request that asks whether a token is valid —
+that answer would let anyone probe another tenant's tables. `?t=<token>` on a
+site page reaches the menu block as a prop and only decides whether dine-in is
+selectable; the endpoint re-validates the value regardless.
+
+**Payment choice.** `counter` creates a normal pending/unpaid order with the
+`counter` payment provider, makes no gateway call at all and returns the signed
+receipt URL immediately. `online` keeps the existing gateway path unchanged, and
+a paid status is only ever set from a verified provider confirmation. A query
+string, a client flag or a webhook body cannot mark an order paid.
+
+**Idempotency.** `checkoutRequestId` is a client-generated opaque string (8–128
+characters) and is **required** on the café path: without it the endpoint cannot tell a
+lost response from a second order, so a café request that omits it is refused (HTTP 400)
+rather than guessed at. The merchant storefront always sends one. `(site, checkoutRequestId)` is unique, and the order stores a
+`cartFingerprint` of the basket it was created from. The same id with the same
+fingerprint is a retry and returns the existing order (HTTP 200, `"retry": true`,
+same `orderId`); the same id with a different basket is HTTP 409 and no order is
+created; a new id is a new order, so two colleagues at one table ordering from
+one phone number are both served. A unique-constraint collision between two
+concurrent requests is resolved by re-reading the winner. Retrying a *lost
+response* therefore cannot create a second CMS order, which is what makes the
+outbound event safe to replay.
+
+The cart is subject to the ordinary site rate limit; a submitted order is not.
+
+### Events
+
+`order.submitted` fires once, on create, for every café order — `pending` or paid
+— over the existing signed webhook fan-out and on the poll feed (id
+`order:submitted:<orderId>:<createdAt>`). Payload:
+
+```json
+{
+  "orderId": "<CMS order id>", "reference": "CMS-1042", "eventVersion": 1,
+  "serviceMode": "dine_in", "tableToken": "<verbatim>",
+  "fulfillment": "awaiting_approval", "paymentProvider": "counter",
+  "paymentStatus": "pending", "total": 950, "currency": "IRT"
+}
+```
+
+Only identity and state travel: Biza fetches the full document through its
+site-scoped API key, so there is exactly one authoritative copy of the line
+snapshots. `order.paid`, refund and cancellation events keep their existing
+meaning and their existing CMS order id, so a POS can converge them onto one
+order.
+
+`order.paid` is **suppressed** for café orders when the CMS did not take the
+money: `payment.provider === 'counter'` settlements and status writes that
+arrived with a site API key (the POS writing back what it already knows) emit
+nothing. Without that guard the POS's own counter-settlement write would bounce
+back to it as a payment it never took. A verified online payment, and an
+operator marking a transfer paid in the admin, still emit.
+
+### Stock ownership
+
+The POS owns recipe and ingredient inventory. Any order that carries a café
+service mode decrements no CMS product stock when it is paid — including lines
+for CMS-owned products, because the ticket is fulfilled by the POS end to end.
+Products the menu sync creates are also marked `externalInventory`, so they are
+skipped individually even on an ordinary store order. Ordinary store products on
+an ordinary store order, and coupon usage, behave exactly as before.
+
+### Receipt
+
+The customer receipt shows three independent lines, because they are three
+independent lifecycles: service type (`cafe.serviceMode`), preparation
+(`cafe.fulfillment`, driven by the POS), and payment (`status`). `cafe.fulfillment`
+defaults to `awaiting_approval` and is a closed vocabulary
+(`awaiting_approval`, `accepted`, `preparing`, `ready`, `served`, `rejected`).
+
+The POS writes it through its site key with an ordinary order update
+(`PATCH /api/orders/:id`, `{ "cafe": { "fulfillment": "accepted" }, "status": "paid" }`).
+A site key may write exactly two things on an order: `status` and
+`cafe.fulfillment`/`cafe.fulfillmentAt`. Every other field — totals, buyer, reference,
+the café service mode and token, the checkout request id — reverts to the stored value,
+so an overreaching or compromised key cannot rewrite a receipt. A `fulfillment` value
+outside the vocabulary is dropped from a keyed write rather than failing the whole
+update, because `status` in the same call is the POS's real assertion.
+
+Biza's companions: table QR tokens in biza-miz #1305, submitted-order intake and
+per-connection idempotency in #1304, and the menu projection in #1303.

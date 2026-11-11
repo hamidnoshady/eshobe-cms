@@ -77,8 +77,24 @@ export const settleStock: CollectionAfterChangeHook<Order> = async ({
     return doc
   }
 
+  /**
+   * ESH-150 — a café order is a POS ticket, and its inventory is the POS's.
+   *
+   * Biza consumes recipe/ingredient stock for these orders and later pushes the
+   * authoritative projection of each menu product back here. Decrementing the mirrored
+   * `inventory` on top of that would count one latte twice, and would leave the CMS
+   * disagreeing with the POS until the next sync — which for a busy Saturday is hours of
+   * "we have 3 left" for items that sold out at noon.
+   *
+   * The flag is the order's own service mode, not a per-line guess: an ordinary
+   * storefront order that happens to contain a Biza product still settles that product's
+   * line unless the product itself is marked `externalInventory` (which it is, see
+   * `validateOrderCommerce`), and a café order never touches a count at all. Coupon usage
+   * — a CMS-owned counter — still moves, below.
+   */
+  const posOwned = Boolean(doc.cafe?.serviceMode)
   const direction = after ? -1 : 1
-  const lines = stockLinesOf(doc)
+  const lines = posOwned ? [] : stockLinesOf(doc)
 
   // Group by product: two variations of one product settle in one write.
   const byProduct = new Map<string, StockLine[]>()
