@@ -83,6 +83,17 @@ Migration/rollout requirements:
 - [ ] E2E coverage includes Persian RTL and English LTR, accessibility, responsive screen sizes, multi-theme isolation, browser preview and save/reload.
 - [ ] Update `docs/THEME_API.md`, the CMS agent-development guide, and each adopting theme's documentation when the implementation goes live; mark this planned spec as implemented only after release.
 
+## Implementation tracking (GitHub)
+
+| Workstream | Issue |
+| --- | --- |
+| CMS: versioned manifest and responsive px schema | [eshobe-cms #209](https://github.com/hamidnoshady/eshobe-cms/issues/209) |
+| CMS: grouped Payload-native settings UI | [eshobe-cms #210](https://github.com/hamidnoshady/eshobe-cms/issues/210) |
+| CMS: device preview workflow | [eshobe-cms #211](https://github.com/hamidnoshady/eshobe-cms/issues/211) |
+| CMS: legacy compatibility and cross-theme tests | [eshobe-cms #212](https://github.com/hamidnoshady/eshobe-cms/issues/212) |
+| First theme: manifest adoption | [cms-arch3-theme #26](https://github.com/hamidnoshady/cms-arch3-theme/issues/26) |
+| First theme: responsive CSS and visual verification | [cms-arch3-theme #27](https://github.com/hamidnoshady/cms-arch3-theme/issues/27) |
+
 ## 6. Development sequence
 
 1. CMS: typed manifest extension + parser, validator, runtime model and compatibility policy.
