@@ -19,7 +19,7 @@ import { queryPage } from './queries'
  * `ContentFallback` — which is where an unknown slug finally becomes one.
  * Pages keep priority by construction: only a miss falls through.
  */
-export const SitePage: React.FC<{ page?: number; slug: string }> = async ({ page, slug }) => {
+export const SitePage: React.FC<{ page?: number; slug: string; tableToken?: null | string }> = async ({ page, slug, tableToken }) => {
   const { isEnabled: draft } = await draftMode()
   const cmsPage = await queryPage(slug)
 
@@ -30,7 +30,7 @@ export const SitePage: React.FC<{ page?: number; slug: string }> = async ({ page
       {draft && <LivePreviewListener />}
 
       <RenderHero {...cmsPage.hero} />
-      <RenderBlocks blocks={cmsPage.layout} />
+      <RenderBlocks blocks={cmsPage.layout} tableToken={tableToken} />
     </article>
   )
 }

@@ -227,6 +227,7 @@ export type ControlEventKind =
   | 'order.refunded'
   | 'order.cancelled'
   | 'order.placed'
+  | 'order.submitted'
   | 'site.changed'
   | 'site.suspended'
 

@@ -87,7 +87,7 @@ export type PaymentCallback = { body: Record<string, unknown>; query: Record<str
  * one the order named. Keeping the gateways out of this union would have meant a second
  * parallel field on every order and two code paths through the same lifecycle.
  */
-export type PaymentProviderName = 'bank' | 'http' | GatewayId
+export type PaymentProviderName = 'bank' | 'counter' | 'http' | GatewayId
 
 /**
  * One way for a site to take money.

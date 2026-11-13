@@ -36,6 +36,7 @@ import * as migration_20261101_120000_wordpress_migration_center from './2026110
 import * as migration_20261102_120000_migration_menus_comments from './20261102_120000_migration_menus_comments';
 import * as migration_20261104_120000_torob_product_api from './20261104_120000_torob_product_api';
 import * as migration_20261108_120000_cafe_menu from './20261108_120000_cafe_menu';
+import * as migration_20261110_120000_cafe_checkout from './20261110_120000_cafe_checkout';
 
 export const migrations = [
   {
@@ -227,5 +228,10 @@ export const migrations = [
     up: migration_20261108_120000_cafe_menu.up,
     down: migration_20261108_120000_cafe_menu.down,
     name: '20261108_120000_cafe_menu',
+  },
+  {
+    up: migration_20261110_120000_cafe_checkout.up,
+    down: migration_20261110_120000_cafe_checkout.down,
+    name: '20261110_120000_cafe_checkout',
   },
 ];

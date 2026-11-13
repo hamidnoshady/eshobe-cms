@@ -383,6 +383,35 @@ event JSON (`event`, `id`, `data.orderId`, …) with an `x-eshobe-timestamp` + H
 raw body only — same as cache revalidation. Do not point a stock CMS webhook URL at
 `order-events` without a translator; use the poll path or a custom bridge.
 
+### 11c. Café `order.submitted` → POS kitchen intake (ESH-150)
+
+A café checkout (`items` plus `serviceMode`) also emits **`order.submitted`**, once per
+created order, over the same webhooks and on the same poll cursor (`kind:
+"order.submitted"`, `data` below). It fires whether the order is `pending` (pay at the
+counter) or already paid, because a counter order will never produce an `order.paid`.
+
+```json
+{
+  "orderId": "<CMS order id>", "reference": "CMS-1042", "eventVersion": 1,
+  "serviceMode": "dine_in", "tableToken": "<opaque token, verbatim>",
+  "fulfillment": "awaiting_approval", "paymentProvider": "counter",
+  "paymentStatus": "pending", "total": 950, "currency": "IRT"
+}
+```
+
+Only identity and state travel; fetch the order by id with the site's key for the line
+snapshots. `tableToken` is the value from the QR link, unmodified — resolve it against
+your own business/location/table records, since a CMS cannot tell you whether it names
+one of your tables (and an endpoint that answered that question would let anyone probe
+another tenant's). Dedupe on the poll `id` (`order:submitted:<orderId>:<createdAt>`) or on
+`data.orderId`; a replayed event must not create a second POS order. The subsequent
+`order.paid` carries the **same** `data.orderId`, so both converge onto one order. A
+counter settlement the POS writes back is never echoed as `order.paid`: the CMS suppresses
+it for `payment.provider === 'counter'` and for writes that arrived with a site key.
+
+The receipt (`/checkout/<orderId>?…`) is the customer's view and shows three independent
+lines — service type, preparation state (`cafe.fulfillment`) and payment status.
+
 ## 12. Rules that are easy to break
 
 - **Deployment literals before the bare site route.** Every

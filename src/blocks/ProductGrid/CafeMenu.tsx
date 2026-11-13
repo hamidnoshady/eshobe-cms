@@ -6,14 +6,24 @@ import type { PaymentMethodOption } from '@/lib/checkout'
 
 import { Media } from '@/components/Media'
 import { CAFE_MENU_TAXONOMY, menuSort } from '@/lib/cafe-menu'
+import { isTableToken } from '@/lib/cafe-order'
 import { idOf } from '@/lib/ids'
 import { findForSite } from '@/lib/site-query'
 
 import { CafeMenuClient } from './CafeMenuClient'
 import type { CafeMenuCategory, CafeMenuItem } from './cafeTypes'
 
-/** Public reads are scoped and uncached: POS availability may change at any moment. */
-export const CafeMenu = async ({ currency, heading, intro, locale, paymentMethods, showBuyButton, siteId }: {
+/**
+ * Public reads are scoped and uncached: POS availability may change at any moment.
+ *
+ * `tableToken` arrives from the page's search params — a QR link Biza printed as
+ * `/menu?t=<opaque>` — and is passed through untouched. It is validated for *shape* only
+ * (so a hand-typed `?t=…` cannot inject something that overflows a column or a webhook
+ * body); whether it names a real table is Biza's question, answered when the order is
+ * submitted, and it is answered per order rather than per page view because a table can
+ * be closed between the scan and the order.
+ */
+export const CafeMenu = async ({ currency, heading, intro, locale, paymentMethods, showBuyButton, siteId, tableToken }: {
   currency: CurrencyCode
   heading?: string | null
   intro?: string | null
@@ -21,6 +31,7 @@ export const CafeMenu = async ({ currency, heading, intro, locale, paymentMethod
   paymentMethods: PaymentMethodOption[]
   showBuyButton: boolean
   siteId: string
+  tableToken?: null | string
 }) => {
   const [definitions, productResult] = await Promise.all([
     findForSite('taxonomy-definitions', siteId, {
@@ -61,5 +72,5 @@ export const CafeMenu = async ({ currency, heading, intro, locale, paymentMethod
     image: product.image ? <Media resource={product.image} className="h-full w-full" imgClassName="h-full w-full object-cover" size="33vw" /> : null,
   })))
   if (!products.length) return null
-  return <CafeMenuClient categories={categories} currency={currency} heading={heading} intro={intro} locale={locale} paymentMethods={paymentMethods} products={products} showBuyButton={showBuyButton} />
+  return <CafeMenuClient categories={categories} currency={currency} heading={heading} intro={intro} locale={locale} paymentMethods={paymentMethods} products={products} showBuyButton={showBuyButton} tableToken={isTableToken(tableToken) ? tableToken : null} />
 }

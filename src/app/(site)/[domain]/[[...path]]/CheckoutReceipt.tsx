@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import React from 'react'
 
+import { FULFILLMENT_LABELS_FA, isFulfillmentState } from '@/lib/cafe-order'
 import { formatNumber, formatPrice, toLocaleDigits } from '@/lib/format'
 import { readOrderForReceipt } from '@/lib/order-receipt'
 import { getSiteContext } from '@/lib/site-context'
@@ -44,6 +45,17 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
   const { instructions, order } = found
 
   const paid = order.status === 'paid'
+  /**
+   * Three independent facts, three separate lines (ESH-150 / epic #195).
+   *
+   * The old page collapsed "paid" and "placed" into one sentence, which is exactly the
+   * confusion a pay-at-counter café order creates: it is *placed* and unpaid, and the
+   * kitchen may already have accepted it. Payment stays `orders.status`; the kitchen's
+   * answer is `cafe.fulfillment`, which only the POS writes.
+   */
+  const cafe = order.cafe
+  const fulfillment = isFulfillmentState(cafe?.fulfillment) ? cafe?.fulfillment : null
+  const payAtCounter = order.payment?.provider === 'counter'
 
   return (
     <article className="container pt-16 pb-24">
@@ -54,8 +66,12 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
 
         <p className="mt-3 text-muted-foreground">
           {paid
-            ? 'مبلغ دریافت شد. فروشگاه برای هماهنگی ارسال با شما تماس می‌گیرد.'
-            : 'این سفارش هنوز پرداخت‌نشده است. شمارهٔ پیگیری را نگه دارید.'}
+            ? cafe?.serviceMode
+              ? 'مبلغ دریافت شد. سفارش در جریان آماده‌سازی است.'
+              : 'مبلغ دریافت شد. فروشگاه برای هماهنگی ارسال با شما تماس می‌گیرد.'
+            : payAtCounter
+              ? 'مبلغ را در صندوق پرداخت کنید. سفارش شما ثبت شده است.'
+              : 'این سفارش هنوز پرداخت‌نشده است. شمارهٔ پیگیری را نگه دارید.'}
         </p>
 
         {outcome === 'failed' && (
@@ -66,6 +82,29 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
 
         <dl className="mt-8 divide-y divide-border border-y border-border">
           <Row label="کد پیگیری" value={<bdi>{toLocaleDigits(String(order.reference ?? order.id), locale)}</bdi>} />
+          {cafe?.serviceMode && (
+            <Row
+              label="نوع سرویس"
+              value={
+                cafe.serviceMode === 'dine_in'
+                  ? `حضوری سر میز${cafe.tableToken ? ' (با اسکن QR میز)' : ''}`
+                  : 'بیرون‌بر'
+              }
+            />
+          )}
+          {fulfillment && <Row label="وضعیت آماده‌سازی" value={FULFILLMENT_LABELS_FA[fulfillment]} />}
+          <Row
+            label="وضعیت پرداخت"
+            value={
+              paid
+                ? payAtCounter
+                  ? 'پرداخت‌شده در صندوق'
+                  : 'پرداخت‌شده'
+                : payAtCounter
+                  ? 'در انتظار پرداخت در صندوق'
+                  : 'در انتظار پرداخت'
+            }
+          />
           <Row label={uiString('name', locale)} value={order.buyer?.name ?? '—'} />
           <Row
             label={uiString('phone', locale)}

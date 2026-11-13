@@ -3063,6 +3063,9 @@ export interface Order {
   id: string;
   site?: (string | null) | Site;
   reference: string;
+  /**
+   * چرخهٔ پرداخت، جدا از تأیید کافه. «پرداخت‌شده» یعنی پول رسیده، نه اینکه سفارش پذیرفته یا آماده شده باشد.
+   */
   status: 'pending' | 'paid' | 'cancelled' | 'refunded';
   product: string | Product;
   /**
@@ -3076,6 +3079,33 @@ export interface Order {
   unitPrice: number;
   total: number;
   currency: 'EUR' | 'IRR' | 'IRT' | 'USD';
+  /**
+   * فقط برای سفارش‌های کافه پر می‌شود. سفارش‌های فروشگاهی این گروه را خالی دارند و رفتارشان تغییری نکرده است.
+   */
+  cafe?: {
+    /**
+     * «حضوری» با نشان میز، «بیرون‌بر» بدون میز. ارسال و رزرو در این جریان پذیرفته نمی‌شود.
+     */
+    serviceMode?: ('dine_in' | 'takeaway') | null;
+    /**
+     * توکن ماتِ صادرشده توسط بیزا؛ خودِ آیدی میز نیست و در این سامانه ترجمه نمی‌شود. کافه فقط همین را می‌شناسد.
+     */
+    tableToken?: string | null;
+    paymentChoice?: ('online' | 'counter') | null;
+    /**
+     * کلید یکتای دوباره‌فرستادن؛ تلاش مجدد با همین کلید همان سفارش را برمی‌گرداند و سفارش دوم نمی‌سازد.
+     */
+    checkoutRequestId?: string | null;
+    /**
+     * خلاصهٔ خطوط همان لحظه؛ با شناسهٔ درخواست جفت می‌شود تا سبدِ عوض‌شده با کلید قبلی به سفارش قدیمی نچسبد.
+     */
+    cartFingerprint?: string | null;
+    /**
+     * کارِ صندوق است، نه خریدار. تا وقتی کافه سفارش را نپذیرد، آشپزخانه چیزی دریافت نمی‌کند.
+     */
+    fulfillment?: ('awaiting_approval' | 'accepted' | 'preparing' | 'ready' | 'served' | 'rejected') | null;
+    fulfillmentAt?: string | null;
+  };
   buyer: {
     name: string;
     /**
@@ -3089,7 +3119,7 @@ export interface Order {
    * پر کردنش کارِ درگاه است، نه کاربر.
    */
   payment: {
-    provider: 'bank' | 'http' | 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
+    provider: 'bank' | 'counter' | 'http' | 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
     reference?: string | null;
     paidAt?: string | null;
     /**
@@ -3353,7 +3383,7 @@ export interface Store {
   /**
    * «کارت به کارت» به شمارهٔ کارت پایین نیاز دارد؛ «درگاه HTTP» به متغیرهای محیطی PAYMENT_HTTP_* — بدون آن‌ها، پرداخت با خطای «پیکربندی نشده» رد می‌شود.
    */
-  paymentProvider: 'bank' | 'http' | 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
+  paymentProvider: 'bank' | 'counter' | 'http' | 'digipay' | 'snappPay' | 'torobPay' | 'zarinpal';
   /**
    * شمارهٔ کارت یا هر متنی که خریدار باید ببیند تا پول را بفرستد. در API عمومی و در جست‌وجو نمایش داده نمی‌شود.
    */
@@ -5024,6 +5054,7 @@ export interface Webhook {
     | 'deployment.stopped'
     | 'storage.changed'
     | 'cdn.synced'
+    | 'order.submitted'
     | 'order.paid'
     | 'order.refunded'
     | 'order.cancelled'
@@ -5090,6 +5121,7 @@ export interface WebhookDelivery {
     | 'deployment.stopped'
     | 'storage.changed'
     | 'cdn.synced'
+    | 'order.submitted'
     | 'order.paid'
     | 'order.refunded'
     | 'order.cancelled'
@@ -5159,6 +5191,7 @@ export interface AuditLog {
     | 'deployment.stopped'
     | 'storage.changed'
     | 'cdn.synced'
+    | 'order.submitted'
     | 'order.paid'
     | 'order.refunded'
     | 'order.cancelled'
@@ -7065,6 +7098,17 @@ export interface OrdersSelect<T extends boolean = true> {
   unitPrice?: T;
   total?: T;
   currency?: T;
+  cafe?:
+    | T
+    | {
+        serviceMode?: T;
+        tableToken?: T;
+        paymentChoice?: T;
+        checkoutRequestId?: T;
+        cartFingerprint?: T;
+        fulfillment?: T;
+        fulfillmentAt?: T;
+      };
   buyer?:
     | T
     | {

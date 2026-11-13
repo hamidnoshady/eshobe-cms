@@ -2,6 +2,7 @@ import type { PaymentProvider } from './types'
 import type { GatewayId } from './gateways/types'
 
 import { bankProvider } from './bank'
+import { counterProvider } from './counter'
 import { gatewayProviders } from './gateways'
 import { httpProvider } from './http'
 
@@ -9,11 +10,12 @@ import { httpProvider } from './http'
  * Every way a site can take money, keyed by the value stored in
  * `store.paymentProvider` / `orders.payment.provider`.
  *
- * Two of these are *methods* — `bank` is card-to-card transfer, which is what most small
- * Iranian storefronts actually use, and `http` is the generic "POST to your own
- * settlement service" adapter a site with its own POS terminal plugs into. Neither can
- * falsely confirm a payment, which is also why `bank` is the fallback: a broken
- * configuration has to fail towards "nobody was charged" rather than "an order went paid".
+ * Three of these are *methods* — `bank` is card-to-card transfer, which is what most small
+ * Iranian storefronts actually use, `http` is the generic "POST to your own settlement
+ * service" adapter a site with its own POS terminal plugs into, and `counter` is the café's
+ * «pay at the till». None can falsely confirm a payment, which is also why `bank` is the
+ * fallback: a broken configuration has to fail towards "nobody was charged" rather than
+ * "an order went paid".
  *
  * The other four are Iranian PSPs, one per gateway in `src/payments/gateways/registry.ts`.
  * They are registered beside the methods rather than behind a second lookup, so
@@ -33,6 +35,10 @@ import { httpProvider } from './http'
  */
 export const paymentProviders: Record<PaymentProvider['name'], PaymentProvider> = {
   bank: bankProvider,
+  // ESH-150: pay-at-counter. A *method* like `bank` — it can neither initiate a
+  // redirect nor confirm a payment, so it is the second way an order can be unpaid and
+  // legitimate at the same time.
+  counter: counterProvider,
   http: httpProvider,
   ...gatewayProviders,
 }
