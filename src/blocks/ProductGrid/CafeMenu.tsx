@@ -16,8 +16,9 @@ import type { CafeMenuCategory, CafeMenuItem } from './cafeTypes'
 /**
  * Public reads are scoped and uncached: POS availability may change at any moment.
  *
- * `tableToken` arrives from the page's search params — a QR link Biza printed as
- * `/menu?t=<opaque>` — and is passed through untouched. It is validated for *shape* only
+ * `tableToken` arrives from the page's search params — a QR link Biza prints as
+ * `/menu?tableToken=<opaque>` — and is passed through untouched. The route still accepts
+ * the legacy `?t=` spelling, but never forwards both names. It is validated for *shape* only
  * (so a hand-typed `?t=…` cannot inject something that overflows a column or a webhook
  * body); whether it names a real table is Biza's question, answered when the order is
  * submitted, and it is answered per order rather than per page view because a table can

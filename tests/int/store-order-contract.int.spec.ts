@@ -66,7 +66,7 @@ describe('cms-store-order-contract/v1 (order.submitted slice)', () => {
     expect(typeof submittedFixture.siteId).toBe('string')
     expect(submittedFixture.siteDomain).toBe('cafe.example.test')
     // Opaque: the CMS's only guarantee is that it did not change the value.
-    expect(submittedFixture.data.tableToken).toBe('TBL_9f2c1a4e77b04d0f8c31ab77e0d5')
+    expect(submittedFixture.data.tableToken).toBe('tqr_0123456789abcdefghijklmnopqrstuv')
   })
 
   it('lets a pending (pay-at-counter) order be submitted', () => {

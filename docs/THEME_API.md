@@ -159,7 +159,7 @@ The rest of this document explains every field, edge case, and invariant behind 
 - Product has **no** `currency` field; site does.
 
 ### Pages vs Site Routes
-- Pages collection holds CMS pages. Some URLs are **reserved site routes** that are not pages: `/posts`, `/posts/<slug>`, `/search`, `/checkout/<order>`, `/products/<slug>`. Saving a page with slug `posts` is rejected (`reservedPageSlug` hook). Resolve URLs through `resolveSiteRoute()` in `@eshobe/site-runtime/slug`.
+- Pages collection holds CMS pages. Some URLs are **reserved site routes** that are not pages: `/posts`, `/posts/<slug>`, `/search`, `/checkout/<order>`, `/menu`, `/products/<slug>`. Saving a page with slug `posts` or `menu` is rejected (`reservedPageSlug` hook). Resolve URLs through `resolveSiteRoute()` in `@eshobe/site-runtime/slug`.
 
 ---
 
@@ -416,7 +416,7 @@ REST: `GET /api/sites?where[domain][equals]=acme.ir`
 | Field | Type | Notes |
 |-------|------|-------|
 | `title` | text, localized, required | |
-| `slug` | text, localized, required | Validated unique per `{site, locale}` + not in `RESERVED_PAGE_SLUGS` (`posts`, `search`, `checkout`) |
+| `slug` | text, localized, required | Validated unique per `{site, locale}` + not in `RESERVED_PAGE_SLUGS` (`posts`, `search`, `checkout`, `menu`) |
 | `hero` | group | `type: none|highImpact|mediumImpact|lowImpact`, `richText` (lexical, localized), `links[]`, `media` |
 | `layout` | blocks[], required | Not localized (see explanation below). Filtered by `allowedBlocks` (site.type → slugs). Contains 14 block types (§8) |
 | `meta` | group | SEO: `title` (localized), `image` (media), `description` (localized) |
@@ -1281,7 +1281,7 @@ pagePath("درباره-ما") // → "/درباره-ما"
 postPath("first-post") // → "/posts/first-post"
 productPath("chair") // → "/products/chair"
 ```
-RESERVED: `posts`, `search`, `checkout` cannot be page slugs (validated by hook `reservedPageSlug`).
+RESERVED: `posts`, `search`, `checkout`, `menu` cannot be page slugs (validated by hook `reservedPageSlug`).
 
 ---
 
@@ -1450,7 +1450,7 @@ Usage in theme head:
 No `publish` permission. `writeUnlessPublishing({collection})` returns `false` when `data._status==='published'` and caller is not `owner|platformAdmin` → Publish button hidden, REST publish rejected. Editor role may draft, not publish.
 
 ### Slugs
-Unique per `{site, locale}` via `uniqueSlugPerSite` hook (not DB index). Reserved words (`posts, search, checkout`) rejected via `reservedPageSlug`. Add new site routes to `RESERVED_PAGE_SLUGS` — forgetting makes the page shadowed with no error.
+Unique per `{site, locale}` via `uniqueSlugPerSite` hook (not DB index). Reserved words (`posts, search, checkout, menu`) rejected via `reservedPageSlug`. Add new site routes to `RESERVED_PAGE_SLUGS` — forgetting makes the page shadowed with no error.
 
 ---
 
@@ -1634,7 +1634,7 @@ When prompted to *build a theme*, have the AI run this sequence — don't skip s
 
 1. **Fetch `GET /api/site`** — store `availableLocales`, `defaultLocale`, `blocks`, `store.currency`, `theme`, `media.origin`, `contractVersion`. If `type !== "store"` and block list lacks `productGrid`, the price block is `pricing` instead — adapt.
 2. **Probe a product** — `GET /api/products?limit=1&locale=<default>` → learn currency formatting, `productType`, attributes/variations, inventory shape, image URL shape.
-3. **Pick router** — implement `resolveSiteRoute` + `localeHref` + `dirFor`. Handle `RESERVED_PAGE_SLUGS` and serving guard. Before content/404 routing, resolve the tenant-scoped `redirects` row for the normalized path and answer one permanent 301/308 hop. Test: `/`, `/en`, `/posts`, `/posts/<slug>`, `/products/<slug>`, `/search`, `/checkout/<id>`, and one redirected legacy path.
+3. **Pick router** — implement `resolveSiteRoute` + `localeHref` + `dirFor`. Handle `RESERVED_PAGE_SLUGS` and serving guard. Before content/404 routing, resolve the tenant-scoped `redirects` row for the normalized path and answer one permanent 301/308 hop. Test: `/`, `/en`, `/posts`, `/posts/<slug>`, `/products/<slug>`, `/search`, `/checkout/<id>`, `/menu`, and one redirected legacy path.
 4. **Implement blocks** — start with `productGrid` + `content` + `mediaBlock` + `cta`. Others are incremental. Assert unknown `blockType` warns, not crash.
 5. **Theme** — `themeCss(site.theme)` in `<style>`, Vazirmatn, logical Tailwind utilities, body `line-height: --line-height`.
 6. **Formatting** — replace every `date.toLocaleString()` with `formatDate(date, locale)`, every `num.toString()` with `formatNumber`/`toLocaleDigits`, every price with `formatPrice(minor, currency, locale)`.

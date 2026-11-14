@@ -141,9 +141,13 @@ coerced. The token is opaque to this CMS: it is length/charset-checked, stored
 verbatim and handed to Biza, which resolves it against its own business,
 location and table records. The CMS never stores a table id, never derives one
 from the token, and never answers a request that asks whether a token is valid —
-that answer would let anyone probe another tenant's tables. `?t=<token>` on a
-site page reaches the menu block as a prop and only decides whether dine-in is
-selectable; the endpoint re-validates the value regardless.
+that answer would let anyone probe another tenant's tables. `?tableToken=<token>` on
+`/menu` reaches the published café menu as a prop and only decides whether dine-in is
+selectable; the endpoint re-validates the value regardless. During migration, `?t=<token>`
+is accepted and permanently redirected to the canonical spelling; conflicting `tableToken`
+and `t` values are rejected. The QR target is `/menu` even though starter sites
+historically store the editor-facing page at `/products`: the route forces that page's
+existing ProductGrid through café mode instead of creating a second page.
 
 **Payment choice.** `counter` creates a normal pending/unpaid order with the
 `counter` payment provider, makes no gateway call at all and returns the signed

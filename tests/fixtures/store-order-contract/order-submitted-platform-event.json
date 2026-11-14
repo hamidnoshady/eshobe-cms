@@ -11,7 +11,7 @@
     "reference": "CMS-1001",
     "eventVersion": 1,
     "serviceMode": "dine_in",
-    "tableToken": "TBL_9f2c1a4e77b04d0f8c31ab77e0d5",
+    "tableToken": "tqr_0123456789abcdefghijklmnopqrstuv",
     "fulfillment": "awaiting_approval",
     "paymentProvider": "counter",
     "paymentStatus": "pending",

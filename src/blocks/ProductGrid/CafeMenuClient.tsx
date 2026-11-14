@@ -40,7 +40,8 @@ type Props = {
   products: CafeMenuItem[]
   showBuyButton: boolean
   /**
-   * The opaque Biza table token the QR link carried (`?t=…`), if any.
+   * The opaque Biza table token the QR link carried (`?tableToken=…`), if any. The
+   * route also accepts the legacy `?t=…` spelling before this prop is built.
    *
    * The *server* reads it from the URL and passes it down; the client never invents
    * one, never shows it and never edits it. It only decides whether «حضوری» is
@@ -105,7 +106,10 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!cart.length || status === 'sending') return
-    if (serviceMode === 'dine_in' && !hasTable) {
+    // A QR scan is already an attribution to one table. Keep the choice locked to
+    // dine-in for this page; a guest without a QR remains free to choose takeaway.
+    const effectiveServiceMode = hasTable ? 'dine_in' : serviceMode
+    if (effectiveServiceMode === 'dine_in' && !hasTable) {
       setStatus('error')
       setError(uiString('tableRequired', locale))
       return
@@ -129,13 +133,13 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
           email: String(form.get('email') ?? '').trim() || undefined,
           note: String(form.get('note') ?? '').trim() || undefined,
           locale,
-          serviceMode,
+          serviceMode: effectiveServiceMode,
           paymentChoice,
           // The key is the half before the colon; the basket signature stays client-side
           // so the server computes its own fingerprint from the prices it re-read, not
           // from anything this component believes.
           checkoutRequestId: requestId.current.split(':')[0],
-          ...(serviceMode === 'dine_in' && tableToken ? { tableToken } : {}),
+          ...(effectiveServiceMode === 'dine_in' && tableToken ? { tableToken } : {}),
           ...(paymentChoice === 'online' && gateway ? { gateway } : {}),
           items: cart.map(({ productId, quantity, variation, choices }) => ({
             product: productId, quantity, ...(variation ? { variation } : {}), modifiers: choices,
@@ -205,9 +209,9 @@ export const CafeMenuClient: React.FC<Props> = ({ categories, compact = false, c
                   <input checked={serviceMode === 'dine_in'} disabled={!hasTable} name="serviceMode" onChange={() => setServiceMode('dine_in')} type="radio" value="dine_in" />
                   <span>{uiString('dineIn', locale)}{!hasTable && <span className="block text-xs text-muted-foreground">{uiString('tableCodeHint', locale)}</span>}</span>
                 </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input checked={serviceMode === 'takeaway'} name="serviceMode" onChange={() => setServiceMode('takeaway')} type="radio" value="takeaway" />
-                  <span>{uiString('takeaway', locale)}</span>
+                <label className={hasTable ? 'flex items-center gap-2 text-sm opacity-60' : 'flex items-center gap-2 text-sm'}>
+                  <input checked={serviceMode === 'takeaway'} disabled={hasTable} name="serviceMode" onChange={() => setServiceMode('takeaway')} type="radio" value="takeaway" />
+                  <span>{uiString('takeaway', locale)}{hasTable && <span className="block text-xs text-muted-foreground">{uiString('dineInQrLocked', locale)}</span>}</span>
                 </label>
               </fieldset>
               <div><Label htmlFor={`${id}-name`}>{uiString('name', locale)}</Label><Input autoComplete="name" id={`${id}-name`} name="name" required /></div>

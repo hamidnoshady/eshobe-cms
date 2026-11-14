@@ -154,6 +154,7 @@ describe('content paths (issue #166 §3)', () => {
     expect(isValidArchiveSlug('نمونه-کار')).toBe(true)
     expect(isValidArchiveSlug('portfolio')).toBe(true)
     expect(isValidArchiveSlug('posts')).toBe(false)
+    expect(isValidArchiveSlug('menu')).toBe(false) // café QR route
     expect(isValidArchiveSlug('en')).toBe(false) // locale prefix
     expect(isValidArchiveSlug('a/b')).toBe(false)
     expect(isValidArchiveSlug('Two Words')).toBe(false)

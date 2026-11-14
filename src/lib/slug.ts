@@ -45,17 +45,18 @@ export const pagePath = (slug?: string | null): string =>
   !slug || slug === HOME_SLUG ? '/' : `/${slug}`
 
 /**
- * The blog's two routes are Next segments under `[domain]`, not CMS pages, so they
- * exist whether an editor likes it or not — and a static segment outranks the
- * `[domain]/[[...path]]` catch-all. A page saved as `posts` would therefore be
- * unreachable with no error anywhere: the URL would render the blog.
+ * Site routes are Next segments under `[domain]`, not CMS pages, so they exist whether
+ * an editor likes it or not — and a static segment outranks the `[domain]/[[...path]]`
+ * catch-all. A page saved as `posts`, `checkout` or `menu` would therefore be
+ * unreachable with no error anywhere: the URL would render a platform route.
  *
- * Reserving them is `src/hooks/reservedPageSlug.ts`, and these three constants are
- * the single source for both halves — the routes and the validation cannot drift.
+ * Reserving them is `src/hooks/reservedPageSlug.ts`, and these constants are the single
+ * source for both halves — the routes and the validation cannot drift.
  */
 export const POSTS_SEGMENT = 'posts'
 export const SEARCH_SEGMENT = 'search'
 export const CHECKOUT_SEGMENT = 'checkout'
+export const MENU_SEGMENT = 'menu'
 export const PRODUCTS_SEGMENT = 'products'
 
 /**
@@ -79,6 +80,7 @@ export const RESERVED_PAGE_SLUGS = [
   POSTS_SEGMENT,
   SEARCH_SEGMENT,
   CHECKOUT_SEGMENT,
+  MENU_SEGMENT,
 ] as const
 
 /** A post's site-relative path. No locale segment here — `localeHref` adds that. */

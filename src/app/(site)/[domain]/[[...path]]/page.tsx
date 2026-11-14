@@ -7,6 +7,7 @@ import React from 'react'
 
 import { SiteHolding } from '@/components/SiteHolding'
 import { entryPath } from '@/lib/content-paths'
+import { canonicalizeTableTokenQuery, resolveTableTokenQuery } from '@/lib/table-token-query'
 import { POSTS_BASE, PRODUCTS_BASE } from '@/lib/slug'
 import { resolveSiteRoute } from '@/lib/site-route'
 import { getSiteContext, localeIsServed } from '@/lib/site-context'
@@ -14,6 +15,9 @@ import { siteUrl } from '@/lib/site-url'
 import { uiString } from '@/lib/ui-strings'
 import { generateMeta } from '@/utilities/generateMeta'
 
+import { isTableToken } from '@/lib/cafe-order'
+
+import { CafeMenuPage } from './CafeMenuPage'
 import { CheckoutReceipt, checkoutMetadata } from './CheckoutReceipt'
 import { queryContentEntry, queryContentRoute } from './contentQueries'
 import { PostDetail } from './PostDetail'
@@ -32,7 +36,7 @@ import { SitePage } from './SitePage'
  *
  * One optional catch-all rather than a `[locale]` folder: bare `/` has to work on every
  * site, and a `[locale]` segment would need a redirect for it. And one resolver for the
- * site's *own* routes (`/posts`, `/posts/<slug>`, `/search`, `/checkout/<order>`) rather
+ * site's *own* routes (`/posts`, `/posts/<slug>`, `/search`, `/checkout/<order>`, `/menu`) rather
  * than sibling folders, for the reason documented in `src/lib/site-route.ts`: a static
  * segment under `[domain]` cannot also sit behind a locale prefix, so `/en/posts` would
  * work only by accident of which route Next matched first.
@@ -41,6 +45,7 @@ type SiteSearchParams = {
   [key: string]: string | string[] | undefined
   m?: string
   page?: string
+  tableToken?: string
   t?: string
   q?: string
   r?: string
@@ -72,7 +77,9 @@ const canonicalAliasUrl = (
   const route = path?.length
     ? `/${path.map((segment) => encodeURIComponent(segment)).join('/')}`
     : ''
-  const search = searchString(query)
+  const tableQuery = resolveTableTokenQuery(query)
+  const canonicalQuery = tableQuery.conflict ? query : canonicalizeTableTokenQuery(query, tableQuery)
+  const search = searchString(canonicalQuery)
 
   return `${siteUrl(site, { slug: 'home' })}${route}${search ? `?${search}` : ''}`
 }
@@ -87,7 +94,21 @@ const pageNumber = (value: string | string[] | undefined): number => {
 export default async function SiteRoute({ params, searchParams }: Args) {
   const { path } = await params
   const query = await searchParams
+  const tableQuery = resolveTableTokenQuery(query)
   const { canonicalHost, serving, site } = await getSiteContext()
+
+  // A table token is a bearer value for a physical table, so two different values in
+  // one URL are not an ambiguity we may resolve by preference. Reject before any page
+  // or redirect can turn the conflict into a takeaway checkout.
+  if (tableQuery.conflict) notFound()
+
+  const tableParamWasSupplied = query.tableToken !== undefined || query.t !== undefined
+  if (tableParamWasSupplied && (!tableQuery.token || !isTableToken(tableQuery.token))) notFound()
+
+  // Old prints used `?t=`. Accept them during the migration, but converge them to the
+  // canonical `?tableToken=` spelling with a server-side 308. The token remains opaque;
+  // this redirect only renames the query key and drops the legacy alias.
+  if (site && tableQuery.hasLegacy) permanentRedirect(canonicalAliasUrl(site, path, query))
 
   // An alias is only ever a doorway to the canonical host. This is a server-side
   // 308 rather than a canonical tag alone, so form-free GET navigation, cache keys,
@@ -120,6 +141,9 @@ export default async function SiteRoute({ params, searchParams }: Args) {
   const route = resolveSiteRoute(path)
 
   switch (route.kind) {
+    case 'cafe-menu':
+      return <CafeMenuPage tableToken={tableQuery.token} />
+
     case 'checkout':
       return <CheckoutReceipt order={route.order} outcome={query.m} receipt={query.r} />
 
@@ -140,10 +164,10 @@ export default async function SiteRoute({ params, searchParams }: Args) {
         <SitePage
           page={pageNumber(query.page)}
           slug={route.slug}
-          // A café's table QR is a link to this page with an opaque token on it. The
-          // param is carried, never interpreted: whether it names a real table is
+          // A café's table QR is a link to this page with an opaque `tableToken` on it.
+          // The param is carried, never interpreted: whether it names a real table is
           // Biza's question and is answered when the order is submitted.
-          tableToken={typeof query.t === 'string' ? query.t : null}
+          tableToken={tableQuery.token}
         />
       )
   }
@@ -163,6 +187,14 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
   const route = resolveSiteRoute(path)
 
   switch (route.kind) {
+    case 'cafe-menu': {
+      const menuPage = await queryPage('products')
+      if (menuPage) return generateMeta({ doc: menuPage })
+
+      const { locale, site } = await getSiteContext()
+      return { title: [uiString('productHeading', locale), site?.name].filter(Boolean).join(' | ') }
+    }
+
     case 'checkout':
       return checkoutMetadata
 

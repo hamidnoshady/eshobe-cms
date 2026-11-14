@@ -29,7 +29,8 @@ const available = (product: Product): null | number =>
     : null
 
 /**
- * `tableToken` is not a field of the block: it comes from the page's URL (`?t=…`) through
+ * `tableToken` is not a field of the block: it comes from the page's URL
+ * (`?tableToken=…`, with legacy `?t=…` normalized by the route) through
  * `RenderBlocks`, because a table QR is a property of *where the guest is sitting*, not of
  * the menu. It is only consulted in café mode, and only for a dine-in order.
  */

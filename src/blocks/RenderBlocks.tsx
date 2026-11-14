@@ -40,7 +40,8 @@ const blockComponents = {
 export const RenderBlocks: React.FC<{
   blocks: Page['layout'][0][]
   /**
-   * The opaque Biza table token a café QR link carried (`?t=…`).
+   * The opaque Biza table token a café QR link carried (`?tableToken=…`). The legacy
+   * `?t=…` spelling is normalized by the route before it reaches this component.
    *
    * Threaded rather than read from `headers()` inside the block: the page already has
    * the parsed `searchParams`, and a block that reads the request itself is a block that
@@ -49,8 +50,10 @@ export const RenderBlocks: React.FC<{
    * it has no use for.
    */
   tableToken?: null | string
+  /** `/menu` is a route alias for the published starter `/products` page. */
+  forceCafeMenu?: boolean
 }> = (props) => {
-  const { blocks, tableToken } = props
+  const { blocks, forceCafeMenu = false, tableToken } = props
 
   const hasBlocks = blocks && Array.isArray(blocks) && blocks.length > 0
 
@@ -61,13 +64,17 @@ export const RenderBlocks: React.FC<{
           const { blockType } = block
 
           if (blockType && blockType in blockComponents) {
-            const Block = blockComponents[blockType]
+            const Block = blockComponents[blockType] as unknown as React.ComponentType<Record<string, unknown>>
 
             if (Block) {
               return (
                 <div className="my-16" key={index}>
-                  {/* @ts-expect-error there may be some mismatch between the expected types here */}
-                  <Block {...(blockType === 'productGrid' && tableToken ? { tableToken } : {})} {...block} disableInnerContainer />
+                  <Block
+                    {...(blockType === 'productGrid' && tableToken ? { tableToken } : {})}
+                    {...block}
+                    {...(blockType === 'productGrid' && forceCafeMenu ? { mode: 'cafe' } : {})}
+                    disableInnerContainer
+                  />
                 </div>
               )
             }

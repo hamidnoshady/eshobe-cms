@@ -36,6 +36,13 @@ describe('resolveSiteRoute', () => {
     expect(resolveSiteRoute(['en', 'posts', 'hello'])).toEqual({ kind: 'post', slug: 'hello' })
   })
 
+  it('maps the QR contract menu path to the published café projection', () => {
+    expect(resolveSiteRoute(['menu'])).toEqual({ kind: 'cafe-menu' })
+    expect(resolveSiteRoute(['fa', 'menu'])).toEqual({ kind: 'cafe-menu' })
+    // Only the exact route is reserved; a deeper CMS page remains a page lookup.
+    expect(resolveSiteRoute(['menu', 'about'])).toEqual({ kind: 'page', slug: 'menu/about' })
+  })
+
   it('decodes a Persian slug before the CMS is asked for it', () => {
     expect(resolveSiteRoute(['posts', encodeURIComponent('سلام-dunya')])).toEqual({
       kind: 'post',

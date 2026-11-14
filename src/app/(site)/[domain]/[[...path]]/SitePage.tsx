@@ -19,18 +19,36 @@ import { queryPage } from './queries'
  * `ContentFallback` — which is where an unknown slug finally becomes one.
  * Pages keep priority by construction: only a miss falls through.
  */
-export const SitePage: React.FC<{ page?: number; slug: string; tableToken?: null | string }> = async ({ page, slug, tableToken }) => {
+export const SitePage: React.FC<{
+  forceCafeMenu?: boolean
+  page?: number
+  slug: string
+  tableToken?: null | string
+}> = async ({ forceCafeMenu = false, page, slug, tableToken }) => {
   const { isEnabled: draft } = await draftMode()
   const cmsPage = await queryPage(slug)
 
   if (!cmsPage) return <ContentFallback page={page} slug={slug} />
+
+  const layout =
+    forceCafeMenu && !cmsPage.layout.some((block) => block.blockType === 'productGrid')
+      ? [
+          ...cmsPage.layout,
+          {
+            blockType: 'productGrid' as const,
+            mode: 'cafe' as const,
+            populateBy: 'collection' as const,
+            showBuyButton: true,
+          },
+        ]
+      : cmsPage.layout
 
   return (
     <article className="pt-16 pb-24">
       {draft && <LivePreviewListener />}
 
       <RenderHero {...cmsPage.hero} />
-      <RenderBlocks blocks={cmsPage.layout} tableToken={tableToken} />
+      <RenderBlocks blocks={layout} forceCafeMenu={forceCafeMenu} tableToken={tableToken} />
     </article>
   )
 }

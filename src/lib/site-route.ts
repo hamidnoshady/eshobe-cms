@@ -2,6 +2,7 @@ import { isLocale } from './locales'
 import {
   CHECKOUT_SEGMENT,
   HOME_SLUG,
+  MENU_SEGMENT,
   POSTS_SEGMENT,
   PRODUCTS_SEGMENT,
   SEARCH_SEGMENT,
@@ -24,6 +25,7 @@ import {
  * rules below are unit-testable, which a route folder is not.
  */
 export type SiteRoute =
+  | { kind: 'cafe-menu' }
   | { kind: 'checkout'; order: null | string }
   | { kind: 'page'; slug: string }
   | { kind: 'post'; slug: string }
@@ -46,6 +48,11 @@ export const resolveSiteRoute = (path: string[] = []): SiteRoute => {
 
   if (first === SEARCH_SEGMENT && segments.length === 1) return { kind: 'search' }
 
+  // Biza prints QR links to `/menu`, while older Eshobe starter sites store their
+  // published store page at `/products`. The route is intentionally an alias rather
+  // than a second CMS page so a QR scan always reaches the café projection.
+  if (first === MENU_SEGMENT && segments.length === 1) return { kind: 'cafe-menu' }
+
   if (first === PRODUCTS_SEGMENT) {
     return second ? { kind: 'product', slug: second } : { kind: 'page', slug: 'products' }
   }
@@ -59,8 +66,8 @@ export const resolveSiteRoute = (path: string[] = []): SiteRoute => {
    * path, so a site whose editor typed a nested slug keeps working. Anything that
    * does not match a route above is the CMS's business, and an unknown slug is a 404
    * from the page lookup — not a 404 from here, which would deny the site its own
-   * reserved-word pages (a post *about* search is still at `/search`-adjacent… no:
-   * `/search` is taken, which is why `RESERVED_PAGE_SLUGS` exists).
+   * reserved-word pages (`/search` and `/menu` are taken, which is why
+   * `RESERVED_PAGE_SLUGS` exists).
    */
   return { kind: 'page', slug: segments.join('/') }
 }

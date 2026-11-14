@@ -73,15 +73,17 @@ describe('café menu UI', () => {
   it('defaults to dine-in when the QR link carried a table token, and offers pay at the counter', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ message: 'nope' }) })
     vi.stubGlobal('fetch', fetchMock)
-    render(<CafeMenuClient categories={[{ id: 'drinks', name: 'Drinks' }]} currency="IRT" locale="en" paymentMethods={[]} products={products} showBuyButton tableToken="TBL_9f2c1a4e77b04d0f8c31ab77" />)
+    render(<CafeMenuClient categories={[{ id: 'drinks', name: 'Drinks' }]} currency="IRT" locale="en" paymentMethods={[]} products={products} showBuyButton tableToken="tqr_0123456789abcdefghijklmnopqrstuv" />)
 
     const cart = within(screen.getByRole('complementary', { name: 'Your cart' }))
     const coffee = within(screen.getAllByRole('article')[0]!)
     fireEvent.click(coffee.getByRole('checkbox', { name: /Oat/ }))
     fireEvent.click(coffee.getByRole('button', { name: 'Add to cart' }))
 
-    // A scanned table preselects dine-in…
+    // A scanned table preselects dine-in and does not allow the customer to turn a
+    // table-attributed order into takeaway by changing the radio choice.
     expect((cart.getByRole('radio', { name: /At a table/ }) as HTMLInputElement).checked).toBe(true)
+    expect((cart.getByRole('radio', { name: /Takeaway/ }) as HTMLInputElement).disabled).toBe(true)
     // …and a site with no gateway still offers pay at the counter, preselected.
     expect((cart.getByRole('radio', { name: /Pay at the counter/ }) as HTMLInputElement).checked).toBe(true)
     // No gateway is configured on this site, so online payment is not offered at all.
@@ -94,13 +96,13 @@ describe('café menu UI', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body)
     expect(body.serviceMode).toBe('dine_in')
-    expect(body.tableToken).toBe('TBL_9f2c1a4e77b04d0f8c31ab77')
+    expect(body.tableToken).toBe('tqr_0123456789abcdefghijklmnopqrstuv')
     expect(body.paymentChoice).toBe('counter')
     expect(body.gateway).toBeUndefined()
   })
 
   it('refuses to submit a dine-in choice the page cannot honour', async () => {
-    // No `?t=` on the page: there is no table to attribute the order to, so the dine-in
+    // No table token on the page: there is no table to attribute the order to, so the dine-in
     // radio is inert and the cart submits as takeaway.
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

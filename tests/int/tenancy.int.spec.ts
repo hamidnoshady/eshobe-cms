@@ -225,11 +225,12 @@ describe('multi-tenancy', () => {
     })
 
     it('refuse the words the site routes already own', async () => {
-      // `/posts`, `/search` and `/checkout/<id>` are Next routes under `[domain]`, and
-      // a static segment outranks the `[[...path]]` catch-all that resolves CMS pages.
-      // A page saved as `posts` is therefore unreachable and its URL renders the blog —
-      // silently, with a 200 and no error anywhere. The rejection is what makes it loud.
-      for (const slug of ['posts', 'search', 'checkout']) {
+      // `/posts`, `/search`, `/checkout/<id>` and `/menu` are Next routes under
+      // `[domain]`, and a static segment outranks the `[[...path]]` catch-all that
+      // resolves CMS pages. A page saved as one of these slugs is therefore unreachable
+      // and its URL renders a platform route — silently, with a 200 and no error
+      // anywhere. The rejection is what makes it loud.
+      for (const slug of ['posts', 'search', 'checkout', 'menu']) {
         const error = await payload
           .create({
             collection: 'pages',
