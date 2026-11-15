@@ -5,7 +5,7 @@ import { addDataAndFileToRequest, ValidationError } from 'payload'
 
 import type { Product, Site, TaxonomyTerm } from '@/payload-types'
 
-import { isMenuSourceId } from '@/collections/hooks/validateMenuSource'
+import { CAFE_SYNC_CONTEXT, isMenuSourceId } from '@/collections/hooks/validateMenuSource'
 import { CAFE_MENU_TAXONOMY } from '@/lib/cafe-menu'
 import { idOf, isUuid } from '@/lib/ids'
 import { isLocale } from '@/lib/locales'
@@ -138,7 +138,7 @@ export const upsertCafeCategory: Endpoint['handler'] = async (req) => {
     const doc = existing
       ? await req.payload.update({ collection: 'taxonomy-terms', id: existing.id, data, depth: 0, locale, overrideAccess: false, req })
       : await req.payload.create({ collection: 'taxonomy-terms', data: { ...data, source: { system: 'eshobe', mappingStatus: 'manual' } }, depth: 0, locale, overrideAccess: false, req })
-    return answer({ id: doc.id, ok: true })
+    return answer({ id: doc.id, taxonomyId: taxonomy.id, ok: true })
   } catch (error) {
     return errorResponse(error)
   }
@@ -180,6 +180,8 @@ export const upsertCafeProduct: Endpoint['handler'] = async (req) => {
   if (ctx instanceof Response) return ctx
   const { body, locale, site, sourceId } = ctx
   const siteId = String(site.id)
+  if (body.published !== undefined && typeof body.published !== 'boolean') return invalid('وضعیت انتشار منو نامعتبر است.')
+  if (body.legacyProductId != null && !isUuid(body.legacyProductId)) return invalid('شناسهٔ قدیمی کالا نامعتبر است.')
   if (body.title !== undefined && (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 200)) return invalid('عنوان کالا نامعتبر است.')
   if (body.summary != null && typeof body.summary !== 'string') return invalid('توضیح کالا نامعتبر است.')
   if (body.sku != null && typeof body.sku !== 'string') return invalid('کد کالا نامعتبر است.')
@@ -195,7 +197,16 @@ export const upsertCafeProduct: Endpoint['handler'] = async (req) => {
       collection: 'products', depth: 0, limit: 1, locale, overrideAccess: true, req,
       where: { and: [{ site: { equals: siteId } }, { menuSourceSystem: { equals: SYSTEM } }, { menuSourceId: { equals: sourceId } }] },
     })
-    const existing = docs[0]
+    let existing: Product | undefined = docs[0]
+    if (!existing && typeof body.legacyProductId === 'string' && /^menu_item:[a-f\d-]+$/i.test(sourceId)) {
+      const legacySlug = `biza-${sourceId.replace(/[^a-zA-Z0-9-]+/g, '-')}`
+      const { docs: legacy } = await req.payload.find({
+        collection: 'products', depth: 0, limit: 1, locale, overrideAccess: true, req,
+        where: { and: [{ site: { equals: siteId } }, { id: { equals: body.legacyProductId } }, { slug: { equals: legacySlug } }] },
+      })
+      if (legacy[0] && !legacy[0].menuSourceSystem) existing = legacy[0]
+    }
+    if (!existing && body.published === false) return answer({ id: null, ok: true, status: 'draft' })
     if (!existing && (typeof body.title !== 'string' || body.price === undefined)) return invalid('عنوان و قیمت برای کالای جدید لازم است.')
     const modifiers = body.modifierGroups === undefined ? undefined : modifiersWithExistingIds(body.modifierGroups, existing?.modifierGroups)
     if (modifiers === null) return invalid('افزودنی‌ها نامعتبرند.')
@@ -226,7 +237,8 @@ export const upsertCafeProduct: Endpoint['handler'] = async (req) => {
       ...(body.sku !== undefined ? { sku: body.sku as string | null } : {}),
       ...(body.price !== undefined ? { price: body.price as number } : {}),
       ...(body.menuOrder !== undefined ? { menuOrder: body.menuOrder as number } : {}),
-      ...(body.menuAvailability !== undefined ? { menuAvailability: body.menuAvailability as Product['menuAvailability'] } : {}),
+      ...(body.published === false ? { menuAvailability: 'unavailable' as const }
+        : body.menuAvailability !== undefined ? { menuAvailability: body.menuAvailability as Product['menuAvailability'] } : {}),
       ...(body.trackInventory !== undefined ? { trackInventory: body.trackInventory as boolean } : {}),
       ...(body.inventory !== undefined ? { inventory: body.inventory as number | null } : {}),
       ...(modifiers !== undefined ? { modifierGroups: modifiers } : {}),
@@ -236,16 +248,51 @@ export const upsertCafeProduct: Endpoint['handler'] = async (req) => {
       // locale is synced. Preserve that locale's existing slug (or its fallback).
       slug: existing?.slug ?? stableSlug('cafe-item', sourceId),
     }
+    const status = body.published === undefined ? existing?._status ?? 'draft' : body.published ? 'published' : 'draft'
+    // The key, source identity, target site and fields were checked above. Grant
+    // publication only for this operation, while keeping collection hooks active.
+    const options = {
+      collection: 'products' as const, depth: 0, locale, req,
+      overrideAccess: status === 'published',
+      context: { [CAFE_SYNC_CONTEXT]: true },
+    }
     const doc = existing
-      ? await req.payload.update({ collection: 'products', id: existing.id, data, depth: 0, locale, overrideAccess: false, req })
-      : await req.payload.create({ collection: 'products', data: { ...data, title: data.title!, price: data.price!, slug: stableSlug('cafe-item', sourceId), _status: 'draft' }, depth: 0, locale, overrideAccess: false, req })
-    return answer({ id: doc.id, ok: true, status: doc._status })
+      ? await req.payload.update({ ...options, id: existing.id, data: { ...data, _status: status } })
+      : await req.payload.create({ ...options, data: { ...data, title: data.title!, price: data.price!, _status: status } })
+    return answer({ id: doc.id, ok: true, status: doc._status, updatedAt: doc.updatedAt })
   } catch (error) {
     return errorResponse(error)
   }
 }
 
+const uploadCafeMedia: Endpoint['handler'] = async (req) => {
+  const ctx = await contextFor(req)
+  if (ctx instanceof Response) return ctx
+  const { body, locale, site, sourceId } = ctx
+  const file = req.file
+  if (!file || !file.mimetype.startsWith('image/') || file.size < 1 || file.size > 10 * 1024 * 1024) {
+    return invalid('تصویر منو نامعتبر است.')
+  }
+  if (body.alt !== undefined && typeof body.alt !== 'string') return invalid('متن جایگزین تصویر نامعتبر است.')
+  const { docs } = await req.payload.find({
+    collection: 'media', depth: 0, limit: 1, locale, overrideAccess: true, req,
+    where: { and: [
+      { site: { equals: site.id } }, { 'source.system': { equals: 'other' } },
+      { 'source.installation': { equals: SYSTEM } }, { 'source.sourceId': { equals: sourceId } },
+    ] },
+  })
+  const doc = docs[0] ?? await req.payload.create({
+    collection: 'media', depth: 0, file, locale, overrideAccess: true, req,
+    data: {
+      site: site.id, alt: typeof body.alt === 'string' ? body.alt : undefined,
+      source: { system: 'other', installation: SYSTEM, sourceId, mappingStatus: 'imported' },
+    },
+  })
+  return answer({ id: doc.id, filename: doc.filename, url: doc.url, alt: doc.alt })
+}
+
 export const cafeMenuSyncEndpoints: Endpoint[] = [
+  { handler: uploadCafeMedia, method: 'post', path: '/site/cafe-menu/media/:sourceId' },
   { handler: upsertCafeCategory, method: 'put', path: '/site/cafe-menu/categories/:sourceId' },
   { handler: upsertCafeProduct, method: 'put', path: '/site/cafe-menu/products/:sourceId' },
 ]

@@ -3,7 +3,7 @@ import type { CollectionBeforeValidateHook, PayloadRequest, Plugin, Relationship
 import { requestApiKey } from '@/access/siteApiKey'
 import { idOf } from '@/lib/ids'
 
-const KEYED_COLLECTIONS = new Set(['products', 'taxonomy-definitions', 'taxonomy-terms'])
+const KEYED_COLLECTIONS = new Set(['media', 'products', 'taxonomy-definitions', 'taxonomy-terms'])
 
 /**
  * The multi-tenant plugin validates an assigned site against `req.user`. A site

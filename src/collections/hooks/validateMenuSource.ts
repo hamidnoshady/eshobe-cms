@@ -8,8 +8,10 @@ import { failField, siteIdOfWrite } from './contentSameSite'
 export const isMenuSourceId = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 
+export const CAFE_SYNC_CONTEXT = 'cafeMenuSync'
+
 /** The pair is optional for native content, but complete and immutable for a POS row. */
-export const validateMenuSource: CollectionBeforeValidateHook = async ({ collection, data, originalDoc, req }) => {
+export const validateMenuSource: CollectionBeforeValidateHook = async ({ collection, data, originalDoc, req, context }) => {
   if (!data) return data
   const row = data as Record<string, unknown>
   const previous = (originalDoc ?? {}) as Record<string, unknown>
@@ -47,6 +49,9 @@ export const validateMenuSource: CollectionBeforeValidateHook = async ({ collect
   // POS owns recipe stock. Neither an admin edit nor a payment hook can opt a Biza
   // product back into CMS stock settlement while that identity remains attached.
   if (collection.slug === 'products' && system === 'biza_miz') {
+    if (!previous.menuSourceSystem && context[CAFE_SYNC_CONTEXT] !== true && (await requestApiKey(req))?.role === 'site') {
+      failField(collection, req, [{ message: 'شناسهٔ منو باید از مسیر همگام‌سازی منو ثبت شود.', path: 'menuSourceId' }])
+    }
     row.externalInventory = true
     if (previous.menuSourceSystem === 'biza_miz') {
       const inventoryChanged = ['inventory', 'trackInventory'].some((key) =>

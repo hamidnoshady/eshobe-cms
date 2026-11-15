@@ -26,15 +26,16 @@ import { MigrateDownArgs, MigrateUpArgs, sql } from '@payloadcms/db-postgres'
  */
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql`
-    -- PostgreSQL has no CREATE TYPE IF NOT EXISTS, and a dollar-quoted DO block cannot
-    -- survive a tagged template literal (its delimiter is the same character as the
-    -- template's own substitution syntax). A catalog guard is the equivalent that stays
-    -- plain SQL: run the DDL, or run nothing.
+    -- PostgreSQL has no CREATE TYPE IF NOT EXISTS. Check the catalog and quote
+    -- enum labels in their original order before executing the DDL.
     CREATE OR REPLACE FUNCTION pg_temp.cafe_ensure_enum(name text, labels text[]) RETURNS void
       LANGUAGE plpgsql AS $body$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = name AND n.nspname = 'public') THEN
-          EXECUTE format('CREATE TYPE "public".%I AS ENUM (%s)', name, array_to_string(array_quote_literal(labels), ', '));
+          EXECUTE format('CREATE TYPE "public".%I AS ENUM (%s)', name, (
+            SELECT string_agg(quote_literal(label), ', ' ORDER BY position)
+            FROM unnest(labels) WITH ORDINALITY AS entries(label, position)
+          ));
         END IF;
       END
       $body$;

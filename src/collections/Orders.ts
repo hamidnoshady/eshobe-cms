@@ -619,8 +619,8 @@ export const Orders: CollectionConfig<'orders'> = {
     // about which write happens first for a row that is both (never here — create cannot
     // also be a paid transition).
     afterChange: [settleStock, emitOrderSubmitted, emitOrderPaid, emitOrderReversal],
-    beforeChange: [restrictApiKeyOrderWrite],
-    beforeValidate: [validateOrderCommerce, snapshotOrder],
+    // Strip fields outside the site key's allow-list before commerce validation.
+    beforeValidate: [restrictApiKeyOrderWrite, validateOrderCommerce, snapshotOrder],
   },
   timestamps: true,
 }
