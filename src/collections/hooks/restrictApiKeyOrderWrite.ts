@@ -1,4 +1,4 @@
-import type { CollectionBeforeChangeHook } from 'payload'
+import type { CollectionBeforeValidateHook } from 'payload'
 
 import type { Order } from '@/payload-types'
 import { isFulfillmentState } from '@/lib/cafe-order'
@@ -21,7 +21,6 @@ import { requestApiKey } from '@/access/siteApiKey'
  *    A value outside the closed vocabulary is **dropped, not rejected**: `status` in the
  *    same call is the POS's real assertion, and failing the whole write because it also
  *    sent a state this CMS has never heard of would leave a paid ticket looking unpaid.
- *    Payload's own select validation still refuses it in the ordinary API path.
  *
  * Both are allow-listed, not "everything except the fields on a deny list": a field
  * added to `orders` later is unwritable by a site key by default, which is the safe
@@ -30,7 +29,7 @@ import { requestApiKey } from '@/access/siteApiKey'
  * A no-op for an admin-session write (no key on the request) and for a create (an order
  * is created by the checkout endpoint, never by a site key).
  */
-export const restrictApiKeyOrderWrite: CollectionBeforeChangeHook<Order> = async ({
+export const restrictApiKeyOrderWrite: CollectionBeforeValidateHook<Order> = async ({
   data,
   operation,
   originalDoc,
