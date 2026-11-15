@@ -36,6 +36,7 @@ const productSourceId = `test-product-${suffix}`
 const raceCategorySourceId = `test-race-category-${suffix}`
 const childCategorySourceId = `test-child-category-${suffix}`
 const raceProductSourceId = `test-race-product-${suffix}`
+const publishProductSourceId = `test-publish-product-${suffix}`
 const draftProductSourceId = `test-draft-product-${suffix}`
 const bootstrapCategoryA = `test-bootstrap-a-${suffix}`
 const bootstrapCategoryB = `test-bootstrap-b-${suffix}`
@@ -110,7 +111,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!payload) return
   if (orderId) await payload.delete({ collection: 'orders', id: orderId, overrideAccess: true })
-  const syncedProducts = await payload.find({ collection: 'products', depth: 0, overrideAccess: true, pagination: false, where: { menuSourceId: { in: [productSourceId, raceProductSourceId, draftProductSourceId] } } })
+  const syncedProducts = await payload.find({ collection: 'products', depth: 0, overrideAccess: true, pagination: false, where: { menuSourceId: { in: [productSourceId, raceProductSourceId, draftProductSourceId, publishProductSourceId] } } })
   for (const doc of syncedProducts.docs) await payload.delete({ collection: 'products', id: doc.id, overrideAccess: true, context: { disableRevalidate: true } })
   if (nativeProductId) await payload.delete({ collection: 'products', id: nativeProductId, overrideAccess: true, context: { disableRevalidate: true } })
   const terms = await payload.find({ collection: 'taxonomy-terms', depth: 0, overrideAccess: true, pagination: false, where: { menuSourceId: { in: [categorySourceId, raceCategorySourceId, childCategorySourceId, bootstrapCategoryA, bootstrapCategoryB] } } })
@@ -204,6 +205,19 @@ describe.sequential('site-scoped POS café menu', () => {
     await payload.update({ collection: 'products', id: posProductId, data: { _status: 'published' }, overrideAccess: true, context: { disableRevalidate: true } })
     const publishedUpdate = await syncProduct(shopKey, productSourceId, { summary: 'توضیح تازه' })
     expect(publishedUpdate, JSON.stringify(publishedUpdate)).toMatchObject({ status: 200, body: { status: 'published' } })
+  })
+
+  it('publishes and withdraws an opted-in POS product on the key’s site', async () => {
+    const enabled = await syncProduct(shopKey, publishProductSourceId, {
+      title: 'همگام‌شده', price: 10, published: true, menuAvailability: 'available',
+    })
+    expect(enabled).toMatchObject({ status: 200, body: { status: 'published' } })
+    const disabled = await syncProduct(shopKey, publishProductSourceId, { published: false })
+    expect(disabled).toMatchObject({ status: 200, body: { id: enabled.body.id, status: 'draft' } })
+    const repeated = await syncProduct(shopKey, publishProductSourceId, { published: false })
+    expect(repeated).toMatchObject({ status: 200, body: { id: enabled.body.id, status: 'draft' } })
+    const withdrawn = await payload.findByID({ collection: 'products', id: enabled.body.id!, depth: 0 })
+    expect(withdrawn.menuAvailability).toBe('unavailable')
   })
 
   it('keeps translations across source-ID-based modifier updates', async () => {

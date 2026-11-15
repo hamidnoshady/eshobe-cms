@@ -49,6 +49,7 @@ enabled on the site.
   "image": "<same-site media UUID>",
   "menuOrder": 20,
   "menuAvailability": "available",
+  "published": true,
   "trackInventory": true,
   "inventory": 6,
   "categorySourceIds": ["coffee"],
@@ -84,12 +85,17 @@ marked `externalInventory`: staff cannot edit their mirrored stock and CMS payme
 or refund settlement will not change it. Biza must publish authoritative stock
 updates using the site key. Non-POS products retain ordinary CMS stock settlement.
 
-The sync cannot publish content: creates are **drafts**, `_status` is rejected,
-and publishing remains an existing owner/operator action. Updating a published
-record does not unpublish it. The integration must opt products into publication
-through the existing authorized workflow. Image IDs must be from the same site.
+New products default to drafts. On this site-key route, `published: true` publishes
+a POS-managed product selected in Biza Miz. `published: false` withdraws it and
+sets its availability to `unavailable`, preserving its CMS ID and order history.
+Omitting the flag preserves publication state. Generic collection writes still
+reject site-key publication. Image IDs must be from the same site.
 The POS outbox must re-read current desired data on retries and serialize writes
 for an item: these endpoints provide stable identity, not source-version ordering.
+
+Send product images with `POST /api/site/cafe-menu/media/:sourceId`, using
+multipart `file` and a JSON `_payload` with optional `alt`. Use the same source
+ID for retries of identical bytes and a fresh ID when the image changes.
 
 ## Cart checkout contract (ESH-148 / #195)
 
