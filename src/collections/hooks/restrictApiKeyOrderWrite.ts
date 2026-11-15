@@ -8,7 +8,7 @@ import { requestApiKey } from '@/access/siteApiKey'
  * WAVE-9 §9.4 — a site key's writes on an order are narrow by design
  * (`src/access/siteApiKey.ts`'s `apiKeyAware` already scopes `update` to the key's own
  * site). This is the second half of that promise: every field the key did not earn
- * reverts to what the document already held, so a compromised or overreaching call can
+ * is omitted from the patch, so a compromised or overreaching call can
  * never rewrite a receipt, a buyer's phone number or the amount charged.
  *
  * ## What a site key may write (ESH-150)
@@ -35,7 +35,7 @@ export const restrictApiKeyOrderWrite: CollectionBeforeValidateHook<Order> = asy
   originalDoc,
   req,
 }) => {
-  if (operation !== 'update' || !originalDoc) return data
+  if (operation !== 'update' || !data || !originalDoc) return data
 
   const key = await requestApiKey(req)
   if (key?.role !== 'site') return data
@@ -43,7 +43,6 @@ export const restrictApiKeyOrderWrite: CollectionBeforeValidateHook<Order> = asy
   const fulfillment = data.cafe?.fulfillment
 
   return {
-    ...originalDoc,
     status: data.status ?? originalDoc.status,
     ...(originalDoc.cafe || fulfillment
       ? {
