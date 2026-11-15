@@ -4,7 +4,7 @@ import type { Payload, PayloadRequest } from 'payload'
 import { randomUUID } from 'node:crypto'
 
 import { createLocalReq, getPayload } from 'payload'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import config from '@/payload.config'
 import { upsertCafeCategory, upsertCafeProduct } from '@/endpoints/cafeMenuSync'
@@ -13,7 +13,6 @@ import { completeCheckout, startCheckout } from '@/endpoints/checkout'
 import type { Order, Product, Site } from '@/payload-types'
 import { cartFingerprint } from '@/lib/cafe-order'
 import { resetRateLimits } from '@/lib/rate-limit'
-import { findForSite } from '@/lib/site-query'
 import { cmsTypedUser } from './cmsUser'
 
 /**
@@ -226,8 +225,6 @@ beforeAll(async () => {
   foreignProductId = (await foreign.json() as { id: string }).id
   createdProductIds.push(foreignProductId)
   await payload.update({ collection: 'products', id: foreignProductId, data: { _status: 'published' }, overrideAccess: true, context: { disableRevalidate: true } })
-
-  resetRateLimits()
 }, 240_000)
 
 afterAll(async () => {
@@ -258,6 +255,8 @@ afterAll(async () => {
 }, 240_000)
 
 describe.sequential('café checkout (ESH-150)', () => {
+  beforeEach(resetRateLimits)
+
   it('submits a multi-line dine-in order from a table token and prices every line on the server', async () => {
     const response = await checkout({
       ...buyer,
@@ -274,7 +273,7 @@ describe.sequential('café checkout (ESH-150)', () => {
       total: 1,
     })
 
-    const body = await response.json() as { message?: string; orderId?: string; paymentChoice?: string; redirectUrl?: null | string }
+    const body = await response.clone().json() as { message?: string; paymentChoice?: string; redirectUrl?: null | string }
     expect(response.status, JSON.stringify(body)).toBe(200)
     // Pay at the counter never reaches a gateway, so there is nothing to redirect to.
     expect(body.paymentChoice).toBe('counter')
@@ -335,7 +334,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const withTable = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
       tableToken: TABLE,
@@ -345,7 +344,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const response = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     })
@@ -359,7 +358,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const noToken = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'dine_in',
     })
@@ -369,7 +368,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const badToken = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'dine_in',
       tableToken: 'has spaces',
@@ -381,7 +380,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const delivery = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'delivery',
     })
@@ -394,7 +393,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const foreignToAcme = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     }, 'acme.localhost')
@@ -418,7 +417,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const accepted = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'dine_in',
       tableToken: TABLE,
@@ -433,7 +432,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const response = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'dine_in',
       tableToken: 'TBL_9f2c1a4e 77b04d0f8c31',
@@ -446,7 +445,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     // order, and both guesses are wrong — so it refuses instead of guessing.
     const response = await checkout({
       ...buyer,
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     })
@@ -506,7 +505,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const body = {
       ...buyer,
       checkoutRequestId: requestId,
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     }
@@ -602,7 +601,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const counterOrder = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     })
@@ -724,7 +723,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const created = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     })
@@ -768,7 +767,7 @@ describe.sequential('café checkout (ESH-150)', () => {
     const created = await checkout({
       ...buyer,
       ...newRequest(),
-      items: [item(posProduct2Id, 1, 'dairy')],
+      items: [{ product: posProduct2Id, quantity: 1 }],
       paymentChoice: 'counter',
       serviceMode: 'takeaway',
     })
@@ -792,7 +791,14 @@ describe.sequential('café checkout (ESH-150)', () => {
 
   it('hides a foreign café order from this site’s scoped read', async () => {
     const orderId = createdOrderIds[0]!
-    const scoped = await findForSite('orders', String(acme.id), { pagination: false, where: { id: { equals: orderId } } })
-    expect(scoped.docs).toHaveLength(0)
+    const readWithKey = async (key: string) => payload.find({
+      collection: 'orders',
+      overrideAccess: false,
+      pagination: false,
+      req: await request({ key, method: 'GET', path: '/api/orders' }),
+      where: { id: { equals: orderId } },
+    })
+    expect((await readWithKey(shopKey)).docs.map((order) => order.id)).toEqual([orderId])
+    expect((await readWithKey(acmeKey)).docs).toHaveLength(0)
   })
 })
