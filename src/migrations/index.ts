@@ -37,6 +37,7 @@ import * as migration_20261102_120000_migration_menus_comments from './20261102_
 import * as migration_20261104_120000_torob_product_api from './20261104_120000_torob_product_api';
 import * as migration_20261108_120000_cafe_menu from './20261108_120000_cafe_menu';
 import * as migration_20261110_120000_cafe_checkout from './20261110_120000_cafe_checkout';
+import * as migration_20261116_140000_menu_comment_document_locks from './20261116_140000_menu_comment_document_locks';
 
 export const migrations = [
   {
@@ -233,5 +234,10 @@ export const migrations = [
     up: migration_20261110_120000_cafe_checkout.up,
     down: migration_20261110_120000_cafe_checkout.down,
     name: '20261110_120000_cafe_checkout',
+  },
+  {
+    up: migration_20261116_140000_menu_comment_document_locks.up,
+    down: migration_20261116_140000_menu_comment_document_locks.down,
+    name: '20261116_140000_menu_comment_document_locks',
   },
 ];
