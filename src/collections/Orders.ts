@@ -4,7 +4,7 @@ import { authenticated } from '../access/authenticated'
 import { platformAdmin } from '../access/platformAdmin'
 import { hiddenFromOperators } from '@/admin/visibility'
 import { apiKeyAware } from '../access/siteApiKey'
-import { FULFILLMENT_STATES } from '@/lib/cafe-order'
+import { FULFILLMENT_LABELS_FA, FULFILLMENT_STATES } from '@/lib/cafe-order'
 import { currencyCodes, validatePriceMinor } from '../lib/money'
 import { isMigrationWrite } from '../lib/migration-context'
 import { idOf } from '../lib/ids'
@@ -44,9 +44,8 @@ export const Orders: CollectionConfig<'orders'> = {
     // belongs to — with money on the other end of it.
     create: authenticated,
     delete: platformAdmin,
-    // A site API key (WAVE-9 §9.4) reads and moves the status of its own site's
-    // orders — never creates or deletes one, and `restrictApiKeyOrderWrite` (below)
-    // is what keeps an update to *just* the status.
+    // A site API key reads its own orders and can update ordinary store payment
+    // status. Café writes go through the dedicated state endpoint.
     read: apiKeyAware(authenticated),
     update: apiKeyAware(authenticated),
   },
@@ -91,6 +90,7 @@ export const Orders: CollectionConfig<'orders'> = {
     {
       name: 'status',
       type: 'select',
+      access: { update: ({ doc }) => !doc?.cafe?.serviceMode },
       label: 'وضعیت پرداخت',
       defaultValue: 'pending',
       index: true,
@@ -210,6 +210,7 @@ export const Orders: CollectionConfig<'orders'> = {
         {
           name: 'serviceMode',
           type: 'select',
+          access: { create: () => false, update: () => false },
           label: 'نوع سرویس',
           index: true,
           admin: {
@@ -224,6 +225,7 @@ export const Orders: CollectionConfig<'orders'> = {
         {
           name: 'tableToken',
           type: 'text',
+          access: { create: () => false, update: () => false },
           label: 'نشان میز (توکن بیزا)',
           maxLength: 512,
           admin: {
@@ -275,6 +277,7 @@ export const Orders: CollectionConfig<'orders'> = {
         {
           name: 'fulfillment',
           type: 'select',
+          access: { create: () => false, update: () => false },
           label: 'وضعیت آماده‌سازی',
           defaultValue: 'awaiting_approval',
           index: true,
@@ -282,26 +285,21 @@ export const Orders: CollectionConfig<'orders'> = {
             description:
               'کارِ صندوق است، نه خریدار. تا وقتی کافه سفارش را نپذیرد، آشپزخانه چیزی دریافت نمی‌کند.',
           },
-          options: FULFILLMENT_STATES.map((value) => ({
-            label:
-              value === 'awaiting_approval'
-                ? 'در انتظار تأیید کافه'
-                : value === 'accepted'
-                  ? 'پذیرفته شد'
-                  : value === 'preparing'
-                    ? 'در حال آماده‌سازی'
-                    : value === 'ready'
-                      ? 'آماده'
-                      : value === 'served'
-                        ? 'تحویل شد'
-                        : 'رد شد',
-            value,
-          })),
+          options: FULFILLMENT_STATES.map((value) => ({ label: FULFILLMENT_LABELS_FA[value], value })),
         },
         {
           name: 'fulfillmentAt',
           type: 'date',
+          access: { create: () => false, update: () => false },
           label: 'زمان آخرین تغییر آماده‌سازی',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'tableLabel',
+          type: 'text',
+          access: { create: () => false, update: () => false },
+          label: 'نام نمایشی میز',
+          maxLength: 80,
           admin: { readOnly: true },
         },
       ],

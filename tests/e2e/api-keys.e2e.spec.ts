@@ -61,6 +61,22 @@ test.describe('api-keys lifecycle over HTTP', () => {
     expect(issued.prefix).toBe(issued.key.slice(0, issued.prefix.length))
   })
 
+  test('routes the café state endpoint and requires a site key', async () => {
+    const path = '/api/site/cafe-orders/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/state'
+    const data = { fulfillment: 'accepted', kind: 'fulfillment' }
+    expect((await admin.patch(path, { data })).status()).toBe(403)
+
+    const issued = await (await admin.post('/api/api-keys/issue', {
+      data: { name: 'e2e café state key', role: 'site', siteId: shopId },
+    })).json()
+    const response = await admin.patch(path, {
+      data,
+      headers: { authorization: `Bearer ${issued.key}` },
+    })
+    expect(response.status()).toBe(404)
+    expect(await response.json()).toMatchObject({ result: 'order_not_found' })
+  })
+
   test('issue → use → list → revoke, the shape the POS client drives', async () => {
     const issued = await (
       await admin.post('/api/api-keys/issue', {

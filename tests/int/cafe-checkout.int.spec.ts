@@ -10,6 +10,8 @@ import config from '@/payload.config'
 import { upsertCafeCategory, upsertCafeProduct } from '@/endpoints/cafeMenuSync'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { completeCheckout, startCheckout } from '@/endpoints/checkout'
+import { updateCafeOrderState } from '@/endpoints/cafeOrderState'
+import { readOrderForReceipt, signOrderReceipt } from '@/lib/order-receipt'
 import type { Order, Product, Site } from '@/payload-types'
 import { cartFingerprint } from '@/lib/cafe-order'
 import { resetRateLimits } from '@/lib/rate-limit'
@@ -719,74 +721,104 @@ describe.sequential('café checkout (ESH-150)', () => {
       .toBe(submitted[0]!.id)
   })
 
-  it('lets the POS move only the kitchen state through its site key', async () => {
-    const created = await checkout({
-      ...buyer,
-      ...newRequest(),
-      items: [{ product: posProduct2Id, quantity: 1 }],
-      paymentChoice: 'counter',
-      serviceMode: 'takeaway',
-    })
-    const id = await orderIdOf(created)
-    const before = await orderById(id)
+  const newCounterOrder = async () => orderIdOf(await checkout({
+    ...buyer,
+    ...newRequest(),
+    items: [{ product: posProduct2Id, quantity: 1 }],
+    paymentChoice: 'counter',
+    serviceMode: 'takeaway',
+  }))
 
-    // A keyed request, exactly as the POS makes it: `overrideAccess: false` so the
-    // site-key access rules and `restrictApiKeyOrderWrite` are both in the path.
-    const keyed = await request({ key: shopKey, method: 'PATCH', path: `/api/orders/${id}` })
+  const sendState = async (id: string, body: object, key: string | null = shopKey) => {
+    const req = await request({ body, key: key ?? undefined, method: 'PATCH', path: `/api/site/cafe-orders/${id}/state` })
+    req.routeParams = { orderId: id }
+    return updateCafeOrderState(req)
+  }
 
-    // The POS accepts the ticket and — in the same call, out of habit or malice —
-    // rewrites the total, the buyer, the reference and the café facts.
-    const updated = await payload.update({
-      collection: 'orders',
-      data: {
-        cafe: { fulfillment: 'accepted' },
-        buyer: { name: 'کسی دیگر', phone: '09000000000' },
-        reference: 'HIJACKED',
-        status: 'paid',
-        total: 1,
-      } as never,
-      id,
-      overrideAccess: false,
-      req: keyed,
-    })
+  const signedReceipt = (id: string) => {
+    const siteId = String(shop.id)
+    return readOrderForReceipt({ orderId: id, siteId, receipt: signOrderReceipt({ orderId: id, siteId }) })
+  }
 
-    // What it earned: the status transition and the kitchen state.
-    expect(updated.status).toBe('paid')
-    expect(updated.cafe?.fulfillment).toBe('accepted')
-    expect(updated.cafe?.fulfillmentAt).toBeTruthy()
-    // What it did not: every commerce fact stays exactly as the checkout wrote it.
-    expect(updated.total).toBe(before.total)
-    expect(updated.reference).toBe(before.reference)
-    expect(updated.buyer?.phone).toBe(before.buyer?.phone)
-    expect(updated.cafe?.serviceMode).toBe('takeaway')
-    expect(updated.cafe?.checkoutRequestId).toBe(before.cafe?.checkoutRequestId)
-    expect(updated.cafe?.tableToken ?? null).toBeNull()
+  it('projects the ordered kitchen lifecycle to the existing signed receipt while payment remains pending', async () => {
+    const id = await newCounterOrder()
+    const update = (fulfillment: string) => sendState(id, { fulfillment, kind: 'fulfillment' })
+    const assertReceipt = async (fulfillment: string) => {
+      expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment }, status: 'pending' })
+    }
+
+    await assertReceipt('awaiting_approval')
+    expect((await update('ready')).status).toBe(409)
+    expect((await update('microwaved')).status).toBe(400)
+    for (const state of ['accepted', 'preparing', 'ready', 'served']) {
+      expect((await update(state)).status).toBe(200)
+      await assertReceipt(state)
+      expect(await (await update(state)).json()).toMatchObject({ result: 'already_applied' })
+    }
+    expect((await update('ready')).status).toBe(409)
+    expect((await update('cancelled')).status).toBe(409)
+    await assertReceipt('served')
   })
 
-  it('refuses a fulfillment state outside the closed vocabulary', async () => {
-    const created = await checkout({
-      ...buyer,
-      ...newRequest(),
-      items: [{ product: posProduct2Id, quantity: 1 }],
-      paymentChoice: 'counter',
-      serviceMode: 'takeaway',
+  it('keeps rejection and counter settlement independent and out of both outbound paid-event paths', async () => {
+    const id = await newCounterOrder()
+    const before = await orderById(id)
+    const payment = { accountingReference: 'pos-ledger-123', amount: before.total, kind: 'counter_payment' }
+    expect((await sendState(id, { ...payment, amount: before.total + 1 })).status).toBe(409)
+    expect((await sendState(id, payment)).status).toBe(200)
+    expect(await (await sendState(id, payment)).json()).toMatchObject({ result: 'already_applied' })
+    expect((await signedReceipt(id))?.order).toMatchObject({
+      cafe: { fulfillment: 'awaiting_approval' },
+      payment: { provider: 'counter', reference: 'pos-ledger-123' },
+      status: 'paid',
     })
-    const id = await orderIdOf(created)
-    const keyed = await request({ key: shopKey, method: 'PATCH', path: `/api/orders/${id}` })
 
-    // Either Payload's own select validation refuses the write or the hook drops the
-    // value; both are acceptable, silently storing it is not.
-    await payload.update({
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment' })).status).toBe(200)
+    expect((await sendState(id, { fulfillment: 'accepted', kind: 'fulfillment' })).status).toBe(409)
+    expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'rejected' }, status: 'paid' })
+
+    const { totalDocs } = await payload.find({
+      collection: 'audit-log',
+      overrideAccess: true,
+      where: { and: [{ action: { equals: 'order.paid' } }, { targetId: { equals: id } }] },
+    })
+    expect(totalDocs).toBe(0)
+
+    const { platformEvents } = await import('@/platform/events')
+    const feed = await platformEvents(await request({ method: 'GET', path: '/api/platform/events' }), { limit: 500 })
+    expect(feed.events.some((event) => event.kind === 'order.paid' && event.data?.orderId === id)).toBe(false)
+
+    await payload.update({ collection: 'orders', data: { status: 'refunded' }, id, overrideAccess: true })
+    expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'rejected' }, status: 'refunded' })
+    expect((await sendState(id, payment)).status).toBe(409)
+  })
+
+  it('scopes the write and receipt to one café order and keeps generic keyed writes closed', async () => {
+    const id = await newCounterOrder()
+    const update = { fulfillment: 'accepted', kind: 'fulfillment' }
+    expect((await sendState(id, update, null)).status).toBe(403)
+    expect((await sendState(id, update, acmeKey)).status).toBe(404)
+    expect((await sendState(id, { ...update, total: 1 })).status).toBe(400)
+    expect((await sendState(id, { ...update, tableLabel: 'میز ۸' })).status).toBe(409)
+
+    await expect(payload.update({
       collection: 'orders',
-      data: { cafe: { fulfillment: 'microwaved' }, status: 'pending' } as never,
+      data: { cafe: { fulfillment: 'accepted' }, status: 'paid', total: 1 },
       id,
       overrideAccess: false,
-      req: keyed,
-    }).catch(() => undefined)
+      req: await request({ key: shopKey, method: 'PATCH', path: `/api/orders/${id}` }),
+    })).rejects.toThrow()
+    expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'awaiting_approval' }, status: 'pending' })
 
-    const after = await orderById(id)
-    expect(after.cafe?.fulfillment).toBe('awaiting_approval')
-    expect(after.status).toBe('pending')
+    const siteId = String(shop.id)
+    const receipt = signOrderReceipt({ orderId: id, siteId })
+    expect(await readOrderForReceipt({ orderId: id, receipt: 'invalid', siteId })).toBeNull()
+    expect(await readOrderForReceipt({ orderId: id, receipt, siteId: String(acme.id) })).toBeNull()
+    expect(await readOrderForReceipt({
+      orderId: id,
+      receipt: signOrderReceipt({ orderId: id, siteId: String(acme.id) }),
+      siteId: String(acme.id),
+    })).toBeNull()
   })
 
   it('hides a foreign café order from this site’s scoped read', async () => {
