@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import React from 'react'
 
-import { FULFILLMENT_LABELS_FA, isFulfillmentState } from '@/lib/cafe-order'
+import { COUNTER_PROVIDER, FULFILLMENT_LABELS_FA, isFulfillmentState } from '@/lib/cafe-order'
 import { formatNumber, formatPrice, toLocaleDigits } from '@/lib/format'
 import { readOrderForReceipt } from '@/lib/order-receipt'
 import { getSiteContext } from '@/lib/site-context'
@@ -28,7 +28,7 @@ type Props = {
   receipt?: string
 }
 
-export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome, receipt }) => {
+export const CheckoutReceipt = async ({ order: orderId, outcome, receipt }: Props) => {
   const { locale, site } = await getSiteContext()
 
   if (!site || !orderId) notFound()
@@ -45,36 +45,45 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
   const { instructions, order } = found
 
   const paid = order.status === 'paid'
-  /**
-   * Three independent facts, three separate lines (ESH-150 / epic #195).
-   *
-   * The old page collapsed "paid" and "placed" into one sentence, which is exactly the
-   * confusion a pay-at-counter café order creates: it is *placed* and unpaid, and the
-   * kitchen may already have accepted it. Payment stays `orders.status`; the kitchen's
-   * answer is `cafe.fulfillment`, which only the POS writes.
-   */
   const cafe = order.cafe
-  const fulfillment = isFulfillmentState(cafe?.fulfillment) ? cafe?.fulfillment : null
-  const payAtCounter = order.payment?.provider === 'counter'
+  const isCafe = Boolean(cafe?.serviceMode)
+  const fulfillment = isFulfillmentState(cafe?.fulfillment) ? cafe.fulfillment : 'awaiting_approval'
+  const payAtCounter = order.payment?.provider === COUNTER_PROVIDER
+  const stopped = fulfillment === 'rejected' || fulfillment === 'cancelled'
+  const approved = fulfillment === 'accepted' || fulfillment === 'preparing' ||
+    fulfillment === 'ready' || fulfillment === 'served'
+  const cafePaymentLabel = order.status === 'refunded'
+    ? 'بازپرداخت شد'
+    : order.status === 'cancelled'
+      ? 'پرداخت لغو شد'
+      : paid
+        ? payAtCounter ? 'پرداخت‌شده در صندوق' : 'پرداخت‌شده'
+        : payAtCounter && !stopped ? 'در انتظار پرداخت در صندوق' : 'پرداخت‌نشده'
 
   return (
     <article className="container pt-16 pb-24">
       <div className="max-w-xl">
         <h1 className="text-3xl font-bold">
-          {paid ? 'پرداخت ثبت شد' : 'سفارش شما ثبت شد'}
+          {!isCafe && paid ? 'پرداخت ثبت شد' : 'سفارش شما ثبت شد'}
         </h1>
 
-        <p className="mt-3 text-muted-foreground">
-          {paid
-            ? cafe?.serviceMode
-              ? 'مبلغ دریافت شد. سفارش در جریان آماده‌سازی است.'
-              : 'مبلغ دریافت شد. فروشگاه برای هماهنگی ارسال با شما تماس می‌گیرد.'
-            : payAtCounter
-              ? 'مبلغ را در صندوق پرداخت کنید. سفارش شما ثبت شده است.'
+        {!isCafe && (
+          <p className="mt-3 text-muted-foreground">
+            {paid
+              ? 'مبلغ دریافت شد. فروشگاه برای هماهنگی ارسال با شما تماس می‌گیرد.'
               : 'این سفارش هنوز پرداخت‌نشده است. شمارهٔ پیگیری را نگه دارید.'}
-        </p>
+          </p>
+        )}
+        {isCafe && stopped && paid && (
+          <p className="mt-3 text-muted-foreground">
+            پرداخت ثبت شده است. کافه وضعیت بازپرداخت را پیگیری می‌کند.
+          </p>
+        )}
+        {isCafe && payAtCounter && order.status === 'pending' && !stopped && (
+          <p className="mt-3 text-muted-foreground">مبلغ سفارش را در صندوق کافه پرداخت کنید.</p>
+        )}
 
-        {outcome === 'failed' && (
+        {outcome === 'failed' && (!isCafe || order.status === 'pending') && (
           <p className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
             درگاه، پرداخت را تأیید نکرد. اگر مبلغ کسر شده است، با فروشگاه تماس بگیرید.
           </p>
@@ -87,23 +96,28 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
               label="نوع سرویس"
               value={
                 cafe.serviceMode === 'dine_in'
-                  ? `حضوری سر میز${cafe.tableToken ? ' (با اسکن QR میز)' : ''}`
+                  ? cafe.tableLabel ? <>حضوری سر میز <bdi>{toLocaleDigits(cafe.tableLabel, locale)}</bdi></> : 'حضوری سر میز'
                   : 'بیرون‌بر'
               }
             />
           )}
-          {fulfillment && <Row label="وضعیت آماده‌سازی" value={FULFILLMENT_LABELS_FA[fulfillment]} />}
+          {isCafe && (
+            <>
+              <Row
+                label="تأیید سفارش"
+                value={FULFILLMENT_LABELS_FA[approved ? 'accepted' : fulfillment]}
+              />
+              {approved && (
+                <Row
+                  label="وضعیت آماده‌سازی"
+                  value={fulfillment === 'accepted' ? 'در صف آماده‌سازی' : FULFILLMENT_LABELS_FA[fulfillment]}
+                />
+              )}
+            </>
+          )}
           <Row
             label="وضعیت پرداخت"
-            value={
-              paid
-                ? payAtCounter
-                  ? 'پرداخت‌شده در صندوق'
-                  : 'پرداخت‌شده'
-                : payAtCounter
-                  ? 'در انتظار پرداخت در صندوق'
-                  : 'در انتظار پرداخت'
-            }
+            value={isCafe ? cafePaymentLabel : paid ? 'پرداخت‌شده' : 'در انتظار پرداخت'}
           />
           <Row label={uiString('name', locale)} value={order.buyer?.name ?? '—'} />
           <Row
@@ -140,7 +154,7 @@ export const CheckoutReceipt: React.FC<Props> = async ({ order: orderId, outcome
           />
         </dl>
 
-        {!paid && instructions && (
+        {!paid && instructions && (!isCafe || (order.status === 'pending' && !stopped && !payAtCounter)) && (
           <section className="mt-8 rounded-lg border border-border bg-card p-6">
             <h2 className="text-lg font-semibold">نحوهٔ پرداخت</h2>
             <p className="mt-3 text-muted-foreground whitespace-pre-line">{instructions}</p>

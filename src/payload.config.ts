@@ -90,6 +90,7 @@ import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
 import { checkoutEndpoints } from './endpoints/checkout'
 import { cafeMenuSyncEndpoints } from './endpoints/cafeMenuSync'
+import { cafeOrderStateEndpoint } from './endpoints/cafeOrderState'
 import { customerClaimEndpoints } from './endpoints/customerClaims'
 import { migrationCenterEndpoints } from './endpoints/migrationCenter'
 import { cdnEndpoints } from './endpoints/cdn'
@@ -152,6 +153,7 @@ export default buildConfig({
     handoffPostEndpoint,
     ...checkoutEndpoints,
     ...cafeMenuSyncEndpoints,
+    cafeOrderStateEndpoint,
     ...customerClaimEndpoints,
     // Migration Center owner API (`/api/site/migration…`): session-only and
     // site-membership checked per request; `/site/*` is not a collection

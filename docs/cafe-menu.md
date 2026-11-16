@@ -198,7 +198,7 @@ money: `payment.provider === 'counter'` settlements and status writes that
 arrived with a site API key (the POS writing back what it already knows) emit
 nothing. Without that guard the POS's own counter-settlement write would bounce
 back to it as a payment it never took. A verified online payment, and an
-operator marking a transfer paid in the admin, still emit.
+operator marking an ordinary store transfer paid in the admin, still emit.
 
 ### Stock ownership
 
@@ -209,22 +209,39 @@ Products the menu sync creates are also marked `externalInventory`, so they are
 skipped individually even on an ordinary store order. Ordinary store products on
 an ordinary store order, and coupon usage, behave exactly as before.
 
-### Receipt
+### Receipt and POS state updates
 
-The customer receipt shows three independent lines, because they are three
-independent lifecycles: service type (`cafe.serviceMode`), preparation
-(`cafe.fulfillment`, driven by the POS), and payment (`status`). `cafe.fulfillment`
-defaults to `awaiting_approval` and is a closed vocabulary
-(`awaiting_approval`, `accepted`, `preparing`, `ready`, `served`, `rejected`).
+The existing signed checkout receipt shows service, staff approval, kitchen progress
+and payment separately. A paid order can still await approval or be rejected. A
+paid, rejected order shows that the café is handling the refund until the normal
+refund flow confirms it.
 
-The POS writes it through its site key with an ordinary order update
-(`PATCH /api/orders/:id`, `{ "cafe": { "fulfillment": "accepted" }, "status": "paid" }`).
-A site key may write exactly two things on an order: `status` and
-`cafe.fulfillment`/`cafe.fulfillmentAt`. Every other field — totals, buyer, reference,
-the café service mode and token, the checkout request id — reverts to the stored value,
-so an overreaching or compromised key cannot rewrite a receipt. A `fulfillment` value
-outside the vocabulary is dropped from a keyed write rather than failing the whole
-update, because `status` in the same call is the POS's real assertion.
+Biza writes committed changes with its site bearer key on the CMS control plane:
+`PATCH /api/site/cafe-orders/:orderId/state`. The key determines the site.
 
-Biza's companions: table QR tokens in biza-miz #1305, submitted-order intake and
-per-connection idempotency in #1304, and the menu projection in #1303.
+| Update | JSON body |
+| --- | --- |
+| Kitchen or approval | `{"kind":"fulfillment","fulfillment":"accepted"}` |
+| Dine-in table label with a state change | `{"kind":"fulfillment","fulfillment":"accepted","tableLabel":"میز ۸"}` |
+| Counter settlement confirmed by Accounting | `{"kind":"counter_payment","accountingReference":"<receipt reference>","amount":950}` |
+
+Send fulfillment changes in order. An order starts at `awaiting_approval` and can
+be accepted or rejected. Accepted orders advance through `preparing`, `ready`
+and `served`. Cancellation is available before service. Rejection, cancellation
+and service are terminal. Only a dine-in order can take a display label, and only
+the first label is kept. The signed receipt displays that label and never renders
+the QR token.
+
+A counter payment must match the stored order total in its currency's minor units.
+The endpoint can mark an unpaid counter order paid and store the accounting
+reference. Online payment and refunds use the existing payment flow. Counter
+settlements emit no `order.paid` on either the webhook or the poll feed.
+
+The response is `200 applied` or `200 already_applied` for an identical retry of
+the current state or settlement. A missing, foreign or ordinary store order returns
+`404`, a transition or settlement conflict returns `409`, and invalid input returns
+`400`. Generic keyed café order updates are refused. Ordinary store keys retain
+their existing status-only writes.
+
+Biza's companions: POS state delivery in biza-miz #1306, table QR tokens in #1305,
+submitted-order intake in #1304, and menu projection in #1303.

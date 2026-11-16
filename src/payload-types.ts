@@ -3103,8 +3103,9 @@ export interface Order {
     /**
      * کارِ صندوق است، نه خریدار. تا وقتی کافه سفارش را نپذیرد، آشپزخانه چیزی دریافت نمی‌کند.
      */
-    fulfillment?: ('awaiting_approval' | 'accepted' | 'preparing' | 'ready' | 'served' | 'rejected') | null;
+    fulfillment?: ('awaiting_approval' | 'accepted' | 'preparing' | 'ready' | 'served' | 'rejected' | 'cancelled') | null;
     fulfillmentAt?: string | null;
+    tableLabel?: string | null;
   };
   buyer: {
     name: string;
@@ -7108,6 +7109,7 @@ export interface OrdersSelect<T extends boolean = true> {
         cartFingerprint?: T;
         fulfillment?: T;
         fulfillmentAt?: T;
+        tableLabel?: T;
       };
   buyer?:
     | T

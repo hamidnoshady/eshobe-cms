@@ -1,6 +1,6 @@
 import type { PayloadRequest } from 'payload'
 
-import { orderSubmittedData } from '@/lib/cafe-order'
+import { COUNTER_PROVIDER, orderSubmittedData } from '@/lib/cafe-order'
 import {
   clampLimit,
   compareEventsDesc,
@@ -194,7 +194,17 @@ export const platformEvents = async (
     },
     sort: '-updatedAt',
     where: {
-      and: [{ updatedAt: { greater_than: sinceIso } }, { status: { equals: 'paid' } }],
+      and: [
+        { updatedAt: { greater_than: sinceIso } },
+        { status: { equals: 'paid' } },
+        // Counter payments were recorded by Biza and are never sent back on the poll feed.
+        {
+          or: [
+            { 'payment.provider': { not_equals: COUNTER_PROVIDER } },
+            { 'payment.provider': { exists: false } },
+          ],
+        },
+      ],
     },
   })
 

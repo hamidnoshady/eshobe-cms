@@ -163,7 +163,7 @@ export const cartFingerprint = (lines: readonly CartFingerprintLine[]): string =
 /**
  * The fulfillment lifecycle the customer receipt displays.
  *
- * The CMS does not *drive* this — the POS does, through its site-key status update —
+ * The CMS does not *drive* this — the POS does, through the dedicated café order-state endpoint —
  * but it has to be a closed list here or the receipt would render whatever string
  * arrived. Wider than the minimum on purpose: Biza's own staff workflow has a
  * `preparing/ready/served` tail and an explicit `rejected`, and a value the CMS drops
@@ -177,6 +177,7 @@ export const FULFILLMENT_STATES = [
   'ready',
   'served',
   'rejected',
+  'cancelled',
 ] as const
 
 export type FulfillmentState = (typeof FULFILLMENT_STATES)[number]
@@ -186,11 +187,23 @@ export const isFulfillmentState = (value: unknown): value is FulfillmentState =>
 
 export const FULFILLMENT_LABELS_FA: Record<FulfillmentState, string> = {
   accepted: 'پذیرفته شد',
-  awaiting_approval: 'در انتظار تأیید کافه',
+  awaiting_approval: 'در انتظار تأیید کارکنان',
+  cancelled: 'لغو شد',
   preparing: 'در حال آماده‌سازی',
   ready: 'آماده است',
   rejected: 'رد شد',
   served: 'تحویل شد',
+}
+
+/** Each transition is applied only from one of its allowed predecessors. */
+export const FULFILLMENT_PREDECESSORS: Record<FulfillmentState, readonly FulfillmentState[]> = {
+  accepted: ['awaiting_approval'],
+  awaiting_approval: [],
+  cancelled: ['awaiting_approval', 'accepted', 'preparing', 'ready'],
+  preparing: ['accepted'],
+  ready: ['preparing'],
+  rejected: ['awaiting_approval'],
+  served: ['ready'],
 }
 
 /**
