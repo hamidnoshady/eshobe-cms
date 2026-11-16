@@ -16,10 +16,9 @@ import type { CafeMenuCategory, CafeMenuItem } from './cafeTypes'
 /**
  * Public reads are scoped and uncached: POS availability may change at any moment.
  *
- * `tableToken` arrives from the page's search params — a QR link Biza printed as
- * `/menu?t=<opaque>` — and is passed through untouched. It is validated for *shape* only
- * (so a hand-typed `?t=…` cannot inject something that overflows a column or a webhook
- * body); whether it names a real table is Biza's question, answered when the order is
+ * `tableToken` arrives from the page's search params (`?tableToken=…` in printed QR
+ * links, or `?t=…` in older links) and is passed through untouched. Validation checks
+ * its shape so it fits the order and webhook payload. Biza resolves it when the order is
  * submitted, and it is answered per order rather than per page view because a table can
  * be closed between the scan and the order.
  */
