@@ -42,6 +42,7 @@ type SiteSearchParams = {
   m?: string
   page?: string
   t?: string
+  tableToken?: string | string[]
   q?: string
   r?: string
   variant?: string
@@ -140,10 +141,14 @@ export default async function SiteRoute({ params, searchParams }: Args) {
         <SitePage
           page={pageNumber(query.page)}
           slug={route.slug}
-          // A café's table QR is a link to this page with an opaque token on it. The
-          // param is carried, never interpreted: whether it names a real table is
-          // Biza's question and is answered when the order is submitted.
-          tableToken={typeof query.t === 'string' ? query.t : null}
+          // Bizamiz prints tableToken. Keep t for older links.
+          tableToken={
+            typeof query.tableToken === 'string'
+              ? query.tableToken
+              : typeof query.t === 'string'
+                ? query.t
+                : null
+          }
         />
       )
   }
