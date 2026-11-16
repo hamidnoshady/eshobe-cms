@@ -6,7 +6,7 @@ import { expect, request, test } from '@playwright/test'
  * Exercise the two POS PUT routes through the actual Next/Payload HTTP router.
  * Run `pnpm seed` first, as with the other API-key end-to-end tests.
  */
-test('site-key café sync and authoritative cart checkout work through the HTTP router', async () => {
+test('site-key café sync and authoritative cart checkout work through the HTTP router', async ({ page: browserPage }) => {
   const baseURL = 'http://localhost:3000'
   const admin = await request.newContext({ baseURL })
   const anonymous = await request.newContext({ baseURL })
@@ -102,6 +102,21 @@ test('site-key café sync and authoritative cart checkout work through the HTTP 
     expect(html).toContain('لاته')
     expect(html).toContain('شیر')
     expect(html).toContain('جو')
+
+    await test.step('printed and legacy table links both default to dine-in', async () => {
+      const tableToken = `tqr_${randomUUID().replaceAll('-', '')}`
+      for (const param of ['tableToken', 't']) {
+        await browserPage.goto(`http://shop.localhost:3000/${pageSlug}?${param}=${tableToken}`)
+        const product = browserPage.getByRole('article').filter({
+          has: browserPage.getByRole('heading', { name: 'لاته', exact: true }),
+        })
+        await product.getByRole('checkbox', { name: 'معمولی' }).check()
+        await product.getByRole('button', { name: 'افزودن به سبد' }).click()
+        const dineIn = browserPage.getByRole('radio', { name: /^حضوری سر میز/ })
+        await expect(dineIn).toBeEnabled()
+        await expect(dineIn).toBeChecked()
+      }
+    })
 
     const checkout = await anonymous.post('/api/checkout', { headers: { host: 'shop.localhost' }, data: {
       name: 'خریدار آزمایشی', phone, total: 1,
