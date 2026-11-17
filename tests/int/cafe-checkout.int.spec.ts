@@ -793,6 +793,96 @@ describe.sequential('café checkout (ESH-150)', () => {
     expect((await sendState(id, payment)).status).toBe(409)
   })
 
+  it('records the POS payment axis, converges replays and refuses an amount it cannot reconcile', async () => {
+    const id = await newCounterOrder()
+    const before = await orderById(id)
+    const currency = String(before.currency)
+    const payment = (state: string, overrides: Record<string, unknown> = {}) => ({
+      kind: 'payment',
+      payment: {
+        amount: before.total,
+        currency,
+        occurredAt: '2026-11-17T13:00:00.000Z',
+        reference: `pos-${state}-${suffix}`,
+        state,
+        ...overrides,
+      },
+    })
+    const paid = payment('paid')
+
+    // A wrong amount is permanent: 409 amount_mismatch, and nothing about the order
+    // changes. The same goes for a currency that is not the order's own snapshot.
+    const wrongAmount = await sendState(id, payment('paid', { amount: before.total + 1 }))
+    expect(wrongAmount.status).toBe(409)
+    expect(await wrongAmount.json()).toMatchObject({ error: 'amount_mismatch' })
+    expect((await sendState(id, payment('paid', { currency: 'IRR' }))).status).toBe(409)
+    expect((await signedReceipt(id))?.order).toMatchObject({ status: 'pending' })
+
+    expect((await sendState(id, paid)).status).toBe(200)
+    expect(await (await sendState(id, paid)).json()).toMatchObject({ result: 'already_applied' })
+    expect((await signedReceipt(id))?.order).toMatchObject({
+      payment: { reference: paid.payment.reference },
+      status: 'paid',
+    })
+
+    // A partial refund is a mismatch, not a state move; a full one records the refund.
+    expect((await sendState(id, payment('refunded', { amount: before.total - 1 }))).status).toBe(409)
+    const refund = payment('refunded')
+    expect((await sendState(id, refund)).status).toBe(200)
+    expect(await (await sendState(id, refund)).json()).toMatchObject({ result: 'already_applied' })
+
+    const refunded = await orderById(id)
+    expect(refunded.status).toBe('refunded')
+    expect(refunded.refunds).toHaveLength(1)
+    expect(refunded.refunds?.[0]).toMatchObject({
+      amount: before.total,
+      sourceId: refund.payment.reference,
+    })
+
+    // Monotonic: a late `paid` delivery must not resurrect a refunded order.
+    expect(await (await sendState(id, paid)).json()).toMatchObject({ result: 'ignored_stale' })
+    expect((await signedReceipt(id))?.order).toMatchObject({ status: 'refunded' })
+
+    // A POS-originated payment write is a state record, never a gateway event.
+    const { totalDocs } = await payload.find({
+      collection: 'audit-log',
+      overrideAccess: true,
+      where: { and: [{ action: { equals: 'order.paid' } }, { targetId: { equals: id } }] },
+    })
+    expect(totalDocs).toBe(0)
+
+    // A refund of an unpaid order is a conflict, and a foreign site cannot see it.
+    const pendingId = await newCounterOrder()
+    const pending = await orderById(pendingId)
+    const conflict = await sendState(pendingId, {
+      kind: 'payment',
+      payment: {
+        amount: pending.total,
+        currency: String(pending.currency),
+        reference: `pos-pending-${suffix}`,
+        state: 'refunded',
+      },
+    })
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({ error: 'state_conflict' })
+    expect((await orderById(pendingId)).status).toBe('pending')
+    expect((await sendState(id, paid, acmeKey)).status).toBe(404)
+
+    for (const invalid of [
+      payment('paid', { state: 'pending' }),
+      payment('paid', { amount: 1.5 }),
+      payment('paid', { currency: 'XYZ' }),
+      payment('paid', { occurredAt: 'yesterday' }),
+      payment('paid', { reference: '' }),
+      payment('paid', { total: 1 }),
+      { kind: 'payment', payment: paid.payment.state },
+    ]) {
+      const invalidResponse = await sendState(id, invalid)
+      expect(invalidResponse.status).toBe(400)
+      expect(await invalidResponse.json()).toMatchObject({ error: 'invalid_payment_update' })
+    }
+  })
+
   it('scopes the write and receipt to one café order and keeps generic keyed writes closed', async () => {
     const id = await newCounterOrder()
     const update = { fulfillment: 'accepted', kind: 'fulfillment' }
