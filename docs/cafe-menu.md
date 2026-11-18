@@ -223,7 +223,8 @@ Biza writes committed changes with its site bearer key on the CMS control plane:
 | --- | --- |
 | Kitchen or approval | `{"kind":"fulfillment","fulfillment":"accepted"}` |
 | Dine-in table label with a state change | `{"kind":"fulfillment","fulfillment":"accepted","tableLabel":"میز ۸"}` |
-| Counter settlement confirmed by Accounting | `{"kind":"counter_payment","accountingReference":"<receipt reference>","amount":950}` |
+| Counter settlement confirmed by Accounting (legacy form) | `{"kind":"counter_payment","accountingReference":"<receipt reference>","amount":950}` |
+| Payment axis: counter settlement or confirmed refund | `{"kind":"payment","payment":{"state":"paid","amount":950,"currency":"IRT","reference":"<POS payment id>","occurredAt":"2026-11-17T13:00:00.000Z"}}` |
 
 Send fulfillment changes in order. An order starts at `awaiting_approval` and can
 be accepted or rejected. Accepted orders advance through `preparing`, `ready`
@@ -237,11 +238,36 @@ The endpoint can mark an unpaid counter order paid and store the accounting
 reference. Online payment and refunds use the existing payment flow. Counter
 settlements emit no `order.paid` on either the webhook or the poll feed.
 
+### The payment axis (eshobe-cms#221)
+
+`kind: 'payment'` is the unified shape for both payment facts the POS witnesses:
+`state: 'paid'` when the money was taken, `state: 'refunded'` when a confirmed
+**full** refund came back. It records a state the POS already holds; it is not a
+gateway event. This path emits no `order.paid`/`order.refunded` on either the
+webhook fan-out or the poll feed, runs no stock settlement, and cannot touch the
+buyer, lines, totals, site or gateway — `restrictApiKeyOrderWrite.ts` still
+refuses generic keyed order writes. `counter_payment` remains valid and is the
+same fact as `payment.state: 'paid'`; new POS deliveries send the unified form.
+
+`amount` is integer minor units of `currency`, and both must equal the order's
+own snapshot. A wrong amount **or** a currency that is not the order's returns
+`409` with `error: "amount_mismatch"` and leaves the order untouched, which is
+what keeps a partial refund from flipping it to refunded. `paid` applies only
+from `pending`; `refunded` only from `paid`, and it also records a refund fact
+(amount, reference, timestamp) in the order's refunds. Deliveries are idempotent
+on `(order, state, reference)`: an identical replay returns `already_applied`, and
+a `paid` arriving after the order was refunded, cancelled or already settled
+returns `200 ignored_stale` and changes nothing. Invalid
+state/amount/currency/reference/`occurredAt` returns `400` with
+`error: "invalid_payment_update"`.
+
 The response is `200 applied` or `200 already_applied` for an identical retry of
-the current state or settlement. A missing, foreign or ordinary store order returns
-`404`, a transition or settlement conflict returns `409`, and invalid input returns
-`400`. Generic keyed café order updates are refused. Ordinary store keys retain
-their existing status-only writes.
+the current state or settlement, plus `200 ignored_stale` for a payment-axis
+delivery that is behind the order's state. A missing, foreign or ordinary store
+order returns `404`, a transition or settlement conflict returns `409`, and
+invalid input returns `400`. Payment-axis refusals also carry the documented
+`error` field alongside `result`. Generic keyed café order updates are refused.
+Ordinary store keys retain their existing status-only writes.
 
 Biza's companions: POS state delivery in biza-miz #1306, table QR tokens in #1305,
 submitted-order intake in #1304, and menu projection in #1303.

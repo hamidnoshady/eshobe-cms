@@ -1,3 +1,5 @@
+import { isCurrencyCode, type CurrencyCode } from './money'
+
 /**
  * Shared, deterministic rules for a café order — the parts both the endpoint and the
  * tests must agree on.
@@ -51,6 +53,99 @@ export const isPaymentChoice = (value: unknown): value is PaymentChoice =>
  * learns about it through the POS's own status update (or not at all).
  */
 export const COUNTER_PROVIDER = 'counter'
+
+/**
+ * The payment axis the POS may record for a café order (eshobe-cms#221).
+ *
+ * Deliberately only the two facts the POS actually witnesses: the money arrived
+ * (`paid`) and the money came back (`refunded`). `pending` is what a new order
+ * already is, and `cancelled` belongs to the store lifecycle — offering either
+ * here would let a retried delivery undo a payment.
+ *
+ * A payment-axis write is a **state record, not a gateway event**: it emits no
+ * `order.paid`/`order.refunded` and runs no stock settlement, because Biza already
+ * took the money and owns the ledger.
+ */
+export const PAYMENT_STATES = ['paid', 'refunded'] as const
+
+export type PaymentState = (typeof PAYMENT_STATES)[number]
+
+export const isPaymentState = (value: unknown): value is PaymentState =>
+  typeof value === 'string' && (PAYMENT_STATES as readonly string[]).includes(value)
+
+export const MAX_PAYMENT_REFERENCE_LENGTH = 128
+
+/**
+ * The POS's own identifier for the fact: the payment id for `paid`, the
+ * customer-return id for `refunded`. Opaque to this CMS and stored verbatim —
+ * `(order, state, reference)` is the idempotency key, so two different refunds of
+ * one order are two facts while a replay of the same one is one.
+ */
+export const isPaymentReference = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  value.trim().length > 0 &&
+  value.length <= MAX_PAYMENT_REFERENCE_LENGTH
+
+export type CafePaymentUpdate = {
+  amount: number
+  currency: CurrencyCode
+  occurredAt: null | string
+  reference: string
+  state: PaymentState
+}
+
+/**
+ * The `kind: 'payment'` body, validated once, here.
+ *
+ * Strict on purpose: an unknown key is a client that believes it can write
+ * something this endpoint does not write (a buyer, a total, a bare status), and
+ * silently dropping it is how such a client ships. `occurredAt` is optional —
+ * without it the CMS stamps the write — but when present it has to be a real
+ * date, because a garbage value would otherwise land in `paid_at`/`refunded_at`.
+ */
+export const parseCafePaymentUpdate = (body: unknown): CafePaymentUpdate | null => {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+
+  const record = body as Record<string, unknown>
+  if (record.kind !== 'payment') return null
+  if (Object.keys(record).some((field) => !['kind', 'payment'].includes(field))) return null
+
+  const payment = record.payment
+  if (!payment || typeof payment !== 'object' || Array.isArray(payment)) return null
+
+  const value = payment as Record<string, unknown>
+  if (
+    Object.keys(value).some(
+      (field) => !['state', 'amount', 'currency', 'reference', 'occurredAt'].includes(field),
+    )
+  ) return null
+
+  if (!isPaymentState(value.state)) return null
+  if (
+    typeof value.amount !== 'number' ||
+    !Number.isSafeInteger(value.amount) ||
+    value.amount < 0
+  ) return null
+  if (!isCurrencyCode(value.currency)) return null
+  if (!isPaymentReference(value.reference)) return null
+
+  const { occurredAt } = value
+  if (occurredAt !== undefined && occurredAt !== null) {
+    if (
+      typeof occurredAt !== 'string' ||
+      occurredAt.length > 40 ||
+      Number.isNaN(Date.parse(occurredAt))
+    ) return null
+  }
+
+  return {
+    amount: value.amount,
+    currency: value.currency,
+    occurredAt: typeof occurredAt === 'string' ? occurredAt : null,
+    reference: value.reference.trim(),
+    state: value.state,
+  }
+}
 
 /**
  * An opaque, Biza-minted table reference.

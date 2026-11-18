@@ -11,8 +11,10 @@ import {
   isCheckoutRequestId,
   isFulfillmentState,
   isPaymentChoice,
+  isPaymentState,
   isServiceMode,
   isTableToken,
+  parseCafePaymentUpdate,
   refuseServiceMode,
 } from '@/lib/cafe-order'
 import { orderSubmittedData } from '@/lib/cafe-order'
@@ -248,5 +250,78 @@ describe('checkout request conflict recognition', () => {
 
     expect(isCheckoutRequestConflict(null)).toBe(false)
     expect(isCheckoutRequestConflict(new Error('boom'))).toBe(false)
+  })
+})
+
+/**
+ * The payment axis (eshobe-cms#221) is the only path that can move `orders.status`
+ * for a café order, so its body is validated here rather than inside the endpoint:
+ * a field this refuses is a field the POS cannot write, and `(order, state,
+ * reference)` is only an idempotency key if all three are normalised first.
+ */
+describe('the POS payment axis', () => {
+  const body = (payment: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({
+    kind: 'payment',
+    payment: {
+      amount: 125000,
+      currency: 'IRT',
+      reference: 'pos-payment-1',
+      state: 'paid',
+      ...payment,
+    },
+    ...extra,
+  })
+
+  it('accepts exactly the two payment facts the POS witnesses', () => {
+    expect(parseCafePaymentUpdate(body())).toEqual({
+      amount: 125000,
+      currency: 'IRT',
+      occurredAt: null,
+      reference: 'pos-payment-1',
+      state: 'paid',
+    })
+    expect(parseCafePaymentUpdate(body({ state: 'refunded' }))?.state).toBe('refunded')
+    // `occurredAt` is optional, but a real date is kept verbatim for the receipt.
+    expect(parseCafePaymentUpdate(body({ occurredAt: '2026-11-17T13:00:00.000Z' }))?.occurredAt)
+      .toBe('2026-11-17T13:00:00.000Z')
+    // The reference is the idempotency key, so only the trimmed value is stored.
+    expect(parseCafePaymentUpdate(body({ reference: '  pos-payment-2  ' }))?.reference).toBe('pos-payment-2')
+
+    // `pending`/`cancelled` are the CMS's own lifecycle; a POS that could write them
+    // could walk a payment backwards.
+    expect(parseCafePaymentUpdate(body({ state: 'pending' }))).toBeNull()
+    expect(parseCafePaymentUpdate(body({ state: 'cancelled' }))).toBeNull()
+  })
+
+  it('refuses an amount, currency, reference or timestamp the receipt could not reconcile', () => {
+    for (const payment of [
+      { amount: 125000.5 },
+      { amount: -1 },
+      { amount: '125000' },
+      { currency: 'XYZ' },
+      { currency: 'irt' },
+      { reference: '' },
+      { reference: '   ' },
+      { reference: 'x'.repeat(129) },
+      { occurredAt: 'yesterday' },
+      { occurredAt: 1763384400000 },
+    ]) expect(parseCafePaymentUpdate(body(payment)), JSON.stringify(payment)).toBeNull()
+
+    expect(isPaymentState('paid')).toBe(true)
+    expect(isPaymentState('refunded')).toBe(true)
+    expect(isPaymentState('pending')).toBe(false)
+  })
+
+  it('refuses a body that tries to write outside the allowlist', () => {
+    // A total, a buyer or a bare status is what the generic order route would take;
+    // this endpoint must not grow into a way to reach it.
+    expect(parseCafePaymentUpdate(body({}, { total: 1 }))).toBeNull()
+    expect(parseCafePaymentUpdate({ kind: 'payment', payment: { ...body().payment, status: 'paid' } })).toBeNull()
+    expect(parseCafePaymentUpdate({ kind: 'payment', payment: { ...body().payment, buyer: {} } })).toBeNull()
+    expect(parseCafePaymentUpdate({ kind: 'payment' })).toBeNull()
+    expect(parseCafePaymentUpdate({ kind: 'payment', payment: [body().payment] })).toBeNull()
+    expect(parseCafePaymentUpdate({ kind: 'payment', ...body().payment })).toBeNull()
+    expect(parseCafePaymentUpdate({ kind: 'fulfillment', payment: body().payment })).toBeNull()
+    expect(parseCafePaymentUpdate(null)).toBeNull()
   })
 })
