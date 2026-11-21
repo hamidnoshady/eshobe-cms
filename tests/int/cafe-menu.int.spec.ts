@@ -13,6 +13,7 @@ import { upsertCafeCategory, upsertCafeProduct } from '@/endpoints/cafeMenuSync'
 import { startCheckout } from '@/endpoints/checkout'
 import { issueApiKeyEndpoint } from '@/endpoints/apiKeys'
 import { idOf } from '@/lib/ids'
+import { MAX_MENU_SELECTIONS } from '@/lib/cafe-menu'
 import { resetRateLimits } from '@/lib/rate-limit'
 import { findForSite } from '@/lib/site-query'
 import type { Site } from '@/payload-types'
@@ -38,6 +39,7 @@ const childCategorySourceId = `test-child-category-${suffix}`
 const raceProductSourceId = `test-race-product-${suffix}`
 const publishProductSourceId = `test-publish-product-${suffix}`
 const draftProductSourceId = `test-draft-product-${suffix}`
+const unlimitedProductSourceId = `test-unlimited-${suffix}`
 const bootstrapCategoryA = `test-bootstrap-a-${suffix}`
 const bootstrapCategoryB = `test-bootstrap-b-${suffix}`
 let existingTaxonomyIds: string[] = []
@@ -111,7 +113,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!payload) return
   if (orderId) await payload.delete({ collection: 'orders', id: orderId, overrideAccess: true })
-  const syncedProducts = await payload.find({ collection: 'products', depth: 0, overrideAccess: true, pagination: false, where: { menuSourceId: { in: [productSourceId, raceProductSourceId, draftProductSourceId, publishProductSourceId] } } })
+  const syncedProducts = await payload.find({ collection: 'products', depth: 0, overrideAccess: true, pagination: false, where: { menuSourceId: { in: [productSourceId, raceProductSourceId, draftProductSourceId, publishProductSourceId, unlimitedProductSourceId] } } })
   for (const doc of syncedProducts.docs) await payload.delete({ collection: 'products', id: doc.id, overrideAccess: true, context: { disableRevalidate: true } })
   if (nativeProductId) await payload.delete({ collection: 'products', id: nativeProductId, overrideAccess: true, context: { disableRevalidate: true } })
   const terms = await payload.find({ collection: 'taxonomy-terms', depth: 0, overrideAccess: true, pagination: false, where: { menuSourceId: { in: [categorySourceId, raceCategorySourceId, childCategorySourceId, bootstrapCategoryA, bootstrapCategoryB] } } })
@@ -205,6 +207,26 @@ describe.sequential('site-scoped POS café menu', () => {
     await payload.update({ collection: 'products', id: posProductId, data: { _status: 'published' }, overrideAccess: true, context: { disableRevalidate: true } })
     const publishedUpdate = await syncProduct(shopKey, productSourceId, { summary: 'توضیح تازه' })
     expect(publishedUpdate, JSON.stringify(publishedUpdate)).toMatchObject({ status: 200, body: { status: 'published' } })
+  })
+
+  it('accepts a POS "no limit" modifier group (maxSelections 999) on the sync route', async () => {
+    // Biza Miz sends 999 for "unlimited". Capping the field at 100 rejected the
+    // whole product with a generic 400 and dead-lettered every item with add-ons,
+    // so the storefront could never show half the menu.
+    const unlimitedSourceId = unlimitedProductSourceId
+    const result = await syncProduct(shopKey, unlimitedSourceId, {
+      title: 'نامحدود', price: 50, published: true,
+      modifierGroups: [{
+        sourceId: 'toppings', label: 'تاپینگ', minSelections: 0, maxSelections: MAX_MENU_SELECTIONS, active: true,
+        options: [
+          { sourceId: 'a', label: 'الف', priceDelta: 1, active: true },
+          { sourceId: 'b', label: 'ب', priceDelta: 2, active: true },
+        ],
+      }],
+    })
+    expect(result, JSON.stringify(result)).toMatchObject({ status: 200, body: { status: 'published' } })
+    const stored = await getProduct(result.body.id!)
+    expect(stored.modifierGroups?.[0]?.maxSelections).toBe(MAX_MENU_SELECTIONS)
   })
 
   it('publishes and withdraws an opted-in POS product on the key’s site', async () => {

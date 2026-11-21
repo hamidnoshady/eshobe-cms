@@ -77,6 +77,14 @@ All amounts, including signed `priceDelta`, are integer **minor units of the sit
 currency**, not strings or floats. An option may be selected at most once per item;
 line quantity multiplies its delta. Required means `minSelections > 0`.
 
+`maxSelections` is bounded to `1–999` (`MAX_MENU_SELECTIONS` in
+`src/lib/cafe-menu.ts`) and a group may carry at most 100 options. A source system
+that offers "no limit" sends `999` — Biza Miz does — and that is accepted as such;
+the real ceiling is the group's own option count, which checkout enforces against
+the current definition. Never publish a `maxSelections` above 999: the collection
+field and the checkout resolver read the same constant, and a value the resolver
+rejects makes the buyer's order fail closed rather than guess a price.
+
 `menuAvailability` is `available`, `sold_out`, or `unavailable`, independent of
 `_status` and stock tracking. Disable an item by updating this field even if it is
 published. A tracked-but-unknown stock value is not treated as unlimited;

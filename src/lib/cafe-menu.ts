@@ -3,6 +3,24 @@
 
 export const CAFE_MENU_TAXONOMY = 'cafe_menu_category'
 
+/**
+ * Upper bound for one modifier group's `maxSelections`, and for its option count.
+ *
+ * A POS that lets an operator say "no limit" sends a sentinel rather than
+ * computing a number: Biza Miz sends `999`, which is what every group on the
+ * café site carries. The bound is a corrupt-projection guard, not the real
+ * limit — a group can never take more choices than it has options, and
+ * `resolveModifiers` enforces that per group. Keeping the number here (rather
+ * than `100` in three places) is what stops the collection field, the checkout
+ * resolver and a source system's sentinel from disagreeing: the disagreement
+ * silently dead-letters every menu item that has add-ons (`max: 100` on the
+ * field rejected `999` with a generic 400 the POS cannot explain).
+ */
+export const MAX_MENU_SELECTIONS = 999
+
+/** One group may not carry more options than a buyer could ever page through. */
+export const MAX_MENU_OPTIONS = 100
+
 export type MenuOption = {
   sourceId: string
   label: string
@@ -99,11 +117,11 @@ export const resolveModifiers = (
     }
     const min = group.minSelections ?? 0
     const max = group.maxSelections ?? 1
-    if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 0 || max < 1 || max > 100 || min > max || optionIds.length < min || optionIds.length > max) {
+    if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 0 || max < 1 || max > MAX_MENU_SELECTIONS || min > max || optionIds.length < min || optionIds.length > max) {
       return { ok: false }
     }
     const options = menuSort(group.options ?? [])
-    if (options.length > 100 || new Set(options.map((option) => option.sourceId)).size !== options.length) return { ok: false }
+    if (options.length > MAX_MENU_OPTIONS || new Set(options.map((option) => option.sourceId)).size !== options.length) return { ok: false }
     for (const optionId of optionIds) {
       const option = options.find((candidate) => candidate.sourceId === optionId && candidate.active !== false)
       if (!option || !Number.isSafeInteger(option.priceDelta) || !group.label || !option.label) return { ok: false }
