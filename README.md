@@ -18,7 +18,8 @@ Vazirmatn is the only typeface, and every date renders in Shamsi (Jalali).
   [`WAVE-9.md`](./WAVE-9.md) (the headless contract for a separately deployed site builder),
   [`WAVE-10.md`](./WAVE-10.md) (Iranian payment gateways: ZarinPal, Digipay, Snapp!Pay, Torob Pay)
 - Payment gateway operator & headless guide → [`docs/payment-gateways.md`](./docs/payment-gateways.md)
-- Waves are tracked as GitHub issues #1–#9 under #10
+- Theme guide for the POS-managed café menu (render, add-ons, cart, table QR, receipt) → [`docs/theme-cafe-menu.md`](./docs/theme-cafe-menu.md)
+- Waves are tracked as GitHub issues #1-#9 under #10
 
 ## Getting started
 
