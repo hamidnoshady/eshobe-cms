@@ -42,6 +42,16 @@ const rawManifest = {
       ],
       type: 'select',
     },
+    titleSize: {
+      default: { desktop: 42, mobile: 28, tablet: 34 },
+      group: 'design',
+      labelEn: 'Title size',
+      locales: ['fa', 'en'],
+      max: 80,
+      min: 14,
+      section: 'headings',
+      type: 'responsiveFontSize',
+    },
   },
   siteTypes: ['business', 'portfolio', 'store'],
 }
@@ -210,7 +220,11 @@ beforeAll(async () => {
         req: {
           json: async () => ({
             bindings: { home: ids.homePage },
-            runtimeSettings: { density: 'compact', showNumbers: false },
+            runtimeSettings: {
+              density: 'compact',
+              showNumbers: false,
+              titleSize: { desktop: 48, locales: { fa: { tablet: 30 } } },
+            },
             site: ids.site,
             values: {},
           }),
@@ -265,6 +279,14 @@ describe('GET /api/site — branding, runtime settings and bindings', () => {
     expect(body.themeRuntime).toMatchObject({
       package: { key: 'descriptor-theme' },
       settings: { density: 'compact', showNumbers: false },
+      settingsVersion: 1,
+    })
+    expect(body.themeRuntime?.settings.titleSize).toEqual({
+      desktop: 48,
+      locales: { fa: { desktop: 48, mobile: 30, tablet: 30 } },
+      mobile: 48,
+      tablet: 48,
+      unit: 'px',
     })
     expect(body.themeRuntime?.bindings.home).toMatchObject({
       id: ids.homePage,
@@ -479,5 +501,43 @@ describe('GET /api/site — deployment secrets stay out of the descriptor', () =
     expect(raw).not.toContain('coolify_descriptor_token')
     expect(raw).not.toContain('secretValues')
     expect(raw).not.toContain('enc:v1')
+  })
+})
+
+describe('GET /api/site — legacy percent values', () => {
+  it('never emits a stored percent scalar as px for a responsive role', async () => {
+    const { docs } = await payload.find({
+      collection: 'site-theme-settings',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      where: { site: { equals: ids.site } },
+    })
+    const row = docs[0]
+    if (!row) throw new Error('descriptor settings row missing')
+
+    // Exactly what the previous manifest stored: a percent on the 50–200 scale.
+    await payload.update({
+      collection: 'site-theme-settings',
+      data: {
+        runtimeSettings: {
+          ...(row.runtimeSettings as Record<string, unknown>),
+          titleSize: 100,
+        },
+      },
+      id: row.id,
+      overrideAccess: true,
+    })
+
+    const body = (await (await fetchDescriptor(HOST)).json()) as {
+      themeRuntime?: { settings?: Record<string, unknown> }
+    }
+    expect(body.themeRuntime?.settings?.titleSize).toEqual({
+      desktop: 42,
+      mobile: 28,
+      tablet: 34,
+      unit: 'px',
+    })
+    expect(JSON.stringify(body)).not.toContain('"titleSize":100')
   })
 })

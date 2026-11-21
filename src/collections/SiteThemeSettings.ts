@@ -88,6 +88,26 @@ export const SiteThemeSettings: CollectionConfig<'site-theme-settings'> = {
       admin: { description: 'مقادیر اعلام‌شده در settings مانیفست؛ بدون نیاز به استقرار مجدد.' },
     },
     {
+      name: 'legacyRuntimeSettings',
+      type: 'json',
+      label: 'مقادیر قدیمی حفظ‌شده',
+      admin: {
+        description:
+          'مقادیری که مانیفست فعلی اعلام نمی‌کند یا نوعشان تغییر کرده است. خواندنی و بدون تغییر؛ هرگز به‌صورت px تفسیر نمی‌شوند و فقط با ذخیرهٔ صریح همان گزینه پاک می‌شوند.',
+        readOnly: true,
+      },
+    },
+    {
+      name: 'runtimeSettingsMeta',
+      type: 'json',
+      label: 'فرادادهٔ تبدیل تنظیمات',
+      admin: {
+        description:
+          'نسخهٔ مبدل، پوستهٔ زمان ذخیره و فهرست کلیدهای حفظ‌شده — برای حسابرسی و بازگردانی.',
+        readOnly: true,
+      },
+    },
+    {
       name: 'contentBindings',
       type: 'json',
       label: 'نگاشت محتوا',

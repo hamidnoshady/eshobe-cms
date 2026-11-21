@@ -7,6 +7,20 @@ import {
   isDesignLineHeight,
   isDesignRadius,
 } from '@/lib/theme-design'
+import {
+  normalizeResponsiveFontSizeValue,
+  parseResponsiveFontSizeSpec,
+  RESPONSIVE_TYPOGRAPHY_TYPE,
+  responsiveFontSizeOutput,
+  SETTING_CATEGORIES,
+  settingCategory,
+  parseSettingSection,
+  type ResponsiveDeviceValues,
+  type ResponsiveFontSizeSpec,
+  type ResponsiveFontSizeValue,
+  type SettingCategory,
+  type TypographyLocale,
+} from '@/lib/deploy/theme-settings'
 
 /**
  * `eshobe.theme.json` — how a theme repository describes itself.
@@ -96,7 +110,13 @@ export type ManifestEnvVar = {
   source: EnvSource
 }
 
-export const RUNTIME_SETTING_TYPES = ['boolean', 'text', 'number', 'select'] as const
+export const RUNTIME_SETTING_TYPES = [
+  'boolean',
+  'text',
+  'number',
+  'select',
+  RESPONSIVE_TYPOGRAPHY_TYPE,
+] as const
 export type RuntimeSettingType = (typeof RUNTIME_SETTING_TYPES)[number]
 
 /**
@@ -110,16 +130,28 @@ export const RUNTIME_SETTING_GROUPS = ['design', 'general'] as const
 export type RuntimeSettingGroup = (typeof RUNTIME_SETTING_GROUPS)[number]
 
 export type ManifestRuntimeSetting = {
-  default?: boolean | number | string
+  /** Collapsed under «پیشرفته» in the form. Display hint only; validation is unchanged. */
+  advanced: boolean
+  /** Allowlisted UI category. Stored resolved (explicit or inferred) so the UI is stable. */
+  category: SettingCategory
+  default?: boolean | number | ResponsiveDeviceValues | string
   group: RuntimeSettingGroup
   help?: null | string
   key: string
   labelEn?: null | string
   labelFa?: null | string
+  /** `responsiveFontSize` only: languages this role may be overridden for. */
+  locales?: TypographyLocale[]
   max?: number
   min?: number
   options?: { labelEn?: null | string; labelFa?: null | string; value: string }[]
+  /** Optional sub-group inside a category. */
+  section: null | string
+  /** `responsiveFontSize` only: UI increment. */
+  step?: number
   type: RuntimeSettingType
+  /** `responsiveFontSize` only, always `px`. */
+  unit?: 'px'
 }
 
 export const CONTENT_SLOT_TYPES = ['page', 'post', 'category', 'form', 'media'] as const
@@ -238,11 +270,65 @@ const parseRuntimeSettingRow = (
     errors.push(`نوع settings.${key} باید یکی از ${RUNTIME_SETTING_TYPES.join('، ')} باشد.`)
     return null
   }
-  const group = row.group === undefined || row.group === null ? 'general' : str(row.group)
+  const responsive = type === RESPONSIVE_TYPOGRAPHY_TYPE
+  const group =
+    row.group === undefined || row.group === null
+      ? responsive
+        ? 'design'
+        : 'general'
+      : str(row.group)
   if (!group || !(RUNTIME_SETTING_GROUPS as readonly string[]).includes(group)) {
     errors.push(`settings.${key}.group باید یکی از ${RUNTIME_SETTING_GROUPS.join('، ')} باشد.`)
     return null
   }
+
+  // A malformed section is a manifest error, not a silently dropped hint: the author
+  // asked for a grouping and the CMS cannot honour it.
+  let section: null | string = null
+  if (row.section !== undefined && row.section !== null) {
+    section = parseSettingSection(row.section)
+    if (!section) {
+      errors.push(`settings.${key}.section نامعتبر است (حروف انگلیسی کوچک و خط تیره).`)
+      return null
+    }
+  }
+
+  let category: SettingCategory | undefined
+  if (row.category !== undefined && row.category !== null) {
+    const candidate = str(row.category)
+    if (!candidate || !SETTING_CATEGORIES.includes(candidate as SettingCategory)) {
+      errors.push(`settings.${key}.category باید یکی از ${SETTING_CATEGORIES.join('، ')} باشد.`)
+      return null
+    }
+    category = candidate as SettingCategory
+  }
+
+  const common = {
+    advanced: bool(row.advanced, false),
+    category: category ?? settingCategory({ category: null, key, type }),
+    group: group as RuntimeSettingGroup,
+    help: str(row.help),
+    key,
+    labelEn: str(row.labelEn),
+    labelFa: str(row.labelFa),
+    section,
+    type: type as RuntimeSettingType,
+  }
+
+  if (responsive) {
+    const spec = parseResponsiveFontSizeSpec(row, key, errors)
+    if (!spec) return null
+    return {
+      ...common,
+      default: spec.default,
+      locales: spec.locales,
+      max: spec.max,
+      min: spec.min,
+      step: spec.step,
+      unit: spec.unit,
+    }
+  }
+
   let options: ManifestRuntimeSetting['options']
   if (type === 'select') {
     if (!Array.isArray(row.options) || !row.options.length || row.options.length > 50) {
@@ -278,16 +364,11 @@ const parseRuntimeSettingRow = (
     return null
   }
   return {
+    ...common,
     default: defaultValue as boolean | number | string | undefined,
-    group: group as RuntimeSettingGroup,
-    help: str(row.help),
-    key,
-    labelEn: str(row.labelEn),
-    labelFa: str(row.labelFa),
     max: typeof row.max === 'number' ? row.max : undefined,
     min: typeof row.min === 'number' ? row.min : undefined,
     options,
-    type: type as RuntimeSettingType,
   }
 }
 
@@ -797,20 +878,72 @@ export const validateTenantEnv = (
   return { errors, values: out }
 }
 
-/** Apply manifest defaults and reject every undeclared or wrongly typed editor-facing option. */
+/** A stored or submitted runtime value. `responsiveFontSize` carries a per-device object. */
+export type RuntimeSettingValue =
+  | boolean
+  | number
+  | ResponsiveFontSizeValue
+  | string
+
+/** The validated schema side of a `responsiveFontSize` setting, rebuilt from its row. */
+export const responsiveSpecOf = (
+  setting: ManifestRuntimeSetting,
+): null | ResponsiveFontSizeSpec => {
+  if (setting.type !== RESPONSIVE_TYPOGRAPHY_TYPE) return null
+  if (!setting.default || typeof setting.default !== 'object' || Array.isArray(setting.default))
+    return null
+  if (typeof setting.min !== 'number' || typeof setting.max !== 'number') return null
+  const defaults = setting.default as ResponsiveDeviceValues
+  if (typeof defaults.desktop !== 'number') return null
+  return {
+    default: defaults as ResponsiveFontSizeSpec['default'],
+    locales: setting.locales ?? [],
+    max: setting.max,
+    min: setting.min,
+    step: setting.step ?? 1,
+    unit: 'px',
+  }
+}
+
+/**
+ * Apply manifest defaults and reject every undeclared or wrongly typed editor-facing
+ * option.
+ *
+ * `applyDefaults: false` returns only what the caller actually supplied. The admin and
+ * the save path use that: writing a manifest default into a customer row makes the
+ * next manifest's default look like a deliberate choice, and prevents the form from
+ * telling inherited px from custom px.
+ */
 export const validateRuntimeSettings = (
   manifest: ThemeManifest,
   input: Record<string, unknown>,
-): { errors: string[]; values: Record<string, boolean | number | string> } => {
+  options: { applyDefaults?: boolean } = {},
+): { errors: string[]; values: Record<string, RuntimeSettingValue> } => {
+  const applyDefaults = options.applyDefaults !== false
   const errors: string[] = []
   const declared = new Map(manifest.settings.map((setting) => [setting.key, setting]))
-  const values: Record<string, boolean | number | string> = {}
-  for (const setting of manifest.settings)
-    if (setting.default !== undefined) values[setting.key] = setting.default
+  const values: Record<string, RuntimeSettingValue> = {}
+  if (applyDefaults) {
+    for (const setting of manifest.settings) {
+      if (setting.default !== undefined) {
+        values[setting.key] = setting.default as RuntimeSettingValue
+      }
+    }
+  }
   for (const [key, value] of Object.entries(input ?? {})) {
     const setting = declared.get(key)
     if (!setting) {
       errors.push(`گزینهٔ «${key}» در مانیفست پوسته تعریف نشده است.`)
+      continue
+    }
+    if (setting.type === RESPONSIVE_TYPOGRAPHY_TYPE) {
+      const spec = responsiveSpecOf(setting)
+      if (!spec) {
+        errors.push(`گزینهٔ «${key}» در مانیفست پوسته کامل نیست.`)
+        continue
+      }
+      const normalized = normalizeResponsiveFontSizeValue(spec, value, key, errors)
+      if (normalized) values[key] = normalized
       continue
     }
     const valid =
@@ -832,6 +965,35 @@ export const validateRuntimeSettings = (
     values[key] = value as boolean | number | string
   }
   return { errors, values }
+}
+
+/**
+ * What `GET /api/site` emits: defaults applied, and every `responsiveFontSize` role
+ * resolved to px per breakpoint (inheritance applied).
+ *
+ * The public descriptor is the renderer's contract, so it never carries the raw
+ * "inherited" state or a locale map the theme has to re-implement. A theme writes the
+ * three numbers into CSS custom properties and is done.
+ */
+export const resolveRuntimeSettings = (
+  manifest: ThemeManifest,
+  input: Record<string, unknown>,
+): Record<string, RuntimeSettingValue> => {
+  const { values } = validateRuntimeSettings(manifest, input)
+  const resolved: Record<string, RuntimeSettingValue> = {}
+  for (const setting of manifest.settings) {
+    const value = values[setting.key]
+    if (value === undefined) continue
+    if (setting.type === RESPONSIVE_TYPOGRAPHY_TYPE) {
+      const spec = responsiveSpecOf(setting)
+      if (!spec) continue
+      const normalized = normalizeResponsiveFontSizeValue(spec, value, setting.key, [])
+      resolved[setting.key] = responsiveFontSizeOutput(spec, normalized ?? spec.default)
+      continue
+    }
+    resolved[setting.key] = value
+  }
+  return resolved
 }
 
 /** `owner/name`, validated. A repository reference is the input to a clone; it is never free text. */

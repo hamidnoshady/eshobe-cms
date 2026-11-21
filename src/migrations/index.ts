@@ -39,6 +39,7 @@ import * as migration_20261108_120000_cafe_menu from './20261108_120000_cafe_men
 import * as migration_20261110_120000_cafe_checkout from './20261110_120000_cafe_checkout';
 import * as migration_20261116_140000_menu_comment_document_locks from './20261116_140000_menu_comment_document_locks';
 import * as migration_20261116_180000_cafe_receipt_state from './20261116_180000_cafe_receipt_state';
+import * as migration_20261121_120000_theme_settings_legacy from './20261121_120000_theme_settings_legacy';
 
 export const migrations = [
   {
@@ -245,5 +246,10 @@ export const migrations = [
     up: migration_20261116_180000_cafe_receipt_state.up,
     down: migration_20261116_180000_cafe_receipt_state.down,
     name: '20261116_180000_cafe_receipt_state',
+  },
+  {
+    up: migration_20261121_120000_theme_settings_legacy.up,
+    down: migration_20261121_120000_theme_settings_legacy.down,
+    name: '20261121_120000_theme_settings_legacy',
   },
 ];

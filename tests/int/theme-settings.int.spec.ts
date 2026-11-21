@@ -44,6 +44,27 @@ const rawManifest = {
     { key: 'ESHOBE_CMS_URL', source: 'platform' },
   ],
   contentSlots: [{ key: 'home', labelFa: 'صفحهٔ خانه', type: 'page' }],
+  settings: {
+    density: {
+      group: 'design',
+      labelFa: 'چیدمان',
+      options: [{ value: 'compact' }, { value: 'comfortable' }],
+      type: 'select',
+    },
+    footerNote: { group: 'general', labelFa: 'یادداشت پابرگ', type: 'text' },
+    headingSize: { default: 100, group: 'design', max: 200, min: 50, type: 'number' },
+    titleSize: {
+      default: { desktop: 42, mobile: 28, tablet: 34 },
+      group: 'design',
+      labelFa: 'اندازهٔ عنوان',
+      locales: ['fa', 'en'],
+      max: 80,
+      min: 14,
+      section: 'headings',
+      step: 1,
+      type: 'responsiveFontSize',
+    },
+  },
   key: 'settings-theme',
   name: 'Settings Theme',
   siteTypes: ['business', 'portfolio', 'store'],
@@ -411,5 +432,217 @@ describe('what reaches the build', () => {
     expect(variables.find((v) => v.key === 'ANALYTICS_ID')?.value).toBe('G-333')
     expect(variables.filter((v) => v.key === 'ESHOBE_CMS_URL')).toHaveLength(1)
     expect(variables.find((v) => v.key === 'ESHOBE_CMS_URL')?.value).not.toContain('evil')
+  })
+})
+
+/**
+ * Responsive typography and legacy preservation (#209/#212).
+ *
+ * These run against the same site/package as the tests above, at the end of the file
+ * on purpose: the legacy cases rewrite the stored blob to the shape an older manifest
+ * left behind, and the type-change case rewrites the package manifest temporarily.
+ */
+describe('responsive typography and legacy values', () => {
+  const settingsRow = async () => {
+    const { docs } = await payload.find({
+      collection: 'site-theme-settings',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      where: { site: { equals: siteId.acme } },
+    })
+    if (!docs[0]) throw new Error('settings row missing')
+    return docs[0] as unknown as Record<string, unknown> & { id: string | number }
+  }
+
+  const view = async () => {
+    const res = await themeSettingsGetEndpoint.handler!(await reqAs('acme@eshobe.test', get(siteId.acme)))
+    expect(res.status).toBe(200)
+    return (await bodyOf(res)).json as {
+      legacyRuntimeKeys: string[]
+      legacyRuntimeSettings: Record<string, unknown>
+      runtimeSettings: Record<string, unknown>
+      runtimeSettingsMeta: null | Record<string, unknown>
+    }
+  }
+
+  it('saves and reloads per-device px with a locale override', async () => {
+    const res = await themeSettingsSaveEndpoint.handler!(
+      await reqAs(
+        'acme@eshobe.test',
+        post({
+          runtimeSettings: { titleSize: { desktop: 48, locales: { fa: { tablet: 30 } } } },
+          site: siteId.acme,
+        }),
+      ),
+    )
+    expect(res.status).toBe(200)
+
+    const saved = await view()
+    expect(saved.runtimeSettings.titleSize).toEqual({
+      desktop: 48,
+      locales: { fa: { tablet: 30 } },
+    })
+    const row = await settingsRow()
+    expect(row.runtimeSettings).toMatchObject({ titleSize: { desktop: 48 } })
+    expect(row.runtimeSettingsMeta).toMatchObject({
+      adoptedKeys: ['titleSize'],
+      packageId,
+      version: 1,
+    })
+  })
+
+  it('rejects a scalar, a CSS string and an out-of-bounds px without writing', async () => {
+    for (const value of [100, '42px', { desktop: 900 }, { desktop: 15.5 }, { watch: 30 }]) {
+      const res = await themeSettingsSaveEndpoint.handler!(
+        await reqAs(
+          'acme@eshobe.test',
+          post({ runtimeSettings: { titleSize: value }, site: siteId.acme }),
+        ),
+      )
+      expect(res.status, JSON.stringify(value)).toBe(400)
+    }
+    const still = await view()
+    expect(still.runtimeSettings.titleSize).toEqual({
+      desktop: 48,
+      locales: { fa: { tablet: 30 } },
+    })
+  })
+
+  it('preserves a legacy percent and an undeclared key instead of dropping or reinterpreting them', async () => {
+    const row = await settingsRow()
+    await payload.update({
+      collection: 'site-theme-settings',
+      data: {
+        // The exact shape an older manifest left: a percent under a now-responsive key,
+        // a declared scalar, and a key the current manifest does not declare.
+        runtimeSettings: { headingSize: 120, staleKey: { any: 'thing' }, titleSize: 100 },
+      },
+      id: row.id,
+      overrideAccess: true,
+    })
+
+    const before = await view()
+    expect(before.runtimeSettings.titleSize).toBeUndefined()
+    expect(before.runtimeSettings.headingSize).toBe(120)
+    expect(before.legacyRuntimeKeys).toEqual(['staleKey', 'titleSize'])
+    expect(before.legacyRuntimeSettings).toMatchObject({ staleKey: { any: 'thing' }, titleSize: 100 })
+
+    // An unrelated save keeps the preserved copy and does not turn 100 into 100px.
+    const saved = await themeSettingsSaveEndpoint.handler!(
+      await reqAs('acme@eshobe.test', post({ runtimeSettings: { density: 'compact' }, site: siteId.acme })),
+    )
+    expect(saved.status).toBe(200)
+    const after = await view()
+    expect(after.runtimeSettings.titleSize).toBeUndefined()
+    expect(after.runtimeSettings.density).toBe('compact')
+    expect(after.legacyRuntimeSettings).toMatchObject({ staleKey: { any: 'thing' }, titleSize: 100 })
+    expect(after.runtimeSettingsMeta).toMatchObject({ preservedLegacyKeys: ['staleKey', 'titleSize'], version: 1 })
+  })
+
+  it('adopts a new px value explicitly and leaves only the truly undeclared key preserved', async () => {
+    const res = await themeSettingsSaveEndpoint.handler!(
+      await reqAs(
+        'acme@eshobe.test',
+        post({ runtimeSettings: { titleSize: { desktop: 50, tablet: 36 } }, site: siteId.acme }),
+      ),
+    )
+    expect(res.status).toBe(200)
+    const after = await view()
+    expect(after.runtimeSettings.titleSize).toEqual({ desktop: 50, tablet: 36 })
+    expect(after.legacyRuntimeKeys).toEqual(['staleKey'])
+    expect(after.legacyRuntimeSettings).toEqual({ staleKey: { any: 'thing' } })
+    expect(after.runtimeSettingsMeta?.adoptedKeys).toEqual(['titleSize'])
+  })
+
+  it('saves one group without resetting the other group’s values', async () => {
+    expect(
+      (await themeSettingsSaveEndpoint.handler!(
+        await reqAs('acme@eshobe.test', post({ runtimeSettings: { footerNote: 'general' }, site: siteId.acme })),
+      )).status,
+    ).toBe(200)
+    expect(
+      (await themeSettingsSaveEndpoint.handler!(
+        await reqAs('acme@eshobe.test', post({ runtimeSettings: { density: 'comfortable' }, site: siteId.acme })),
+      )).status,
+    ).toBe(200)
+
+    const saved = await view()
+    expect(saved.runtimeSettings).toMatchObject({
+      density: 'comfortable',
+      footerNote: 'general',
+      titleSize: { desktop: 50, tablet: 36 },
+    })
+  })
+
+  it('never lets theme package sync touch the site’s stored settings', async () => {
+    const before = await settingsRow()
+    const original = JSON.parse(JSON.stringify(rawManifest)) as typeof rawManifest
+    try {
+      await payload.update({
+        collection: 'theme-packages',
+        data: {
+          manifest: {
+            ...original,
+            settings: {
+              ...original.settings,
+              footerNote: { group: 'general', type: 'text' },
+            },
+          },
+        },
+        id: packageId,
+        overrideAccess: true,
+      })
+      const after = await settingsRow()
+      expect(after.runtimeSettings).toEqual(before.runtimeSettings)
+      expect(after.legacyRuntimeSettings).toEqual(before.legacyRuntimeSettings)
+      expect(after.runtimeSettingsMeta).toEqual(before.runtimeSettingsMeta)
+    } finally {
+      await payload.update({
+        collection: 'theme-packages',
+        data: { manifest: original },
+        id: packageId,
+        overrideAccess: true,
+      })
+    }
+  })
+
+  it('moves a stored object to legacy when a manifest changes the key back to a scalar', async () => {
+    const original = JSON.parse(JSON.stringify(rawManifest)) as typeof rawManifest
+    try {
+      await payload.update({
+        collection: 'theme-packages',
+        data: {
+          manifest: {
+            ...original,
+            settings: {
+              ...original.settings,
+              titleSize: { group: 'design', max: 200, min: 50, type: 'number' },
+            },
+          },
+        },
+        id: packageId,
+        overrideAccess: true,
+      })
+      const downgraded = await view()
+      expect(downgraded.runtimeSettings.titleSize).toBeUndefined()
+      expect(downgraded.legacyRuntimeKeys).toContain('titleSize')
+      expect(downgraded.legacyRuntimeSettings.titleSize).toEqual({ desktop: 50, tablet: 36 })
+
+      const saved = await themeSettingsSaveEndpoint.handler!(
+        await reqAs('acme@eshobe.test', post({ runtimeSettings: { titleSize: 90 }, site: siteId.acme })),
+      )
+      expect(saved.status).toBe(200)
+      const adopted = await view()
+      expect(adopted.runtimeSettings.titleSize).toBe(90)
+      expect(adopted.legacyRuntimeKeys).not.toContain('titleSize')
+    } finally {
+      await payload.update({
+        collection: 'theme-packages',
+        data: { manifest: original },
+        id: packageId,
+        overrideAccess: true,
+      })
+    }
   })
 })

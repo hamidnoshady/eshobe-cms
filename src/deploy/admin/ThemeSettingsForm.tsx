@@ -13,15 +13,18 @@ import {
   useTranslation,
 } from '@payloadcms/ui'
 
+import type { RuntimeSettingValue } from '@/lib/deploy/manifest'
 import type { ThemeSettingsView } from '@/deploy/tenantSettings'
 import type { RuntimeSettingGroup } from '@/lib/deploy/manifest'
-import { formatNumber } from '@/lib/format'
 import {
   contentSlotCollectionSlug,
   fetchAllContentSlotOptions,
   type ContentOption,
   type ContentSlotType,
 } from '@/deploy/admin/contentSlotOptions'
+
+import { ThemePreviewPanel } from './ThemePreviewPanel'
+import { ThemeSettingsRuntimePanel } from './ThemeSettingsRuntimePanel'
 
 /**
  * The form behind «تنظیمات پوسته»: what the site's theme asks the customer for,
@@ -87,9 +90,14 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
   )
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [clear, setClear] = useState<Record<string, boolean>>({})
-  const [runtimeSettings, setRuntimeSettings] = useState<Record<string, boolean | number | string>>(
+  const [runtimeSettings, setRuntimeSettings] = useState<Record<string, RuntimeSettingValue>>(
     initial.runtimeSettings,
   )
+  const [runtimeDefaults, setRuntimeDefaults] = useState<Record<string, RuntimeSettingValue>>(
+    initial.runtimeDefaults,
+  )
+  const [legacyRuntimeKeys, setLegacyRuntimeKeys] = useState<string[]>(initial.legacyRuntimeKeys)
+  const [previewUrl, setPreviewUrl] = useState<null | string>(initial.previewUrl)
   const [bindings, setBindings] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       Object.entries(initial.bindings).flatMap(([key, value]) => {
@@ -102,6 +110,45 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
   const [contentLoadError, setContentLoadError] = useState<Record<string, boolean>>({})
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<null | string>(null)
+
+  /** What a save would change, so the footer and the unload guard agree. */
+  const snapshot = (state: {
+    bindings: Record<string, string>
+    clear: Record<string, boolean>
+    runtimeSettings: Record<string, RuntimeSettingValue>
+    secrets: Record<string, string>
+    values: Record<string, string>
+  }) => JSON.stringify(state)
+  const [savedSnapshot, setSavedSnapshot] = useState(() =>
+    snapshot({
+      bindings: Object.fromEntries(
+        Object.entries(initial.bindings).flatMap(([key, value]) => {
+          const id = value && typeof value === 'object' ? (value as { id?: unknown }).id : value
+          return typeof id === 'string' ? [[key, id]] : []
+        }),
+      ),
+      clear: {},
+      runtimeSettings: initial.runtimeSettings,
+      secrets: {},
+      values: Object.fromEntries(
+        initial.fields
+          .filter((field) => !field.secret)
+          .map((field) => [field.key, field.value ?? '']),
+      ),
+    }),
+  )
+  const currentSnapshot = snapshot({ bindings, clear, runtimeSettings, secrets, values })
+  const dirty = currentSnapshot !== savedSnapshot
+
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const slotTypeKey = [...new Set(initial.contentSlots.map((slot) => slot.type))].join(',')
 
@@ -157,6 +204,8 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
   const runtimeSchema = view.runtimeSchema.filter(
     (setting) => !group || (setting.group ?? 'general') === group,
   )
+  /** The server knows the site's languages; the prop is the fallback for an older view. */
+  const availableLocales = view.siteLocales?.length ? view.siteLocales : siteLocales
   const designSettingCount = view.runtimeSchema.filter(
     (setting) => setting.group === 'design',
   ).length
@@ -236,8 +285,32 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
       }
 
       if (payload.fields && payload.package !== undefined) {
-        setView(payload as ThemeSettingsView)
-        setRuntimeSettings(payload.runtimeSettings ?? {})
+        const next = payload as ThemeSettingsView
+        const nextValues = Object.fromEntries(
+          (next.fields ?? []).filter((field) => !field.secret).map((field) => [field.key, field.value ?? '']),
+        )
+        const nextBindings = Object.fromEntries(
+          Object.entries(next.bindings ?? {}).flatMap(([key, value]) => {
+            const id = value && typeof value === 'object' ? (value as { id?: unknown }).id : value
+            return typeof id === 'string' ? [[key, id]] : []
+          }),
+        )
+        setView(next)
+        setValues(nextValues)
+        setBindings(nextBindings)
+        setRuntimeSettings(next.runtimeSettings ?? {})
+        setRuntimeDefaults(next.runtimeDefaults ?? {})
+        setLegacyRuntimeKeys(next.legacyRuntimeKeys ?? [])
+        setPreviewUrl(next.previewUrl ?? null)
+        setSavedSnapshot(
+          snapshot({
+            bindings: nextBindings,
+            clear: {},
+            runtimeSettings: next.runtimeSettings ?? {},
+            secrets: {},
+            values: nextValues,
+          }),
+        )
       }
       setSecrets({})
       setClear({})
@@ -359,95 +432,31 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
       )}
 
       {runtimeSchema.length > 0 && (
-        <section className="theme-card">
-          {!designOnly && (
-            <div className="theme-card__head">
-              <h2 className="theme-card__title">گزینه‌های نمایش</h2>
-            </div>
-          )}
-          <div className="theme-form__fields">
-            {runtimeSchema.map((setting) => {
-              const label = optionLabel(setting)
-              const set = (value: boolean | number | string | undefined) =>
-                setRuntimeSettings((previous) => {
-                  const next = { ...previous }
-                  if (value === undefined || value === '') delete next[setting.key]
-                  else next[setting.key] = value
-                  return next
-                })
-
-              if (setting.type === 'boolean') {
-                return (
-                  <CheckboxInput
-                    checked={runtimeSettings[setting.key] === true}
-                    key={setting.key}
-                    label={label}
-                    name={`runtime-${setting.key}`}
-                    onToggle={(event) => set(event.target.checked)}
-                    readOnly={!view.canEdit}
-                  />
-                )
-              }
-              if (setting.type === 'select') {
-                return (
-                  <SelectInput
-                    description={setting.help ?? undefined}
-                    isClearable
-                    key={setting.key}
-                    label={label}
-                    name={`runtime-${setting.key}`}
-                    onChange={(option) =>
-                      set((option as { value?: string } | null)?.value ?? undefined)
-                    }
-                    options={(setting.options ?? []).map((option) => ({
-                      label: option.labelFa ?? option.labelEn ?? option.value,
-                      value: option.value,
-                    }))}
-                    path={`runtime-${setting.key}`}
-                    readOnly={!view.canEdit}
-                    value={String(runtimeSettings[setting.key] ?? '')}
-                  />
-                )
-              }
-              if (setting.type === 'number') {
-                const range = [
-                  typeof setting.min === 'number' ? `کمینه ${formatNumber(setting.min, 'fa')}` : '',
-                  typeof setting.max === 'number' ? `بیشینه ${formatNumber(setting.max, 'fa')}` : '',
-                ]
-                  .filter(Boolean)
-                  .join('، ')
-                return (
-                  <TextInput
-                    description={[setting.help, range].filter(Boolean).join(' — ') || undefined}
-                    key={setting.key}
-                    label={label}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                      const raw = event.target.value.trim()
-                      const number = Number(raw)
-                      set(raw === '' || Number.isNaN(number) ? undefined : number)
-                    }}
-                    path={`runtime-${setting.key}`}
-                    readOnly={!view.canEdit}
-                    rtl={false}
-                    value={String(runtimeSettings[setting.key] ?? '')}
-                  />
-                )
-              }
-              return (
-                <TextInput
-                  description={setting.help ?? undefined}
-                  key={setting.key}
-                  label={label}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => set(event.target.value)}
-                  path={`runtime-${setting.key}`}
-                  readOnly={!view.canEdit}
-                  value={String(runtimeSettings[setting.key] ?? '')}
-                />
-              )
-            })}
-          </div>
-        </section>
+        <ThemeSettingsRuntimePanel
+          canEdit={view.canEdit}
+          defaults={runtimeDefaults}
+          english={english}
+          legacyKeys={legacyRuntimeKeys}
+          onChange={(key, value) =>
+            setRuntimeSettings((previous) => {
+              const next = { ...previous }
+              if (value === undefined) delete next[key]
+              else next[key] = value
+              return next
+            })
+          }
+          onReset={(keys) =>
+            setRuntimeSettings((previous) =>
+              Object.fromEntries(Object.entries(previous).filter(([key]) => !keys.includes(key))),
+            )
+          }
+          schema={runtimeSchema}
+          siteLocales={availableLocales}
+          values={runtimeSettings}
+        />
       )}
+
+      {designOnly && <ThemePreviewPanel english={english} previewUrl={previewUrl} />}
 
       {contentSlots.length > 0 && (
         <section className="theme-card">
@@ -530,6 +539,13 @@ export const ThemeSettingsForm: React.FC<ThemeSettingsFormProps> = ({
                 ? t('ذخیرهٔ گزینه‌های طراحی پوسته', 'Save theme design options')
                 : t('ذخیرهٔ تنظیمات', 'Save settings')}
           </Button>
+          <span aria-live="polite" className="theme-form__state">
+            {pending
+              ? t('در حال ذخیره…', 'Saving…')
+              : dirty
+                ? t('تغییرات ذخیره‌نشده', 'Unsaved changes')
+                : t('همهٔ تغییرات ذخیره شده‌اند', 'All changes saved')}
+          </span>
         </div>
       )}
     </Root>

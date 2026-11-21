@@ -2,7 +2,7 @@
 
 **For AI agents and human developers building headless themes (including ecommerce).**
 
-**Required cross-theme authoring standard:** [Universal Theme Settings & Typography Development Standard](./THEME_SETTINGS_STANDARD.md). All new themes must follow the shared CMS settings system; responsive px field syntax is currently a **planned** extension and must not be emitted by themes until the CMS parser supports it.
+**Required cross-theme authoring standard:** [Universal Theme Settings & Typography Development Standard](./THEME_SETTINGS_STANDARD.md). All new themes must follow the shared CMS settings system. Responsive px typography (`type: "responsiveFontSize"`) is **supported** by this CMS as an additive extension to `contractVersion: 1` — see [Runtime `settings`](#runtime-settings).
 
 *Version: `contractVersion = 1` — `GET /api/site` returns this number. Bump = breaking change.*
 *Stack: Payload 3.90 + Next 16 + Postgres + Tailwind v4. Platform is Persian-first, RTL by default, multi-tenant via `Host`.*
@@ -1838,6 +1838,20 @@ Complete example using the current field names:
       "type": "boolean",
       "default": true,
       "labelFa": "نمایش شماره بخش‌ها"
+    },
+    "titleSize": {
+      "type": "responsiveFontSize",
+      "group": "design",
+      "category": "typography",
+      "section": "headings",
+      "labelFa": "اندازه عنوان",
+      "labelEn": "Title size",
+      "unit": "px",
+      "default": { "desktop": 42, "tablet": 34, "mobile": 28 },
+      "min": 14,
+      "max": 80,
+      "step": 1,
+      "locales": ["fa", "en"]
     }
   },
   "contentSlots": [
@@ -1868,7 +1882,7 @@ Complete example using the current field names:
 | `deployment` | object | no | omitted | see below; unknown deployment keys reject | GHCR/registry strategy synced into the theme package on manifest sync. |
 | `build` | object | no | `{}` | see below; unknown build keys reject | Instructions projected to Coolify. Treat as untrusted repository input. |
 | `env` | array | no | `[]` | max 50 entries; see below | Deployment environment declarations. Values are never taken from the manifest. |
-| `settings` | object | no | `{}` | max 50 entries; see below | Safe runtime presentation settings returned through `GET /api/site`; no rebuild needed. |
+| `settings` | object | no | `{}` | max 50 entries; see below. Types: `boolean`, `text`, `number`, `select`, `responsiveFontSize`. Returned through `GET /api/site`; no rebuild needed. |
 | `contentSlots` | array | no | `[]` | max 50 entries; see below | Tenant-scoped content binding schema. |
 
 #### `design`
@@ -1969,22 +1983,114 @@ relaxes validation.
 
 Runtime settings are not environment variables. They are safe presentation/runtime choices that
 can change without rebuilding the container and are returned under `GET /api/site` →
-`themeRuntime.settings` after validation.
+`themeRuntime.settings` after validation. `themeRuntime.settingsVersion` is the version of that
+emitted shape (`1` today); it is additive, so a theme that ignores a newer key still works.
 
 `settings` is an object whose keys match `/^[a-z][A-Za-z0-9]{0,63}$/`. Each value supports:
 
 | Key | Type | Required | Meaning |
 |---|---|---:|---|
-| `type` | string | yes | `boolean`, `text`, `number`, or `select`. |
-| `default` | boolean/number/string | no | Must match `type`; for `select`, must be one of the option values. |
-| `min`, `max` | number | no | Enforced for `number` values. |
-| `options` | array | required for `select` | 1–50 options, each `{ value, labelFa?, labelEn? }`, value <= 100 chars. |
-| `group` | `design`/`general` | no | `general` | Where the customer edits it. `design` (typography, layout, motion, colours) appears inside **طراحی سایت** beside the design tokens; `general` (map provider, coordinates, anything that is not how the site looks) appears on the top-level **تنظیمات پوسته** page. |
+| `type` | string | yes | `boolean`, `text`, `number`, `select`, or `responsiveFontSize`. |
+| `default` | boolean/number/string/object | no | Must match `type`; for `select`, one of the option values; for `responsiveFontSize`, a `{ desktop, tablet?, mobile? }` object in px (see below). |
+| `min`, `max` | number | no | Enforced for `number` values, and required bounds for `responsiveFontSize`. |
+| `step` | number | no | `1` | `responsiveFontSize` increment (0.5–50). |
+| `unit` | string | no | `px` | `responsiveFontSize` only; `px` is the only accepted value. |
+| `options` | array | required for `select` | 1–50 options, each `{ value, labelFa?, labelEn? }`, value <= 100 chars. Not valid for `responsiveFontSize`. |
+| `group` | `design`/`general` | no | `general` (or `design` for `responsiveFontSize`) | Where the customer edits it. `design` (typography, layout, motion, colours) appears inside **طراحی سایت** beside the design tokens; `general` (map provider, coordinates, anything that is not how the site looks) appears on the top-level **تنظیمات پوسته** page. |
+| `category` | string | no | `typography`, `colors`, `layout`, `navigation`, `motion`, `advanced` | Admin grouping. An unknown value rejects the manifest. Omitted: inferred deterministically from the key (or `typography` for `responsiveFontSize`). |
+| `section` | string | no | `general` | Optional sub-group inside a category: `/^[a-z][a-zA-Z0-9-]{0,31}$/`. |
+| `advanced` | boolean | no | `false` | Display hint for the compact admin; validation is unchanged. |
 | `labelFa`, `labelEn` | string/null | no | Form labels. |
 | `help` | string/null | no | Help text. |
 
 Stored values are validated before save and again before returning through `/api/site`; unknown
 or incorrectly typed settings are rejected.
+
+#### Responsive typography: `type: "responsiveFontSize"`
+
+One entry describes one semantic role (page title, body copy, menu label). It is **not** three
+settings, and it counts once against the 50-entry cap.
+
+```json
+{
+  "settings": {
+    "titleSize": {
+      "type": "responsiveFontSize",
+      "group": "design",
+      "category": "typography",
+      "section": "headings",
+      "labelFa": "اندازه عنوان صفحه",
+      "labelEn": "Page title size",
+      "unit": "px",
+      "default": { "desktop": 42, "tablet": 34, "mobile": 28 },
+      "min": 14,
+      "max": 80,
+      "step": 1,
+      "locales": ["fa", "en"]
+    }
+  }
+}
+```
+
+Rules the parser enforces:
+
+- `default.desktop` is required; `tablet`/`mobile` may be omitted and inherit. Every value is a
+  finite number in `[min, max]` and on the `step` grid.
+- `locales` is an optional subset of `fa`/`en`; a locale override the setting did not declare is
+  rejected. A site that does not serve that locale never sees the tab.
+- Any unknown key inside `default` or `locales` rejects the manifest. Strings such as `"42px"`,
+  arrays and CSS are never accepted, which is what keeps a value out of a CSS custom property it
+  does not belong in.
+
+Stored overrides (`site-theme-settings.runtimeSettings[key]`) keep only explicit choices:
+
+```json
+{ "desktop": 48, "locales": { "fa": { "tablet": 30 } } }
+```
+
+Resolution precedence — applied by the CMS, not by the theme:
+
+```text
+explicit locale + device
+→ inherited locale + device (desktop → tablet → mobile)
+→ explicit base device
+→ inherited base device
+→ manifest default
+```
+
+`GET /api/site` emits the **resolved** numbers, so a theme writes CSS directly:
+
+```json
+{
+  "themeRuntime": {
+    "settingsVersion": 1,
+    "settings": {
+      "titleSize": {
+        "desktop": 48,
+        "tablet": 48,
+        "mobile": 48,
+        "unit": "px",
+        "locales": { "fa": { "desktop": 48, "tablet": 30, "mobile": 30 } }
+      }
+    }
+  }
+}
+```
+
+`locales` appears only for languages the customer actually overrode. Representative breakpoints
+are desktop `>= 1024px`, tablet `768–1023px`, mobile `< 768px`; they are CSS ranges, not
+user-agent detection.
+
+#### Legacy percent values
+
+Themes written before this extension declare `number` sizes on a percent scale where `100`
+means the original fluid design. **The CMS never reinterprets those values as px.** A stored
+scalar under a key that is now `responsiveFontSize` is moved to
+`site-theme-settings.legacyRuntimeSettings`, listed in `runtimeSettingsMeta`, and excluded from
+the public descriptor; the role falls back to the manifest default until the customer saves an
+explicit px value. Legacy values are preserved across theme changes, and saving a value for the
+same key is the explicit opt-in that clears the preserved copy. See
+[THEME_SETTINGS_STANDARD.md](./THEME_SETTINGS_STANDARD.md) §4.
 
 Themes implement presentation behaviour (for example a home-page logo intro); the CMS only
 declares the schema, validates tenant overrides, and exposes merged values on
