@@ -9,6 +9,7 @@ import {
 import {
   groupRuntimeSettings,
   resolveResponsiveFontSize,
+  responsiveFontSizeCss,
   responsiveFontSizeOutput,
   settingCategory,
   splitStoredRuntimeSettings,
@@ -250,6 +251,44 @@ describe('resolveRuntimeSettings — precedence and output', () => {
     )
     expect(wire.title).toEqual({ desktop: 48, mobile: 32, tablet: 48, unit: 'px' })
     expect(TYPOGRAPHY_BREAKPOINTS).toEqual(['desktop', 'tablet', 'mobile'])
+  })
+
+  it('emits real CSS at the documented breakpoints, including locale overrides', () => {
+    const spec = {
+      default: { desktop: 42, mobile: 28, tablet: 34 },
+      locales: ['fa' as const, 'en' as const],
+      max: 80,
+      min: 14,
+      step: 1,
+      unit: 'px' as const,
+    }
+    const css = responsiveFontSizeCss(
+      spec,
+      { desktop: 50, locales: { fa: { mobile: 20 } } },
+      { selector: '.page-title' },
+    )
+
+    expect(css).toContain('.page-title { font-size: 50px; }')
+    expect(css).toContain('@media (max-width: 1023px)')
+    expect(css).toContain('.page-title { font-size: 50px; }')
+    expect(css).toContain('@media (max-width: 767px)')
+    expect(css).toContain(':root[lang="fa"] .page-title { font-size: 50px; }')
+    expect(css).toContain(':root[lang="fa"] .page-title { font-size: 20px; }')
+    // No locale override means no redundant locale block.
+    expect(css).not.toContain(':root[lang="en"]')
+
+    // Unsaved values are emitted the same way as saved ones; nothing is stored.
+    const unsaved = responsiveFontSizeCss(
+      spec,
+      { desktop: 32, tablet: 20 },
+      { selector: '.page-title' },
+    )
+    expect(unsaved).toContain('.page-title { font-size: 32px; }')
+    expect(unsaved).toContain('.page-title { font-size: 20px; }')
+
+    expect(() =>
+      responsiveFontSizeCss(spec, {}, { property: 'font-size', selector: '   ' }),
+    ).toThrow()
   })
 })
 
