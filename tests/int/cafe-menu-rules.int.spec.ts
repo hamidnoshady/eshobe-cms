@@ -1,7 +1,7 @@
 import type { PayloadRequest } from 'payload'
 import { describe, expect, it } from 'vitest'
 
-import { menuAvailability, menuSort, resolveModifiers } from '@/lib/cafe-menu'
+import { MAX_MENU_SELECTIONS, menuAvailability, menuSort, resolveModifiers } from '@/lib/cafe-menu'
 import { withDerivedSiteWrite } from '@/lib/derived-site-write'
 
 const groups = [
@@ -62,6 +62,21 @@ describe('café menu rules', () => {
       [{ groupId: 'milk', optionIds: 'oat' }],
     ]
     for (const selection of invalid) expect(resolveModifiers(groups, selection)).toEqual({ ok: false })
+  })
+
+  it('accepts a source system\'s "no limit" sentinel but not an unbounded range', () => {
+    // Biza Miz sends 999 for "unlimited"; the real ceiling is the option count.
+    const unlimited = [{
+      sourceId: 'toppings', label: 'Toppings', minSelections: 0, maxSelections: MAX_MENU_SELECTIONS, active: true,
+      options: [{ sourceId: 'a', label: 'A', priceDelta: 1 }, { sourceId: 'b', label: 'B', priceDelta: 2 }],
+    }]
+    expect(resolveModifiers(unlimited, [{ groupId: 'toppings', optionIds: ['a', 'b'] }])).toEqual({
+      ok: true, priceDelta: 3, snapshots: [
+        { groupSourceId: 'toppings', groupLabel: 'Toppings', optionSourceId: 'a', optionLabel: 'A', priceDelta: 1, quantity: 1 },
+        { groupSourceId: 'toppings', groupLabel: 'Toppings', optionSourceId: 'b', optionLabel: 'B', priceDelta: 2, quantity: 1 },
+      ],
+    })
+    expect(resolveModifiers([{ ...unlimited[0]!, maxSelections: MAX_MENU_SELECTIONS + 1 }], [])).toEqual({ ok: false })
   })
 
   it('snapshots current labels and signed integer deltas, not submitted prices', () => {

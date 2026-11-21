@@ -1,6 +1,7 @@
 import type { CollectionBeforeValidateHook } from 'payload'
 
 import { idOf } from '@/lib/ids'
+import { MAX_MENU_SELECTIONS } from '@/lib/cafe-menu'
 
 import { failField, findOnSite, siteIdOfWrite } from './contentSameSite'
 import { isMenuSourceId } from './validateMenuSource'
@@ -121,7 +122,7 @@ export const validateProductCommerce: CollectionBeforeValidateHook = async ({
       } else groupIds.add(groupId)
       const min = group.minSelections ?? 0
       const max = group.maxSelections ?? 1
-      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || Number(min) < 0 || Number(max) < 1 || Number(max) > 100 || Number(min) > Number(max)) {
+      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || Number(min) < 0 || Number(max) < 1 || Number(max) > MAX_MENU_SELECTIONS || Number(min) > Number(max)) {
         errors.push({ message: 'کمترین و بیشترین انتخاب باید عدد صحیح و سازگار باشند.', path: `modifierGroups.${index}.minSelections` })
       }
       if (group.menuOrder !== undefined && group.menuOrder !== null && !Number.isSafeInteger(group.menuOrder)) {

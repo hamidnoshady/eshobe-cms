@@ -15,6 +15,7 @@ import { generatePreviewPath } from '../utilities/generatePreviewPath'
 import { revalidateSiteDoc, revalidateSiteDocDelete } from '../hooks/revalidateSiteDoc'
 import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { validatePriceMinor } from '../lib/money'
+import { MAX_MENU_OPTIONS, MAX_MENU_SELECTIONS } from '@/lib/cafe-menu'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
 import { migrationSourceField } from './fields/migrationSource'
 import { menuSourceFields } from './fields/menuSource'
@@ -328,14 +329,23 @@ export const Products: CollectionConfig<'products'> = {
         { name: 'sourceId', type: 'text', label: 'شناسهٔ پایدار گروه', required: true, maxLength: 128 },
         { name: 'label', type: 'text', label: 'عنوان گروه', localized: true, required: true },
         { name: 'minSelections', type: 'number', label: 'کمترین انتخاب', defaultValue: 0, min: 0, max: 100, required: true },
-        { name: 'maxSelections', type: 'number', label: 'بیشترین انتخاب', defaultValue: 1, min: 1, max: 100, required: true },
+        {
+          // `999` is what a POS sends for "no limit" (see MAX_MENU_SELECTIONS).
+          name: 'maxSelections',
+          type: 'number',
+          label: 'بیشترین انتخاب',
+          defaultValue: 1,
+          min: 1,
+          max: MAX_MENU_SELECTIONS,
+          required: true,
+        },
         { name: 'active', type: 'checkbox', label: 'فعال', defaultValue: true },
         { name: 'menuOrder', type: 'number', label: 'ترتیب نمایش', defaultValue: 0 },
         {
           name: 'options',
           type: 'array',
           label: 'گزینه‌های افزودنی',
-          maxRows: 100,
+          maxRows: MAX_MENU_OPTIONS,
           labels: { plural: 'گزینه‌ها', singular: 'گزینه' },
           fields: [
             { name: 'sourceId', type: 'text', label: 'شناسهٔ پایدار گزینه', required: true, maxLength: 128 },
