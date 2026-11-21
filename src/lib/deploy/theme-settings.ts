@@ -521,6 +521,60 @@ export const responsiveFontSizeOutput = (
   return output
 }
 
+export type ResponsiveFontSizeCssOptions = {
+  /** CSS property to set. Defaults to `font-size`. */
+  property?: string
+  /** A theme-owned selector, for example `.page-title`. */
+  selector: string
+}
+
+const cssRule = (selector: string, property: string, px: number): string =>
+  `${selector} { ${property}: ${px}px; }`
+
+/**
+ * A reference emitter for themes: resolved px as real CSS, with the documented
+ * breakpoints and locale scoping.
+ *
+ * This is deliberately the *only* place the CMS turns a resolved value into CSS, so a
+ * theme has a correct implementation to copy and the contract test can measure computed
+ * styles rather than assert an admin number. It is not a styling system: the theme owns
+ * the selector and the semantic token, the CMS owns the numbers and their bounds.
+ *
+ * `selector` comes from theme source (trusted, like any stylesheet); every interpolated
+ * value is a validated finite number or an allowlisted locale, never customer text.
+ */
+export const responsiveFontSizeCss = (
+  spec: ResponsiveFontSizeSpec,
+  value: null | undefined | ResponsiveFontSizeValue,
+  options: ResponsiveFontSizeCssOptions,
+): string => {
+  const selector = options.selector.trim()
+  if (!selector) throw new Error('responsiveFontSizeCss: selector is required')
+  const property = options.property ?? 'font-size'
+  const resolved = resolveResponsiveFontSize(spec, value)
+  const rules = [
+    cssRule(selector, property, resolved.base.desktop.px),
+    `@media (max-width: 1023px) {\n  ${cssRule(selector, property, resolved.base.tablet.px)}\n}`,
+    `@media (max-width: 767px) {\n  ${cssRule(selector, property, resolved.base.mobile.px)}\n}`,
+  ]
+
+  for (const locale of spec.locales) {
+    const layer = resolved.locales[locale]
+    if (!layer) continue
+    // A locale with no effective difference would only add bytes and specificity.
+    if (TYPOGRAPHY_BREAKPOINTS.every((device) => layer[device].px === resolved.base[device].px))
+      continue
+    const scoped = `:root[lang="${locale}"] ${selector}`
+    rules.push(
+      cssRule(scoped, property, layer.desktop.px),
+      `@media (max-width: 1023px) {\n  ${cssRule(scoped, property, layer.tablet.px)}\n}`,
+      `@media (max-width: 767px) {\n  ${cssRule(scoped, property, layer.mobile.px)}\n}`,
+    )
+  }
+
+  return rules.join('\n')
+}
+
 /**
  * A theme may declare only these value fields. Everything else is preserved as legacy
  * by the save path, which is what keeps a theme change from deleting a customer's

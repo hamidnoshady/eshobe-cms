@@ -2081,6 +2081,26 @@ explicit locale + device
 are desktop `>= 1024px`, tablet `768–1023px`, mobile `< 768px`; they are CSS ranges, not
 user-agent detection.
 
+A theme applies the numbers with the same three ranges. The reference emitter used by the CMS
+contract tests (and safe to copy) is `responsiveFontSizeCss` in
+`src/lib/deploy/theme-settings.ts`; its output is:
+
+```css
+.page-title { font-size: 48px; }
+@media (max-width: 1023px) {
+  .page-title { font-size: 48px; }
+}
+@media (max-width: 767px) {
+  .page-title { font-size: 48px; }
+}
+:root[lang="fa"] .page-title { font-size: 48px; }
+/* …locale rules only when that language differs */
+```
+
+Every interpolated value is a validated number and every locale is allowlisted, so a stored
+setting can never become a CSS declaration. Use a semantic selector per role; do not patch
+individual elements inline.
+
 #### Legacy percent values
 
 Themes written before this extension declare `number` sizes on a percent scale where `100`
