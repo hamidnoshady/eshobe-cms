@@ -40,11 +40,11 @@ export const ProductGrid: Block = {
       type: 'number',
       label: 'بیشترین تعداد',
       defaultValue: 6,
-      max: 24,
+      max: 100,
       min: 1,
       admin: {
         condition: (_, siblingData) => siblingData?.populateBy === 'collection',
-        description: 'تازه‌ترین‌ها اول.',
+        description: 'در فهرست معمول تازه‌ترین‌ها اول؛ در منوی کافه به ترتیب دسته و ترتیب مبدأ منو.',
         step: 1,
       },
     },
