@@ -1,5 +1,10 @@
 # POS-managed café menu and checkout (ESH-149 / #196, ESH-150 / #197)
 
+> **Building the storefront?** This document is the *sync* contract (what the POS
+> pushes, and what it may write back). The theme-side guide — how to render the
+> menu, price add-ons, take a dine-in order from a table QR and show the right
+> receipt — is [`theme-cafe-menu.md`](./theme-cafe-menu.md).
+
 This extends the existing `products`, `taxonomy-definitions`, `taxonomy-terms`,
 `orders` and `productGrid`; it does not use the navigation `menus` collection or
 install another commerce plugin. Apply the committed migration before deploying.

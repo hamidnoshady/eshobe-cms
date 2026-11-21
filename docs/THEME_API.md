@@ -4,6 +4,8 @@
 
 **Required cross-theme authoring standard:** [Universal Theme Settings & Typography Development Standard](./THEME_SETTINGS_STANDARD.md). All new themes must follow the shared CMS settings system. Responsive px typography (`type: "responsiveFontSize"`) is **supported** by this CMS as an additive extension to `contractVersion: 1` — see [Runtime `settings`](#runtime-settings).
 
+**Building a café/menu storefront?** Read [`theme-cafe-menu.md`](./theme-cafe-menu.md) alongside this reference: the POS-owned menu, add-on pricing, the cart request, table-QR dine-in and the receipt's two axes.
+
 *Version: `contractVersion = 1` — `GET /api/site` returns this number. Bump = breaking change.*
 *Stack: Payload 3.90 + Next 16 + Postgres + Tailwind v4. Platform is Persian-first, RTL by default, multi-tenant via `Host`.*
 *Base: this repo `hamidnoshady/eshobe-cms`. Docs cover REST + Payload API, blocks, theming, i18n, money, routing and checkout.*
