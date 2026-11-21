@@ -9,7 +9,7 @@ import { siteFromRequest } from '@/lib/site-query'
 import { siteOrigin } from '@/lib/site-url'
 import { listEnabledGateways } from '@/payments/gateways'
 import { contractVersion } from '@eshobe/site-runtime'
-import { parseThemeManifest, validateRuntimeSettings } from '@/lib/deploy/manifest'
+import { parseThemeManifest, resolveRuntimeSettings } from '@/lib/deploy/manifest'
 
 /**
  * `GET /api/site` — what a renderer needs before it can render anything.
@@ -270,7 +270,7 @@ export const siteDescriptor: Endpoint = {
         ? (themeSettings.runtimeSettings as Record<string, unknown>)
         : {}
     const runtimeSettings = manifest
-      ? validateRuntimeSettings(manifest, submittedRuntime).values
+      ? resolveRuntimeSettings(manifest, submittedRuntime)
       : {}
     const contentBindings =
       settingsBelongToPackage &&
@@ -429,6 +429,10 @@ export const siteDescriptor: Endpoint = {
             // `themeRuntime.package.key` before the UI terminology was simplified.
             package: { key: packageDoc?.key ?? null },
             settings: runtimeSettings,
+            // Version of the emitted settings shape. Responsive typography is additive
+            // under 1: scalar keys are unchanged, and a theme that does not read the new
+            // type sees exactly what it saw before.
+            settingsVersion: 1,
             bindings: resolvedBindings,
           }
         : null,

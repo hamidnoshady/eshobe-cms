@@ -3103,7 +3103,8 @@ export interface Order {
     /**
      * کارِ صندوق است، نه خریدار. تا وقتی کافه سفارش را نپذیرد، آشپزخانه چیزی دریافت نمی‌کند.
      */
-    fulfillment?: ('awaiting_approval' | 'accepted' | 'preparing' | 'ready' | 'served' | 'rejected' | 'cancelled') | null;
+    fulfillment?:
+      ('awaiting_approval' | 'accepted' | 'preparing' | 'ready' | 'served' | 'rejected' | 'cancelled') | null;
     fulfillmentAt?: string | null;
     tableLabel?: string | null;
   };
@@ -4978,6 +4979,30 @@ export interface SiteThemeSetting {
    * مقادیر اعلام‌شده در settings مانیفست؛ بدون نیاز به استقرار مجدد.
    */
   runtimeSettings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * مقادیری که مانیفست فعلی اعلام نمی‌کند یا نوعشان تغییر کرده است. خواندنی و بدون تغییر؛ هرگز به‌صورت px تفسیر نمی‌شوند و فقط با ذخیرهٔ صریح همان گزینه پاک می‌شوند.
+   */
+  legacyRuntimeSettings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * نسخهٔ مبدل، پوستهٔ زمان ذخیره و فهرست کلیدهای حفظ‌شده — برای حسابرسی و بازگردانی.
+   */
+  runtimeSettingsMeta?:
     | {
         [k: string]: unknown;
       }
@@ -8338,6 +8363,8 @@ export interface SiteThemeSettingsSelect<T extends boolean = true> {
   themePackage?: T;
   values?: T;
   runtimeSettings?: T;
+  legacyRuntimeSettings?: T;
+  runtimeSettingsMeta?: T;
   contentBindings?: T;
   secretValues?: T;
   updatedAt?: T;

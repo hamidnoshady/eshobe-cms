@@ -1,8 +1,8 @@
 # Eshobe CMS — Universal Theme Settings & Typography Development Standard
 
-> **Status: approved target architecture, implementation pending.** This document is the cross-theme requirement for new and maintained deployable themes; it does **not** mean the current `contractVersion: 1` manifest parser already supports the proposed responsive field type. Do not publish a new field type until the CMS parser, runtime, UI and tests ship together. Track the implementation in linked GitHub issues.
+> **Status: implemented in the CMS, pending deployment and theme adoption.** The manifest parser, save path, `GET /api/site` descriptor, admin UI and compatibility layer now support `type: "responsiveFontSize"` as an additive extension to `contractVersion: 1` (GitHub #209–#212). Do **not** emit the new type from a theme until the CMS version carrying it is deployed to the environment that serves that theme. Track deployment and per-theme adoption in the linked issues.
 >
-> Canonical references: [Theme API](./THEME_API.md), [theme deployments](./theme-deployments.md), `src/lib/deploy/manifest.ts`, `src/deploy/admin/ThemeSettingsForm.tsx`, and [settings-placement rule #156](https://github.com/hamidnoshady/eshobe-cms/issues/156).
+> Canonical references: [Theme API](./THEME_API.md#runtime-settings), [theme deployments](./theme-deployments.md), `src/lib/deploy/theme-settings.ts`, `src/lib/deploy/manifest.ts`, `src/deploy/admin/ThemeSettingsRuntimePanel.tsx`, and [settings-placement rule #156](https://github.com/hamidnoshady/eshobe-cms/issues/156).
 
 ## 1. Scope and ownership
 
@@ -34,9 +34,9 @@ Recommended breakpoints align with the theme's existing CSS breakpoints, not a n
 - UI must show a working live sample for each device and, where available, a staging-site preview. Saving changes must revalidate the site's runtime config; **do not deploy/promote production** merely to preview.
 - Keep large-text and small-text inputs within accessible, theme-declared safe limits; never inject unsanitized strings into CSS.
 
-### Proposed manifest extension (not valid under the current v1 parser)
+### Manifest extension (implemented; deploy before adoption)
 
-The CMS implementation issue must finalize and version this shape before theme authors can publish it. The example below illustrates one field per role (not three separate keys per breakpoint) and keeps the existing setting count bounded:
+Final name and shape, validated by `parseThemeManifest`. The example below is one field per semantic role (not three separate keys per breakpoint) and keeps the existing setting count bounded:
 
 ```json
 {
@@ -44,44 +44,53 @@ The CMS implementation issue must finalize and version this shape before theme a
     "fontSizeTitle": {
       "type": "responsiveFontSize",
       "group": "design",
+      "category": "typography",
+      "section": "headings",
       "labelFa": "اندازه عنوان صفحه",
       "labelEn": "Page title size",
       "unit": "px",
-      "category": "typography",
-      "section": "headings",
       "default": { "desktop": 42, "tablet": 34, "mobile": 28 },
       "min": 14,
       "max": 80,
-      "step": 1
+      "step": 1,
+      "locales": ["fa", "en"]
     }
   }
 }
 ```
 
-Treat `responsiveFontSize`, `unit`, `category`, `section`, object defaults and optional locale overrides as **proposed, not yet accepted** by `parseThemeManifest`. The CMS must implement a typed, allowlisted, validated, backwards-compatible extension; do not fake support with free-form JSON text boxes or by tripling each field count. Align field-count limits, data storage and existing `contractVersion` compatibility before enabling the new shape.
+`responsiveFontSize`, `unit: "px"`, `category`, `section`, `step`, `locales` and object defaults are now accepted by `parseThemeManifest` under `contractVersion: 1` (additive). Unknown nested keys, non-numeric or out-of-range values, undeclared locales and CSS strings are rejected. The CMS resolves inheritance and locale precedence; `GET /api/site` emits resolved px to the theme. See [THEME_API.md](./THEME_API.md#responsive-typography-type-responsivefontsize).
 
 ## 4. Data compatibility and safe rollout
 
-Existing theme manifests use primitive `number` sizes 50–200 where `100` means the original design scale. **Never reinterpret an existing `sizeTitle: 100` as `100px`.** Support legacy values until a tested and reversible migration or compatibility adapter maps them to the new model; preserve their actual rendered layout across breakpoints.
+Existing theme manifests use primitive `number` sizes 50–200 where `100` means the original design scale. **Never reinterpret an existing `sizeTitle: 100` as `100px`.** The CMS implements a non-destructive dual-read/new-write policy:
+
+1. Declared scalar settings keep working exactly as before and are still emitted as numbers.
+2. A value the current manifest no longer declares, or whose declared type changed, is moved to `site-theme-settings.legacyRuntimeSettings` verbatim. It is never read as px and never emitted to the theme.
+3. `runtimeSettingsMeta` records the converter version (`1`), the package and the preserved key list, so a rollout can be audited and a manifest rolled back without losing the values.
+4. The new role resolves from the theme default until the customer explicitly saves a px value; that save is the opt-in and clears the preserved copy for that key. There is no automatic percent → px conversion.
+5. Theme package sync updates the package row only; it never writes `site-theme-settings`. A regression test pins this.
 
 Migration/rollout requirements:
-1. Inventory every installed theme and stored `runtimeSettings` value; preserve a backup/snapshot and provenance of conversion.
-2. Implement **dual-read / new-write** or an explicit compatibility bridge before switching manifests. A setting no longer declared by a new manifest must not silently erase a customer's saved legacy value.
-3. Define deterministic conversion from the old theme's responsive CSS curves; do not invent one fixed px equivalent for a fluid `clamp()` curve. If pixel-perfect conversion is not possible, retain old behavior until the customer explicitly changes the setting.
-4. Test fresh sites, existing overrides, theme changes, rollback, legacy themes, mixed locales and unknown/malformed settings. Show migration/version state to operators when needed.
+1. Inventory every installed theme and stored `runtimeSettings` value; the preserved map plus meta column is the backup/provenance record.
+2. A setting no longer declared by a new manifest must not silently erase a customer's saved legacy value — covered by the preservation above.
+3. A percentage multiplier on a fluid `clamp()` curve cannot be represented exactly by one static px number at all widths; keep old behavior until the customer explicitly changes the setting.
+4. Test fresh sites, existing overrides, theme changes, rollback, legacy themes, mixed locales and unknown/malformed settings. Show migration/version state to operators ($212 test suite).
 5. Ensure exact per-site isolation, CSRF/session and role checks, save-time validation, cache invalidation and preview isolation. No secrets in public descriptors or generated CSS.
 
 ## 5. Acceptance contract for CMS and themes
 
-- [ ] Native or official Payload controls are used for dynamic fields; number values validate as numbers rather than text.
-- [ ] Site Design defaults to compact categorized UI; long themes remain navigable by keyboard and search without horizontal overflow.
-- [ ] Independent Desktop / Tablet / Mobile px values work for every declared typography role, including locale overrides where declared.
-- [ ] CSS on the actual site matches saved settings at 375px, 768px and 1440px; headings, menus, forms, cards and article prose reflow correctly.
-- [ ] Switching devices/sections does not lose pending edits; reset actions have scoped effects.
-- [ ] Missing new settings fall back to the theme's design; legacy percent settings are neither discarded nor interpreted as px.
-- [ ] Tenant, access-control, secret-handling, manifest parse/validation, rollback, deployment and cache invalidation tests pass.
-- [ ] E2E coverage includes Persian RTL and English LTR, accessibility, responsive screen sizes, multi-theme isolation, browser preview and save/reload.
-- [ ] Update `docs/THEME_API.md`, the CMS agent-development guide, and each adopting theme's documentation when the implementation goes live; mark this planned spec as implemented only after release.
+CMS side (delivered with #209–#212):
+
+- [x] Official Payload controls are used for dynamic fields; responsive values validate as bounded numbers with `px` units.
+- [x] Site Design is compact and categorized (Typography, Colours, Layout & Spacing, Navigation, Motion, Advanced) with search, collapsed sections and keyboard-operable controls.
+- [x] Independent Desktop / Tablet / Mobile px values work for every declared role, including declared `fa`/`en` overrides, with inherited-vs-custom state and explicit reset.
+- [x] Device/locale/section switching preserves pending edits; reset actions are field-, section- or group-scoped with confirmation.
+- [x] Missing new settings fall back to the theme's design; legacy percent settings are neither discarded nor interpreted as px.
+- [x] Tenant, access-control, secret-handling, manifest parse/validation, rollback and cache invalidation tests cover the change; `GET /api/site` exposes resolved values.
+- [ ] Theme side: CSS at 375px, 768px and 1440px matches saved values (headings, menus, forms, cards, prose).
+- [ ] Theme side: E2E on an adopting theme in Persian RTL and English LTR, including accessibility and reduced motion.
+- [x] `docs/THEME_API.md` and this document describe the shipped contract; per-theme documentation is updated when a theme adopts it.
 
 ## Implementation tracking (GitHub)
 
@@ -96,10 +105,10 @@ Migration/rollout requirements:
 
 ## 6. Development sequence
 
-1. CMS: typed manifest extension + parser, validator, runtime model and compatibility policy.
-2. CMS: reusable Payload-native admin settings renderer with compact categories, precise numeric controls, safe save/reset.
-3. CMS: responsive preview, accessibility, test coverage and migration/rollout gates.
-4. Themes: adopt the supported manifest fields and implement responsive CSS tokens and visual regression tests.
+1. **Done (this CMS):** typed manifest extension + parser, validator, resolution and compatibility policy.
+2. **Done (this CMS):** reusable Payload-native admin settings renderer with compact categories, precise numeric controls, scoped reset and dirty-state guard.
+3. **Done (this CMS):** responsive live sample, saved-build viewport preview, legacy preservation and the regression suite.
+4. **Pending (themes):** adopt the supported manifest fields and implement responsive CSS tokens and visual regression tests.
 5. Release only when the CMS and theme versions are compatible, and document the minimum supported CMS version.
 
 **Rule for all AI agents and theme developers:** read this document before creating a new theme or adding a new theme setting. Do not add theme-specific admin forms or unsupported manifest keys. If the current CMS contract lacks a desired control, open a CMS contract issue first and preserve the existing runtime API until the shared extension ships.

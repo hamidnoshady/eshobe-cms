@@ -76,4 +76,42 @@ describe('validateRuntimeSettings', () => {
     const unknown = validateRuntimeSettings(parsed.manifest, { mysteryFlag: true })
     expect(unknown.errors.some((line) => line.includes('mysteryFlag'))).toBe(true)
   })
+
+  it('validates one responsive px role without tripling the setting count', () => {
+    const parsed = parseThemeManifest(
+      {
+        build: { pack: 'nixpacks', port: 3000 },
+        contractVersion: 1,
+        key: 'responsive-validation',
+        name: 'Responsive validation',
+        settings: {
+          heading: {
+            default: { desktop: 40, mobile: 24, tablet: 30 },
+            group: 'design',
+            max: 72,
+            min: 12,
+            type: 'responsiveFontSize',
+          },
+        },
+        siteTypes: ['business'],
+      },
+      1,
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.manifest.settings).toHaveLength(1)
+
+    expect(
+      validateRuntimeSettings(parsed.manifest, { heading: { desktop: 44, tablet: 32 } }),
+    ).toMatchObject({ errors: [], values: { heading: { desktop: 44, tablet: 32 } } })
+    expect(validateRuntimeSettings(parsed.manifest, { heading: 100 }).errors.length).toBeGreaterThan(
+      0,
+    )
+    expect(
+      validateRuntimeSettings(parsed.manifest, { heading: { desktop: '44px' } }).errors.length,
+    ).toBeGreaterThan(0)
+    expect(
+      validateRuntimeSettings(parsed.manifest, { heading: { desktop: 100 } }).errors.length,
+    ).toBeGreaterThan(0)
+  })
 })
