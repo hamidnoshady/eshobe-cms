@@ -1,6 +1,5 @@
 import type { PayloadRequest } from 'payload'
 
-import type { McpCapability } from './capabilities'
 import { toCamelCase } from './capabilities'
 
 /**
@@ -25,8 +24,7 @@ export interface McpKeyContext {
   capabilities: Record<string, unknown>
 }
 
-export const readMcpKeyContext = (req: PayloadRequest): McpKeyContext | null => {
-  const raw = (req.context as Record<string, unknown> | undefined)?.[MCP_KEY_CONTEXT]
+export const readMcpKeyContext = (req: PayloadRequest): McpKeyContext | null => {  const raw = (req.context as Record<string, unknown> | undefined)?.[MCP_KEY_CONTEXT]
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Partial<McpKeyContext>
   if (value.id === undefined) return null
@@ -59,5 +57,3 @@ export const grantedCustomTools = (context: McpKeyContext | null): null | string
     .filter(([, value]) => value === true)
     .map(([name]) => name)
 }
-
-export type { McpCapability }

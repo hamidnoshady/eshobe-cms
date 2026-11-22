@@ -1,5 +1,5 @@
 import { mcpPlugin } from '@payloadcms/plugin-mcp'
-import type { CollectionConfig, CollectionSlug } from 'payload'
+import type { CollectionConfig } from 'payload'
 
 import { mcpOverrideAuth } from '@/mcp/auth'
 import {
@@ -127,11 +127,3 @@ export const mcp = mcpPlugin({
   },
   overrideAuth: mcpOverrideAuth,
 })
-
-/** Exported for the capability spec; the plugin reads the same value at boot. */
-export const mcpCapabilityMatrix: Record<string, McpCapability> = Object.fromEntries(
-  MCP_COLLECTION_SLUGS.map((slug: CollectionSlug) => [
-    slug,
-    capabilitiesFor(slug as (typeof MCP_COLLECTION_SLUGS)[number]),
-  ]),
-)
