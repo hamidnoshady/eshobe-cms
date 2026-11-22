@@ -123,7 +123,7 @@ export const syncRequestedCdnZones = async (req: PayloadRequest): Promise<{ sync
       await audit(req, zoneId, true, detail)
       synced += 1
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'CDN sync failed'
+      const message = error instanceof Error ? error.message : 'همگام‌سازی CDN ناموفق بود.'
       req.payload.logger.warn({ err: error as Error, msg: `queued CDN sync failed for ${zoneId}` })
       // Cleared on failure too: a bad token or a refused zone would otherwise be
       // retried against the provider every minute, forever. The tenant sees

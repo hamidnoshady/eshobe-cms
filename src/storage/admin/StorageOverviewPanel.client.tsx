@@ -81,7 +81,7 @@ export const StorageOverviewPanel: React.FC = () => {
             <dd>{conn.provider ?? '—'}</dd>
             <dt>باکت</dt>
             <dd>{conn.bucket ?? '—'}</dd>
-            <dt>Endpoint</dt>
+            <dt>نشانی سرویس (Endpoint)</dt>
             <dd style={{ direction: 'ltr', textAlign: 'start' }}>{conn.endpoint ?? '—'}</dd>
             <dt>حالت</dt>
             <dd>{conn.storageMode ?? '—'}</dd>
@@ -99,7 +99,7 @@ export const StorageOverviewPanel: React.FC = () => {
           el="link"
           to="/admin/collections/storage-connections/infrastructure/storage/health"
         >
-          سلامت و diagnostics
+          سلامت و عیب‌یابی
         </Button>
         <Button
           buttonStyle="secondary"

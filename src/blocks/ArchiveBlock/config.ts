@@ -24,7 +24,7 @@ export const Archive: Block = {
           ]
         },
       }),
-      label: 'Intro Content',
+      label: 'محتوای مقدمه',
       localized: true,
     },
     {
@@ -33,11 +33,11 @@ export const Archive: Block = {
       defaultValue: 'collection',
       options: [
         {
-          label: 'Collection',
+          label: 'مجموعه',
           value: 'collection',
         },
         {
-          label: 'Individual Selection',
+          label: 'انتخاب دستی',
           value: 'selection',
         },
       ],
@@ -49,10 +49,10 @@ export const Archive: Block = {
         condition: (_, siblingData) => siblingData.populateBy === 'collection',
       },
       defaultValue: 'posts',
-      label: 'Collections To Show',
+      label: 'مجموعه‌های نمایش‌داده‌شده',
       options: [
         {
-          label: 'Posts',
+          label: 'نوشته‌ها',
           value: 'posts',
         },
       ],
@@ -64,7 +64,7 @@ export const Archive: Block = {
         condition: (_, siblingData) => siblingData.populateBy === 'collection',
       },
       hasMany: true,
-      label: 'Categories To Show',
+      label: 'دسته‌بندی‌های نمایش‌داده‌شده',
       relationTo: 'categories',
     },
     {
@@ -75,7 +75,7 @@ export const Archive: Block = {
         step: 1,
       },
       defaultValue: 10,
-      label: 'Limit',
+      label: 'تعداد',
     },
     {
       name: 'selectedDocs',
@@ -84,12 +84,12 @@ export const Archive: Block = {
         condition: (_, siblingData) => siblingData.populateBy === 'selection',
       },
       hasMany: true,
-      label: 'Selection',
+      label: 'انتخاب‌شده‌ها',
       relationTo: ['posts'],
     },
   ],
   labels: {
-    plural: 'Archives',
-    singular: 'Archive',
+    plural: 'آرشیوها',
+    singular: 'آرشیو',
   },
 }

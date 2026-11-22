@@ -239,7 +239,7 @@ export const SiteDeployments: CollectionConfig<'site-deployments'> = {
         {
           name: 'imageDigest',
           type: 'text',
-          label: 'digest immutable',
+          label: 'خلاصهٔ ایمیج (تغییرناپذیر)',
           index: true,
           admin: { readOnly: true },
         },

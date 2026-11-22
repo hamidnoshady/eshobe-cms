@@ -250,12 +250,12 @@ export const DeployTargets: CollectionConfig<'deploy-targets'> = {
       admin: { initCollapsed: false },
       fields: [
         { name: 'publicGitEnabled', type: 'checkbox', defaultValue: true, label: 'مخزن Git عمومی' },
-        { name: 'githubAppEnabled', type: 'checkbox', defaultValue: false, label: 'GitHub App' },
+        { name: 'githubAppEnabled', type: 'checkbox', defaultValue: false, label: 'اپ GitHub' },
         {
           name: 'deployKeyEnabled',
           type: 'checkbox',
           defaultValue: false,
-          label: 'Deploy key fallback',
+          label: 'کلید استقرار (پشتیبان)',
         },
         {
           name: 'publicRegistryPullEnabled',

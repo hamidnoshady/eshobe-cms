@@ -127,7 +127,7 @@ export const DomainReseller: GlobalConfig = {
         {
           name: 'apiKey',
           type: 'text',
-          label: 'X-Api-Key',
+          label: 'کلید API (هدر X-Api-Key)',
           access: {
             create: platformAdminFieldAccess,
             read: platformAdminFieldAccess,

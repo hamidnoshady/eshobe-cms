@@ -114,7 +114,7 @@ export const CdnAccounts: CollectionConfig<'cdn-accounts'> = {
         {
           name: 'apiToken',
           type: 'text',
-          label: 'API token / API key',
+          label: 'توکن / کلید API',
           access: { ...fieldAccess, read: secretReadAccess },
           hooks: { afterRead: [maskCdnCredential()] },
           admin: {
@@ -141,7 +141,7 @@ export const CdnAccounts: CollectionConfig<'cdn-accounts'> = {
     {
       name: 'cloudflareAccountId',
       type: 'text',
-      label: 'Cloudflare Account ID',
+      label: 'شناسهٔ حساب Cloudflare',
       admin: {
         condition: (data) => data?.provider === 'cloudflare',
         description: 'برای ساخت zone جدید (از جمله سلف‌سرویس مشتری) لازم است.',
@@ -156,8 +156,8 @@ export const CdnAccounts: CollectionConfig<'cdn-accounts'> = {
           label: 'نوع دامنه در آروان',
           defaultValue: 'full',
           options: [
-            { label: 'Full DNS / nameserver', value: 'full' },
-            { label: 'Partial / CNAME', value: 'partial' },
+            { label: 'DNS کامل (nameserver)', value: 'full' },
+            { label: 'جزئی / CNAME', value: 'partial' },
           ],
           admin: { condition: (data) => data?.provider === 'arvancloud', width: '50' },
         },

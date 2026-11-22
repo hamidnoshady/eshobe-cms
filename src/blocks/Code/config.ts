@@ -12,11 +12,11 @@ export const Code: Block = {
       defaultValue: 'typescript',
       options: [
         {
-          label: 'Typescript',
+          label: 'تایپ‌اسکریپت',
           value: 'typescript',
         },
         {
-          label: 'Javascript',
+          label: 'جاوااسکریپت',
           value: 'javascript',
         },
         {

@@ -11,7 +11,7 @@ export const searchFields: Field[] = [
   },
   {
     name: 'meta',
-    label: 'Meta',
+    label: 'فراداده (SEO)',
     type: 'group',
     index: true,
     admin: {
@@ -21,23 +21,23 @@ export const searchFields: Field[] = [
       {
         type: 'text',
         name: 'title',
-        label: 'Title',
+        label: 'عنوان',
       },
       {
         type: 'text',
         name: 'description',
-        label: 'Description',
+        label: 'توضیحات',
       },
       {
         name: 'image',
-        label: 'Image',
+        label: 'تصویر',
         type: 'upload',
         relationTo: 'media',
       },
     ],
   },
   {
-    label: 'Categories',
+    label: 'دسته‌بندی‌ها',
     name: 'categories',
     type: 'array',
     admin: {

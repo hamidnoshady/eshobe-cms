@@ -184,7 +184,7 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
               label: 'مخزن',
               required: true,
               validate: validateRepository,
-              admin: { width: '34', description: 'owner/name' },
+              admin: { width: '34', description: 'مالک/نام مخزن (owner/name)' },
             },
             {
               name: 'visibility',
@@ -254,14 +254,14 @@ export const ThemePackages: CollectionConfig<'theme-packages'> = {
           hasMany: true,
           defaultValue: ['coolify_build'],
           options: [
-            { label: 'Coolify build', value: 'coolify_build' },
-            { label: 'Registry image', value: 'registry_image' },
+            { label: 'بیلد Coolify', value: 'coolify_build' },
+            { label: 'ایمیج رجیستری', value: 'registry_image' },
           ],
         },
         {
           name: 'registryProvider',
           type: 'select',
-          options: [{ label: 'GitHub Container Registry', value: 'ghcr' }],
+          options: [{ label: 'رجیستری کانتینر GitHub (GHCR)', value: 'ghcr' }],
           admin: { condition: (_, sibling) => sibling?.deploymentStrategy === 'registry_image' },
         },
         {

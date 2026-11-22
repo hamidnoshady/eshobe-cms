@@ -44,7 +44,7 @@ export const StorageUsagePanel: React.FC = () => {
       <dl style={{ display: 'grid', gap: '0.35rem 1rem', gridTemplateColumns: 'max-content 1fr', margin: 0 }}>
         <dt>تعداد رسانه</dt>
         <dd>{formatNumber(usage.mediaItems, 'fa')}</dd>
-        <dt>حجم شناخته‌شده (bytes)</dt>
+        <dt>حجم شناخته‌شده (بایت)</dt>
         <dd>{formatNumber(usage.databaseBytesKnown, 'fa')}</dd>
         <dt>بدون filesize</dt>
         <dd>{formatNumber(usage.databaseBytesUnknownCount, 'fa')}</dd>
@@ -52,13 +52,13 @@ export const StorageUsagePanel: React.FC = () => {
         <dd>{usage.lastUploadAt ?? '—'}</dd>
       </dl>
 
-      <h2>به تفکیک سایت (prefix)</h2>
+      <h2>به تفکیک سایت (پیشوند)</h2>
       <table style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>
-            <th style={{ textAlign: 'start' }}>Site ID</th>
-            <th style={{ textAlign: 'start' }}>Items</th>
-            <th style={{ textAlign: 'start' }}>Bytes known</th>
+            <th style={{ textAlign: 'start' }}>شناسهٔ سایت</th>
+            <th style={{ textAlign: 'start' }}>تعداد</th>
+            <th style={{ textAlign: 'start' }}>حجم شناخته‌شده (بایت)</th>
           </tr>
         </thead>
         <tbody>

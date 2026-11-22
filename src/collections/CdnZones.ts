@@ -165,7 +165,7 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
     {
       name: 'cloudflareAccountId',
       type: 'text',
-      label: 'Cloudflare Account ID',
+      label: 'شناسهٔ حساب Cloudflare',
       admin: {
         condition: (data) => data?.provider === 'cloudflare',
         description: 'فقط برای ساخت zone جدید لازم است؛ برای zone از قبل موجود لازم نیست.',
@@ -214,8 +214,8 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
           label: 'نوع دامنه در آروان',
           defaultValue: 'full',
           options: [
-            { label: 'Full DNS / nameserver', value: 'full' },
-            { label: 'Partial / CNAME', value: 'partial' },
+            { label: 'DNS کامل (nameserver)', value: 'full' },
+            { label: 'جزئی / CNAME', value: 'partial' },
           ],
           admin: { condition: (data) => data?.provider === 'arvancloud', width: '50' },
         },
@@ -273,7 +273,7 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
             {
               name: 'originHostHeader',
               type: 'text',
-              label: 'Host header / SNI origin',
+              label: 'هدر Host / SNI مبدأ',
               admin: { description: 'می‌تواند Host header یا SNI متفاوتی به origin بفرستد.' },
             },
           ],
@@ -292,7 +292,7 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
         {
           name: 'apiToken',
           type: 'text',
-          label: 'API token / API key',
+          label: 'توکن / کلید API',
           access: { ...fieldAccess, read: secretReadAccess },
           hooks: { afterRead: [maskCdnCredential()] },
           admin: {
@@ -432,7 +432,7 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
               defaultValue: 'strict',
               options: [
                 { label: 'Flexible (ناامن برای origin؛ توصیه نمی‌شود)', value: 'flexible' },
-                { label: 'Full', value: 'full' },
+                { label: 'کامل (Full)', value: 'full' },
                 { label: 'Full (strict) — توصیه‌شده', value: 'strict' },
               ],
               admin: {
@@ -560,7 +560,7 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
               label: 'حالت توسعه (bypass cache)',
               defaultValue: false,
             },
-            { name: 'alwaysOnline', type: 'checkbox', label: 'Always Online', defaultValue: false },
+            { name: 'alwaysOnline', type: 'checkbox', label: 'همیشه در دسترس (Always Online)', defaultValue: false },
           ],
         },
       ],
@@ -621,12 +621,12 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
               required: true,
               defaultValue: 'firewall',
               options: [
-                { label: 'Firewall / Custom rule', value: 'firewall' },
-                { label: 'WAF path/IP rule', value: 'waf' },
+                { label: 'فایروال / قانون سفارشی', value: 'firewall' },
+                { label: 'قانون مسیر/IP در WAF', value: 'waf' },
               ],
             },
             { name: 'description', type: 'text', label: 'نام/توضیح' },
-            { name: 'expression', type: 'textarea', label: 'Expression', required: true },
+            { name: 'expression', type: 'textarea', label: 'عبارت (Expression)', required: true },
             {
               name: 'action',
               type: 'select',
@@ -778,6 +778,6 @@ export const CdnZones: CollectionConfig<'cdn-zones'> = {
   hooks: {
     beforeChange: [encryptCdnCredentials, stampCdnOriginOverride, uniqueCdnProviderZone],
   },
-  labels: { singular: 'zone CDN', plural: 'zoneهای CDN' },
+  labels: { singular: 'ناحیهٔ CDN', plural: 'ناحیه‌های CDN' },
   timestamps: true,
 }

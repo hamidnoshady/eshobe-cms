@@ -750,36 +750,36 @@ export const DeploymentPanel: React.FC<DeploymentPanelProps> = ({
           <div className="theme-lanes">
             {[productionRow, previewRow].map((row) =>
               row?.runtime ? (
-                <dl className="theme-facts" dir="ltr" key={row.id}>
-                  <dt>Lane</dt>
+                <dl className="theme-facts" key={row.id}>
+                  <dt>مسیر (Lane)</dt>
                   <dd>{laneOf(row)}</dd>
-                  <dt>Deployment</dt>
+                  <dt>استقرار</dt>
                   <dd>
                     <code>{row.id}</code>
                   </dd>
-                  <dt>Server</dt>
+                  <dt>سرور</dt>
                   <dd>{row.targetName ?? '—'}</dd>
-                  <dt>Application</dt>
+                  <dt>اپلیکیشن</dt>
                   <dd>
                     <code>{row.runtime.appName ?? '—'}</code>
                   </dd>
-                  <dt>App UUID</dt>
+                  <dt>شناسهٔ اپ</dt>
                   <dd>
                     <code>{row.runtime.appUuid ?? '—'}</code>
                   </dd>
-                  <dt>Hostname</dt>
+                  <dt>نام میزبان</dt>
                   <dd>
                     <code>{row.runtime.applicationHostname ?? '—'}</code>
                   </dd>
-                  <dt>Project</dt>
+                  <dt>پروژه</dt>
                   <dd>
                     <code>{row.runtime.coolifyProjectUuid ?? '—'}</code>
                   </dd>
-                  <dt>Environment</dt>
+                  <dt>محیط</dt>
                   <dd>
                     <code>{row.runtime.environmentName ?? '—'}</code>
                   </dd>
-                  <dt>Binding</dt>
+                  <dt>اتصال (Binding)</dt>
                   <dd>
                     <code>{row.themeBinding ?? '—'}</code> ({row.runtime.bindingState ?? '—'})
                   </dd>

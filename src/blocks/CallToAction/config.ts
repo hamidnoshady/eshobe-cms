@@ -37,7 +37,7 @@ export const CallToAction: Block = {
     }),
   ],
   labels: {
-    plural: 'Calls to Action',
-    singular: 'Call to Action',
+    plural: 'دعوت به اقدام‌ها',
+    singular: 'دعوت به اقدام',
   },
 }

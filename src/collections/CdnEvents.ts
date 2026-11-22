@@ -28,7 +28,7 @@ export const CdnEvents: CollectionConfig<'cdn-events'> = {
       type: 'relationship',
       relationTo: 'cdn-zones',
       index: true,
-      label: 'zone CDN',
+      label: 'ناحیهٔ CDN',
       admin: {
         description: 'با حذف zone، رویداد برای گزارش تاریخی باقی می‌ماند و این ارتباط خالی می‌شود.',
       },

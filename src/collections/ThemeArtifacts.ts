@@ -58,8 +58,8 @@ export const ThemeArtifacts: CollectionConfig<'theme-artifacts'> = {
       required: true,
       options: [
         { label: 'GitHub Actions', value: 'github_actions' },
-        { label: 'Coolify build', value: 'coolify_build' },
-        { label: 'Manual registry', value: 'manual_registry' },
+        { label: 'بیلد Coolify', value: 'coolify_build' },
+        { label: 'رجیستری دستی', value: 'manual_registry' },
       ],
     },
     { name: 'repository', type: 'text', required: true },

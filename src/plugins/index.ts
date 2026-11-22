@@ -29,6 +29,7 @@ import {
   stripPublicFormHoneypot,
   verifyPublicFormChallenge,
 } from '@/lib/form-submission-rate-limit'
+import { faAdminLabels } from './faAdminLabels'
 import { jalaliDates } from './jalaliDates'
 import { mcp } from './mcp'
 import { publicReadLimits } from '@/lib/public-read-limits'
@@ -451,6 +452,12 @@ export const plugins: Plugin[] = [
   // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
   // tenant-scoped collection already exists in config.
   mcp,
+  // Persian for the labels a plugin hardcodes (MCP capability checkboxes, the
+  // nested-docs breadcrumbs field) — see the module. It touches only those two
+  // plugin-injected surfaces, never a collection's own labels, and last of the
+  // label-shaping plugins so it sees what they add; a Payload or plugin upgrade
+  // cannot revert it the way editing `node_modules` would.
+  faAdminLabels,
   // These final plugins must see fields/collections/hooks every plugin above adds,
   // including the MCP key collection. Public reads remain capped; tenant-owned upload
   // fields then receive one reusable picker plus a server-side same-site relation guard.
