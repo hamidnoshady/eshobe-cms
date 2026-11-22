@@ -32,6 +32,10 @@ export const PLATFORM_EVENTS = {
   'quota.exceeded': 'عبور از سقف',
   'apikey.issued': 'کلید API صادر شد',
   'apikey.revoked': 'کلید API باطل شد',
+  // Written by `src/plugins/mcpAudit.ts` when a change arrives over `/api/mcp`.
+  // One event for both create and update: a receiver that wants to invalidate a
+  // cache cares that the row changed, and the audit row itself carries which.
+  'mcp.contentChanged': 'محتوا از طریق MCP تغییر کرد',
   'plugin.changed': 'افزونه تغییر کرد',
   'theme.published': 'پوستهٔ نصب‌شدنی منتشر شد',
   'theme.artifact.ready': 'آرتیفکت پوسته آماده شد',

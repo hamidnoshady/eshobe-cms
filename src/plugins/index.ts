@@ -32,6 +32,7 @@ import {
 import { faAdminLabels } from './faAdminLabels'
 import { jalaliDates } from './jalaliDates'
 import { mcp } from './mcp'
+import { mcpAudit } from './mcpAudit'
 import { publicReadLimits } from '@/lib/public-read-limits'
 import { tenantMediaPicker } from '@/plugins/tenant-media-picker'
 import { siteKeyTenantAssignment } from '@/plugins/site-key-tenant-assignment'
@@ -452,6 +453,9 @@ export const plugins: Plugin[] = [
   // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
   // tenant-scoped collection already exists in config.
   mcp,
+  // Audits every write that arrives over `/api/mcp` into `audit-log`, keyed on the
+  // MCP key rather than the user behind it. After `mcp` so the key collection exists.
+  mcpAudit,
   // Persian for the labels a plugin hardcodes (MCP capability checkboxes, the
   // nested-docs breadcrumbs field) — see the module. It touches only those two
   // plugin-injected surfaces, never a collection's own labels, and last of the

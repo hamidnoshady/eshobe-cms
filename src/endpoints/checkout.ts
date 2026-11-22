@@ -337,7 +337,18 @@ export const startCheckout: Endpoint['handler'] = async (req) => {
 
   // Honeypot: a field no human sees, so a dumb bot fills it. Answer as if it worked
   // and write nothing — reporting a failure is how a scraper learns to drop the field.
+  //
+  // The answer is a deliberate white lie, so it must leave a trace. A real checkout
+  // form that autofills its own "company" field is indistinguishable from a bot, and
+  // on 2026-11-22 exactly that lost a café a table order: the buyer was told
+  // «ثبت شد.» and nothing was written, with no log line anywhere to explain it. The
+  // value is never logged (it is the buyer's company); the host and whether the
+  // request looked like a cart are enough to tell support what happened.
   if (typeof data.company === 'string' && data.company.trim()) {
+    req.payload.logger.warn(
+      { hasItems: Array.isArray(data.items), host: req.headers?.get?.('host') ?? null },
+      'checkout: honeypot field was filled; answering success without creating an order',
+    )
     return Response.json({ message: 'ثبت شد.', ok: true })
   }
 

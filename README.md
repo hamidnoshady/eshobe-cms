@@ -39,6 +39,25 @@ openssl rand -base64 48
 A production process refuses to start on a placeholder or short secret — see
 [`WAVE-6.md`](./WAVE-6.md).
 
+## MCP over HTTP
+
+The CMS exposes a **Streamable HTTP MCP server** at `POST /api/mcp` on the
+control-plane host, so ChatGPT-style assistants, Claude Code and Bizamiz AI can use a
+site's content tools under a per-user API key. It is built on the official
+`@payloadcms/plugin-mcp`; this repository adds a capability matrix, three read-only
+discovery tools, key expiry, a per-key rate limit and an audit trail.
+
+- No delete tool exists, for any key, on any collection.
+- Sensitive collections (users, sites, credentials, billing, orders, deployments) are
+  not MCP resources at all.
+- Every tool runs with `overrideAccess: false`, so Payload access control and the
+  multi-tenant site scope decide, exactly as they do in the admin panel.
+- Mint a key at **یکپارچه‌سازی → کلیدهای MCP**; every capability starts off.
+
+Endpoint, credential lifecycle, tool list, client configurations (ChatGPT, Claude
+Code, Claude Desktop, Codex), troubleshooting and the Bizamiz contract are in
+[`docs/mcp.md`](./docs/mcp.md).
+
 For multi-domain dev, Windows needs hosts entries — `*.localhost` does not
 resolve on its own. Run once, as administrator:
 
