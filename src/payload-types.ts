@@ -2416,7 +2416,7 @@ export interface ProductGridBlock {
   mode?: ('catalog' | 'cafe') | null;
   populateBy?: ('collection' | 'selection') | null;
   /**
-   * تازه‌ترین‌ها اول.
+   * در فهرست معمول تازه‌ترین‌ها اول؛ در منوی کافه به ترتیب دسته و ترتیب مبدأ منو.
    */
   limit?: number | null;
   /**
@@ -5070,6 +5070,7 @@ export interface Webhook {
     | 'quota.exceeded'
     | 'apikey.issued'
     | 'apikey.revoked'
+    | 'mcp.contentChanged'
     | 'plugin.changed'
     | 'theme.published'
     | 'theme.artifact.ready'
@@ -5137,6 +5138,7 @@ export interface WebhookDelivery {
     | 'quota.exceeded'
     | 'apikey.issued'
     | 'apikey.revoked'
+    | 'mcp.contentChanged'
     | 'plugin.changed'
     | 'theme.published'
     | 'theme.artifact.ready'
@@ -5207,6 +5209,7 @@ export interface AuditLog {
     | 'quota.exceeded'
     | 'apikey.issued'
     | 'apikey.revoked'
+    | 'mcp.contentChanged'
     | 'plugin.changed'
     | 'theme.published'
     | 'theme.artifact.ready'
@@ -5460,6 +5463,24 @@ export interface PayloadMcpApiKey {
      */
     update?: boolean | null;
   };
+  'payload-mcp-tool'?: {
+    /**
+     * Describe what this CMS exposes over MCP: the collections, the operations enabled on them, the exact tool names to call, the enabled languages and the tools granted to the current key. Call this before guessing a tool name or a field.
+     */
+    cmsDescribeCapabilities?: boolean | null;
+    /**
+     * Read the site this MCP key belongs to: name, primary domain, site type, lifecycle status and the languages it serves. Use it to confirm which site you are editing before writing content.
+     */
+    cmsSiteContext?: boolean | null;
+    /**
+     * List the publishing state of a content collection: title, slug, draft or published, publication date and whether a publication is scheduled for the future. Use it to answer "what is live", "what is still a draft" and "what goes out later" without reading every document.
+     */
+    cmsContentStatus?: boolean | null;
+  };
+  /**
+   * پس از این لحظه، هر درخواستی با این کلید با ۴۰۱ رد می‌شود. خالی یعنی بدون انقضا.
+   */
+  expiresAt?: string | null;
   updatedAt: string;
   createdAt: string;
   enableAPIKey?: boolean | null;
@@ -8699,6 +8720,14 @@ export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
         create?: T;
         update?: T;
       };
+  'payload-mcp-tool'?:
+    | T
+    | {
+        cmsDescribeCapabilities?: T;
+        cmsSiteContext?: T;
+        cmsContentStatus?: T;
+      };
+  expiresAt?: T;
   updatedAt?: T;
   createdAt?: T;
   enableAPIKey?: T;
