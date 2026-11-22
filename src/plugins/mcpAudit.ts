@@ -44,7 +44,10 @@ const AUDITED_EVENT = 'mcp.contentChanged' as const
  */
 const auditedSlugs = new Set(
   (Object.entries(MCP_COLLECTION_CAPABILITIES) as Array<[string, McpCapability]>)
-    .filter(([, capability]) => capability.create === true || capability.update === true)
+    .filter(
+      ([, capability]) =>
+        capability.create === true || capability.update === true || capability.delete === true,
+    )
     .map(([slug]) => slug),
 )
 

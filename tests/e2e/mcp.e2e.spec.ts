@@ -146,7 +146,10 @@ test.describe.serial('MCP over Streamable HTTP', () => {
     // goes through the collection's access, not through a tool-level site check.
     apiKey = await createKey(acme, {
       categories: { create: true, find: true, update: true },
+      orders: { find: true },
       pages: { find: true },
+      sites: { find: true },
+      theme: { find: true },
       'payload-mcp-tool': {
         cmsContentStatus: true,
         cmsDescribeCapabilities: true,
@@ -165,23 +168,28 @@ test.describe.serial('MCP over Streamable HTTP', () => {
         'findCategories',
         'createCategories',
         'updateCategories',
+        'findOrders',
+        'findSites',
+        'findTheme',
         'cms_describe_capabilities',
         'cms_content_status',
         'cms_site_context',
       ]),
     )
 
-    // Nothing destructive, nothing sensitive, nothing ungranted.
+    // Nothing destructive, nothing platform-wide, nothing ungranted.
     for (const forbidden of [
       'deletePages',
       'deleteCategories',
       'createPages',
       'updatePages',
       'findUsers',
-      'findSites',
       'findPaymentGateways',
       'findApiKeys',
       'findAuditLog',
+      'updateSites',
+      'updateOrders',
+      'deleteOrders',
     ]) {
       expect(names, `${forbidden} must not be registered`).not.toContain(forbidden)
     }
@@ -303,6 +311,61 @@ test.describe.serial('MCP over Streamable HTTP', () => {
     expect(String(mutation.actorEmail)).toMatch(/^mcp:/)
     expect(mutation.targetCollection).toBe('categories')
     expect(mutation.actorEmail).not.toContain('acme@eshobe.test')
+  })
+
+  test('delete is a per-key grant, not a blanket capability', async () => {
+    // The first key was minted without `categories.delete`, so the tool is absent
+    // from its catalogue even though the deployment supports the operation.
+    const withoutDelete = (await client.listTools()).tools.map((tool) => tool.name)
+    expect(withoutDelete).not.toContain('deleteCategories')
+
+    const deletingKey = await createKey(acme, {
+      categories: { create: true, delete: true, find: true },
+      'payload-mcp-tool': { cmsDescribeCapabilities: true },
+    })
+    const deleting = await connect(deletingKey)
+
+    try {
+      expect((await deleting.listTools()).tools.map((tool) => tool.name)).toContain('deleteCategories')
+
+      const created = await deleting.callTool({
+        arguments: {
+          site: acmeSiteId,
+          slug: `mcp-delete-${Date.now()}`,
+          title: `حذف ${Date.now()}`,
+        },
+        name: 'createCategories',
+      })
+      const createdText = textOf(created)
+      const createdDoc = JSON.parse(
+        createdText.slice(createdText.indexOf('{'), createdText.lastIndexOf('}') + 1),
+      ) as { id: string }
+
+      const removed = await deleting.callTool({
+        arguments: { id: createdDoc.id },
+        name: 'deleteCategories',
+      })
+      expect(textOf(removed)).toContain('Document deleted successfully')
+
+      const gone = await deleting.callTool({
+        arguments: { id: createdDoc.id },
+        name: 'findCategories',
+      })
+      expect(textOf(gone)).toContain('not found')
+
+      // The deletion is audited like any other MCP mutation.
+      const audit = await (
+        await admin.get(`/api/audit-log?limit=20&where[targetId][equals]=${createdDoc.id}`)
+      ).json()
+      expect(
+        audit.docs.some(
+          (doc: { action: string; targetCollection: string }) =>
+            doc.action === 'mcp.contentChanged' && doc.targetCollection === 'categories',
+        ),
+      ).toBe(true)
+    } finally {
+      await deleting.close()
+    }
   })
 
   test('describes this key’s grants, not the whole deployment', async () => {

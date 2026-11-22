@@ -50,7 +50,7 @@ const keySettings = (overrides: Record<string, unknown> = {}) =>
   }) as unknown as MCPAccessSettings
 
 describe('MCP capability matrix', () => {
-  it('describes exactly the allowlisted collections and never a delete', () => {
+  it('describes exactly the allowlisted collections, with a non-empty operation set', () => {
     const surface = describeMcpSurface()
 
     expect(surface.collections.map((entry) => entry.collection)).toEqual([...MCP_COLLECTION_SLUGS])
@@ -58,8 +58,14 @@ describe('MCP capability matrix', () => {
     expect(surface.tools).toEqual([...MCP_CUSTOM_TOOL_NAMES])
 
     for (const entry of surface.collections) {
-      expect(entry.operations).not.toContain('delete')
-      expect(entry.operations.length).toBeGreaterThan(0)
+      expect(entry.operations.length, entry.collection).toBeGreaterThan(0)
+    }
+
+    // Delete exists only as an opt-in capability on content rows; the collections
+    // where losing the row is not "losing content" must not offer it at all.
+    for (const slug of ['orders', 'sites', 'theme', 'store', 'forms', 'content-type-definitions']) {
+      const entry = surface.collections.find((candidate) => candidate.collection === slug)
+      expect(entry?.operations, slug).not.toContain('delete')
     }
   })
 
@@ -67,11 +73,14 @@ describe('MCP capability matrix', () => {
     expect(Object.keys(MCP_COLLECTION_CAPABILITIES).sort()).toEqual([...MCP_COLLECTION_SLUGS].sort())
   })
 
-  it('audits every collection a key can write', () => {
+  it('audits every collection a key can write or delete', () => {
     const writable = (
       Object.entries(MCP_COLLECTION_CAPABILITIES) as Array<[string, Record<string, boolean>]>
     )
-      .filter(([, capability]) => capability.create === true || capability.update === true)
+      .filter(
+        ([, capability]) =>
+          capability.create === true || capability.update === true || capability.delete === true,
+      )
       .map(([slug]) => slug)
       .sort()
 

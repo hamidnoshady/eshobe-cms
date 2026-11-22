@@ -92,12 +92,18 @@ client configuration in [`docs/mcp.md`](./docs/mcp.md). The rules that are easy 
 - **`src/mcp/capabilities.ts` is the one surface.** The plugin config, the discovery tool
   and the tests read it; adding a collection in one place and not the others is how a
   tool appears in a list and then fails to register.
-- **No delete tool, ever.** `delete` is not in the matrix and must not be added "for an
-  admin key": a compromised long-lived credential that can destroy content is the one
-  failure this surface cannot undo.
-- **Sensitive collections are absent, not unticked** — users, sites, api-keys,
-  credentials, billing, orders, form-submissions, webhooks, audit-log, deployments. A
-  checkbox is not a boundary.
+- **The surface is the tenant's whole site, and never the platform.** Content, navigation,
+  commerce (read-only orders), design tokens, custom content and the site record are in;
+  staff accounts, credentials, billing, submissions, webhooks, audit and deployments are
+  not. Delete is a per-key *opt-in* for content rows (checkbox default off) and is absent
+  for `orders`, `sites`, the singletons, `forms` and the two definition collections; never
+  add it "for an admin key".
+- **A missing delete tool means withheld, not broken.** The plugin registers tools from
+  the key's grants; do not add a fallback path that deletes through another tool.
+- **Sensitive collections are absent, not unticked** — users, api-keys, credentials,
+  billing, form-submissions, webhooks, audit-log, deployments, `site-theme-settings`
+  (secret answers). A checkbox is not a boundary. A platform admin's key gains no extra
+  reach: the matrix is the same for every key.
 - **Every tool must pass `overrideAccess: false` and `req`.** The key resolves to a real
   user; the multi-tenant plugin then scopes the read/write. A tool that calls `payload`
   without them reads across tenants, and the int suite will still be green.

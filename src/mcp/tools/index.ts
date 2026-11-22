@@ -82,9 +82,10 @@ const describeCapabilities: ToolDefinition = {
             ) ?? [],
         },
         notes: [
-          'No delete tool is registered. Removing content is an editor decision, not an assistant one.',
+          'Delete tools exist only where this key was explicitly granted deletion; a missing one means deletion was withheld.',
           'Updates go through the same validation, hooks, quota checks and publish permission as the admin panel. A refused write is a business rule, not a bug.',
           'Every query is scoped to the site the key belongs to. There is no parameter that selects another site.',
+          'Orders and the site record are read-only; platform administration, credentials and staff accounts are unreachable.',
         ],
         tools: key ? (grantedCustomTools(key) ?? []) : surface.tools,
         version: 1,
