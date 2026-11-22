@@ -260,6 +260,20 @@ through a buffer just to fix a header is a poor trade.
 
 Never attach `ESHOBE_API_KEY` to visitor traffic, and never forward their cookies.
 
+### 3.2 Never render a `company` field
+
+The CMS's anti-bot honeypot is a field named **`company`**. A non-empty value gets a
+deliberate white lie — `200 {"ok":true,"message":"ثبت شد."}` — and **no order is
+written**. That is correct for a bot and catastrophic for a buyer: phone browsers
+and password managers autofill a form's "company" from the user's own details, so a
+real customer's submission looks automated and is silently dropped.
+
+A visible checkout form must not have that field at all (the platform still
+rate-limits and honeypots direct posters). And a `200` with **no receipt URL** is
+not a success: keep the form open and show a failure, because that is exactly what
+a honeypot drop returns. On 2026-11-22 this cost a café a table order whose buyer
+was told «ثبت شد.» — the CMS now logs the drop as a warning.
+
 ---
 
 ## 4. Dine-in, table QRs and the token
@@ -445,6 +459,7 @@ the first two:
 | The menu page renders an empty menu | home is bound to a page with no `productGrid` block, or the site is not `store` | add the block in `cafe` mode; check `site.type` |
 | Every table QR 404s | the theme serves `/` only; the POS prints `/menu` | serve the menu at `/menu` too |
 | Checkout always `400 unknown host` | the write proxy used `fetch` with a `Host` header | send writes with `node:http` (§3.1) |
+| The sheet says «ثبت شد.» and no order exists | the form had a `company` field, a phone autofilled it, and the CMS honeypot answered success without writing | remove the field and treat a `200` without a receipt URL as a failure (§3.2); check the CMS log for `honeypot field was filled` |
 | Cart totals print raw numbers | the money helper 404s (missing from the Dockerfile) or was never loaded | ship it, load it before the cart script, unit-test it against `@eshobe/site-runtime` |
 | New HTML, old behaviour after a deploy | static assets unversioned and cached for an hour | `?v=<content hash>` |
 | Receipt page `503` / "not configured" | `ESHOBE_RECEIPT_SECRET` unset on the site | set it in «تنظیمات پوسته» and redeploy |
