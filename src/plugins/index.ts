@@ -31,6 +31,7 @@ import {
 } from '@/lib/form-submission-rate-limit'
 import { jalaliDates } from './jalaliDates'
 import { mcp } from './mcp'
+import { mcpAudit } from './mcpAudit'
 import { publicReadLimits } from '@/lib/public-read-limits'
 import { tenantMediaPicker } from '@/plugins/tenant-media-picker'
 import { siteKeyTenantAssignment } from '@/plugins/site-key-tenant-assignment'
@@ -451,6 +452,9 @@ export const plugins: Plugin[] = [
   // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
   // tenant-scoped collection already exists in config.
   mcp,
+  // Audits every write that arrives over `/api/mcp` into `audit-log`, keyed on the
+  // MCP key rather than the user behind it. After `mcp` so the key collection exists.
+  mcpAudit,
   // These final plugins must see fields/collections/hooks every plugin above adds,
   // including the MCP key collection. Public reads remain capped; tenant-owned upload
   // fields then receive one reusable picker plus a server-side same-site relation guard.
