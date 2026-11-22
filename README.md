@@ -47,9 +47,12 @@ site's content tools under a per-user API key. It is built on the official
 `@payloadcms/plugin-mcp`; this repository adds a capability matrix, three read-only
 discovery tools, key expiry, a per-key rate limit and an audit trail.
 
-- No delete tool exists, for any key, on any collection.
-- Sensitive collections (users, sites, credentials, billing, orders, deployments) are
-  not MCP resources at all.
+- A tenant's key can manage its **whole site** — content, navigation, commerce reads,
+  design tokens, custom content — under the same access rules as the admin panel.
+- Delete is opt-in per key for content rows and absent where losing the row is not
+  losing content (orders, the site record, singletons, form definitions).
+- Sensitive platform collections (users, sites administration, credentials, billing,
+  deployments) are not MCP resources at all.
 - Every tool runs with `overrideAccess: false`, so Payload access control and the
   multi-tenant site scope decide, exactly as they do in the admin panel.
 - Mint a key at **یکپارچه‌سازی → کلیدهای MCP**; every capability starts off.

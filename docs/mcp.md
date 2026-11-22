@@ -119,50 +119,95 @@ Defined once in `src/mcp/capabilities.ts` and pinned by
 
 | Collection | find | create | update | delete |
 | --- | --- | --- | --- | --- |
-| `pages` | ✓ | ✓ | ✓ | — |
-| `posts` | ✓ | ✓ | ✓ | — |
-| `media` | ✓ | — | ✓ | — |
-| `categories` | ✓ | ✓ | ✓ | — |
-| `products` | ✓ | ✓ | ✓ | — |
+| `pages` | ✓ | ✓ | ✓ | opt-in |
+| `posts` | ✓ | ✓ | ✓ | opt-in |
+| `media` | ✓ | — | ✓ | opt-in |
+| `categories` | ✓ | ✓ | ✓ | opt-in |
+| `menus` | ✓ | ✓ | ✓ | opt-in |
+| `comments` | ✓ | — | ✓ | opt-in |
+| `products` | ✓ | ✓ | ✓ | opt-in |
+| `store` | ✓ | — | ✓ | — |
+| `orders` | ✓ | — | — | — |
+| `theme` | ✓ | — | ✓ | — |
 | `site-branding` | ✓ | — | ✓ | — |
 | `header` | ✓ | — | ✓ | — |
 | `footer` | ✓ | — | ✓ | — |
-| `store` | ✓ | — | ✓ | — |
-| `forms` | ✓ | — | ✓ | — |
-| `payload-folders` | ✓ | ✓ | ✓ | — |
+| `content-type-definitions` | ✓ | ✓ | ✓ | — |
+| `content-entries` | ✓ | ✓ | ✓ | opt-in |
+| `taxonomy-definitions` | ✓ | ✓ | ✓ | — |
+| `taxonomy-terms` | ✓ | ✓ | ✓ | opt-in |
+| `entry-term-relations` | ✓ | ✓ | — | opt-in |
+| `content-relations` | ✓ | ✓ | — | opt-in |
+| `forms` | ✓ | ✓ | ✓ | — |
+| `payload-folders` | ✓ | ✓ | ✓ | opt-in |
+| `sites` | ✓ | — | — | — |
 
-**No delete operation exists anywhere**, for any key, on any collection. It is not a
-permission a caller can grant; the tool is never registered. That also means a
-compromised key cannot destroy content, which is the one failure this surface cannot
-undo.
+That is the whole site an editor owns: content, navigation and comments, custom
+content and taxonomies, design tokens, commerce reads and the site record. It is the
+same set the admin panel shows a tenant member, minus everything that administers the
+platform.
 
-Deliberately absent, as collections and as tools: `users`, `sites`, `api-keys`,
-`storage-connections`, `payment-gateways`, billing credentials and ledgers, `orders`,
-`form-submissions`, `webhook*`, `audit-log`, `site-theme-settings`, `site-deployments`,
-`theme-*`, `deploy-targets`, `plans`, `feature-flags`, and every other platform-wide
-row. They cannot be enabled by ticking a box because they are not in the matrix at
-all.
+### Delete is opt-in, per key
+
+`opt-in` means the capability exists but **no key has it until somebody ticks the
+delete box for that collection while minting the key** — the plugin's checkboxes
+default to off, so a key minted with the usual "find/create/update" reuses nothing.
+A key without the grant never sees the tool: it is not registered, so calling
+`deletePages` answers "tool not found" rather than "forbidden".
+
+Delete is deliberately absent where losing the row is not losing content:
+
+- `orders` — a sale is evidence, and the checkout/payment paths own its lifecycle;
+- `sites` — the tenant's own identity, read-only here;
+- `theme`, `site-branding`, `header`, `footer`, `store` — singletons whose "delete"
+  means the site stops rendering;
+- `forms` — its submissions outlive the definition and are not an MCP resource;
+- `content-type-definitions`, `taxonomy-definitions` — deleting a definition cascades
+  through every entry and term of that type.
+
+Deliberately absent, as collections and as tools: `users` (staff accounts and roles —
+an assistant must not be able to mint an owner), `api-keys`, `storage-connections`,
+`payment-gateways`, billing credentials and ledgers, `form-submissions`, `webhook*`,
+`audit-log`, `site-theme-settings` (secret answers), `site-deployments`, `theme-*`,
+`deploy-targets`, `plans`, `feature-flags`, and every other platform-wide row. They
+cannot be enabled by ticking a box because they are not in the matrix at all.
+
+**A platform admin's key gains no extra reach here.** The matrix is the same for every
+key, and the collections above are the only ones registered.
 
 ### Generated tool names
 
 The plugin names tools `<operation><Collection>`:
 
 ```
-findPages        createPages        updatePages
-findPosts        createPosts        updatePosts
-findMedia        updateMedia
-findCategories   createCategories   updateCategories
-findProducts     createProducts     updateProducts
+findPages        createPages        updatePages        deletePages
+findPosts        createPosts        updatePosts        deletePosts
+findMedia        updateMedia        deleteMedia
+findCategories   createCategories   updateCategories   deleteCategories
+findMenus        createMenus        updateMenus        deleteMenus
+findComments     updateComments     deleteComments
+findProducts     createProducts     updateProducts     deleteProducts
+findStore        updateStore
+findOrders
+findTheme        updateTheme
 findSiteBranding updateSiteBranding
 findHeader       updateHeader
 findFooter       updateFooter
-findStore        updateStore
-findForms        updateForms
-findPayloadFolders createPayloadFolders updatePayloadFolders
+findContentTypeDefinitions createContentTypeDefinitions updateContentTypeDefinitions
+findContentEntries createContentEntries updateContentEntries deleteContentEntries
+findTaxonomyDefinitions createTaxonomyDefinitions updateTaxonomyDefinitions
+findTaxonomyTerms createTaxonomyTerms updateTaxonomyTerms deleteTaxonomyTerms
+findEntryTermRelations createEntryTermRelations deleteEntryTermRelations
+findContentRelations createContentRelations deleteContentRelations
+findForms        createForms        updateForms
+findPayloadFolders createPayloadFolders updatePayloadFolders deletePayloadFolders
+findSites
 ```
 
-Each tool's input schema is generated from the collection config, so it is the
-authoritative field list — including localized fields, relationships and blocks.
+Each is registered only when the key holds that operation, so the list above is the
+deployment's maximum, not any one key's catalogue. Input schemas are generated from
+the collection config, so they are the authoritative field list — including localized
+fields, relationships and blocks.
 
 ### Custom tools (read-only)
 

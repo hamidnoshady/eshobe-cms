@@ -5324,7 +5324,7 @@ export interface PayloadMcpApiKey {
   /**
    * The user that the API key is associated with.
    */
-  user: string | User;
+  user?: (string | null) | User;
   /**
    * A useful label for the API key.
    */
@@ -5346,6 +5346,10 @@ export interface PayloadMcpApiKey {
      * Allow clients to update pages.
      */
     update?: boolean | null;
+    /**
+     * Allow clients to delete pages.
+     */
+    delete?: boolean | null;
   };
   posts?: {
     /**
@@ -5360,6 +5364,10 @@ export interface PayloadMcpApiKey {
      * Allow clients to update posts.
      */
     update?: boolean | null;
+    /**
+     * Allow clients to delete posts.
+     */
+    delete?: boolean | null;
   };
   media?: {
     /**
@@ -5370,6 +5378,10 @@ export interface PayloadMcpApiKey {
      * Allow clients to update media.
      */
     update?: boolean | null;
+    /**
+     * Allow clients to delete media.
+     */
+    delete?: boolean | null;
   };
   categories?: {
     /**
@@ -5382,6 +5394,86 @@ export interface PayloadMcpApiKey {
     create?: boolean | null;
     /**
      * Allow clients to update categories.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete categories.
+     */
+    delete?: boolean | null;
+  };
+  menus?: {
+    /**
+     * Allow clients to find menus.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create menus.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update menus.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete menus.
+     */
+    delete?: boolean | null;
+  };
+  comments?: {
+    /**
+     * Allow clients to find comments.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update comments.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete comments.
+     */
+    delete?: boolean | null;
+  };
+  products?: {
+    /**
+     * Allow clients to find products.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create products.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update products.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete products.
+     */
+    delete?: boolean | null;
+  };
+  store?: {
+    /**
+     * Allow clients to find store.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update store.
+     */
+    update?: boolean | null;
+  };
+  orders?: {
+    /**
+     * Allow clients to find orders.
+     */
+    find?: boolean | null;
+  };
+  theme?: {
+    /**
+     * Allow clients to find theme.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to update theme.
      */
     update?: boolean | null;
   };
@@ -5415,35 +5507,107 @@ export interface PayloadMcpApiKey {
      */
     update?: boolean | null;
   };
-  products?: {
+  contentTypeDefinitions?: {
     /**
-     * Allow clients to find products.
+     * Allow clients to find content-type-definitions.
      */
     find?: boolean | null;
     /**
-     * Allow clients to create products.
+     * Allow clients to create content-type-definitions.
      */
     create?: boolean | null;
     /**
-     * Allow clients to update products.
+     * Allow clients to update content-type-definitions.
      */
     update?: boolean | null;
   };
-  store?: {
+  contentEntries?: {
     /**
-     * Allow clients to find store.
+     * Allow clients to find content-entries.
      */
     find?: boolean | null;
     /**
-     * Allow clients to update store.
+     * Allow clients to create content-entries.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update content-entries.
      */
     update?: boolean | null;
+    /**
+     * Allow clients to delete content-entries.
+     */
+    delete?: boolean | null;
+  };
+  taxonomyDefinitions?: {
+    /**
+     * Allow clients to find taxonomy-definitions.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create taxonomy-definitions.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update taxonomy-definitions.
+     */
+    update?: boolean | null;
+  };
+  taxonomyTerms?: {
+    /**
+     * Allow clients to find taxonomy-terms.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create taxonomy-terms.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to update taxonomy-terms.
+     */
+    update?: boolean | null;
+    /**
+     * Allow clients to delete taxonomy-terms.
+     */
+    delete?: boolean | null;
+  };
+  entryTermRelations?: {
+    /**
+     * Allow clients to find entry-term-relations.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create entry-term-relations.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to delete entry-term-relations.
+     */
+    delete?: boolean | null;
+  };
+  contentRelations?: {
+    /**
+     * Allow clients to find content-relations.
+     */
+    find?: boolean | null;
+    /**
+     * Allow clients to create content-relations.
+     */
+    create?: boolean | null;
+    /**
+     * Allow clients to delete content-relations.
+     */
+    delete?: boolean | null;
   };
   forms?: {
     /**
      * Allow clients to find forms.
      */
     find?: boolean | null;
+    /**
+     * Allow clients to create forms.
+     */
+    create?: boolean | null;
     /**
      * Allow clients to update forms.
      */
@@ -5462,6 +5626,16 @@ export interface PayloadMcpApiKey {
      * Allow clients to update payload-folders.
      */
     update?: boolean | null;
+    /**
+     * Allow clients to delete payload-folders.
+     */
+    delete?: boolean | null;
+  };
+  sites?: {
+    /**
+     * Allow clients to find sites.
+     */
+    find?: boolean | null;
   };
   'payload-mcp-tool'?: {
     /**
@@ -8655,6 +8829,7 @@ export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
         find?: T;
         create?: T;
         update?: T;
+        delete?: T;
       };
   posts?:
     | T
@@ -8662,18 +8837,61 @@ export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
         find?: T;
         create?: T;
         update?: T;
+        delete?: T;
       };
   media?:
     | T
     | {
         find?: T;
         update?: T;
+        delete?: T;
       };
   categories?:
     | T
     | {
         find?: T;
         create?: T;
+        update?: T;
+        delete?: T;
+      };
+  menus?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  comments?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+        delete?: T;
+      };
+  products?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  store?:
+    | T
+    | {
+        find?: T;
+        update?: T;
+      };
+  orders?:
+    | T
+    | {
+        find?: T;
+      };
+  theme?:
+    | T
+    | {
+        find?: T;
         update?: T;
       };
   siteBranding?:
@@ -8694,23 +8912,55 @@ export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
         find?: T;
         update?: T;
       };
-  products?:
+  contentTypeDefinitions?:
     | T
     | {
         find?: T;
         create?: T;
         update?: T;
       };
-  store?:
+  contentEntries?:
     | T
     | {
         find?: T;
+        create?: T;
         update?: T;
+        delete?: T;
+      };
+  taxonomyDefinitions?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+      };
+  taxonomyTerms?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        update?: T;
+        delete?: T;
+      };
+  entryTermRelations?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        delete?: T;
+      };
+  contentRelations?:
+    | T
+    | {
+        find?: T;
+        create?: T;
+        delete?: T;
       };
   forms?:
     | T
     | {
         find?: T;
+        create?: T;
         update?: T;
       };
   payloadFolders?:
@@ -8719,6 +8969,12 @@ export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
         find?: T;
         create?: T;
         update?: T;
+        delete?: T;
+      };
+  sites?:
+    | T
+    | {
+        find?: T;
       };
   'payload-mcp-tool'?:
     | T

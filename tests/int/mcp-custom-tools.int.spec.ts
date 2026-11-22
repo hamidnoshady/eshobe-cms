@@ -63,10 +63,19 @@ describe('cms_describe_capabilities', () => {
     expect(data.tools).toContain('cms_describe_capabilities')
 
     const pages = data.collections.find((entry) => entry.collection === 'pages')
-    expect(pages?.toolNames).toEqual(['findPages', 'createPages', 'updatePages'])
+    // Delete is in the surface as an opt-in capability; whether a key holds it is
+    // decided per key, which is what the next test covers.
+    expect(pages?.toolNames).toEqual(['findPages', 'createPages', 'updatePages', 'deletePages'])
 
     // Never advertised, never callable.
-    for (const forbidden of ['users', 'api-keys', 'payment-gateways', 'audit-log']) {
+    for (const forbidden of [
+      'users',
+      'api-keys',
+      'payment-gateways',
+      'audit-log',
+      'site-theme-settings',
+      'form-submissions',
+    ]) {
       expect(data.collections.map((entry) => entry.collection)).not.toContain(forbidden)
     }
   })
