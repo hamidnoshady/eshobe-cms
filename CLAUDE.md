@@ -84,6 +84,49 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 - **`/admin/*` sends `frame-ancestors 'self' $ADMIN_EMBED_ORIGINS`.** Adding a second place that frames the admin means extending that list, not removing the header.
 - The marker cookie only changes chrome. Do not read it in an access function.
 
+## MCP (`/api/mcp`)
+
+Inbound Streamable HTTP MCP server on `@payloadcms/plugin-mcp`; contract, tool list and
+client configuration in [`docs/mcp.md`](./docs/mcp.md). The rules that are easy to break:
+
+- **`src/mcp/capabilities.ts` is the one surface.** The plugin config, the discovery tool
+  and the tests read it; adding a collection in one place and not the others is how a
+  tool appears in a list and then fails to register.
+- **No delete tool, ever.** `delete` is not in the matrix and must not be added "for an
+  admin key": a compromised long-lived credential that can destroy content is the one
+  failure this surface cannot undo.
+- **Sensitive collections are absent, not unticked** — users, sites, api-keys,
+  credentials, billing, orders, form-submissions, webhooks, audit-log, deployments. A
+  checkbox is not a boundary.
+- **Every tool must pass `overrideAccess: false` and `req`.** The key resolves to a real
+  user; the multi-tenant plugin then scopes the read/write. A tool that calls `payload`
+  without them reads across tenants, and the int suite will still be green.
+- **A create needs `site`, taken from `cms_site_context`.** A create has no document to
+  read the tenant from; the multi-tenant plugin refuses a site the key's user is not in.
+- **Custom tools stay read-only.** The plugin's key form gives a custom tool a checkbox
+  that defaults to *enabled*, so a mutating custom tool would be granted to every key
+  ever minted. Publishing goes through `updatePages`, where `writeUnlessPublishing()` is
+  the authority.
+- **`expiresAt` is enforced in `overrideAuth`, not in the UI.** Blank means no expiry, so
+  pre-existing keys keep working. `overrideAuth` also applies the per-key rate limit and
+  the body cap, and puts a capability **allowlist** on `req.context` — never the key
+  document, which carries the owner and `apiKeyIndex`.
+- The rate counters are in process memory: two replicas allow twice the configured
+  figure. Say so; do not add a shared store just for this.
+- **`/api/mcp` is deliberately not carved out on customer domains.** `/api/*` 404s there
+  by design; MCP lives on the control-plane host.
+- **MCP writes are audited by `src/plugins/mcpAudit.ts`, keyed on `req.payloadAPI`,
+  writing `mcp.contentChanged`.** That event name is in the shared vocabulary, so the
+  three event enums need a migration when it changes. The hook writes no body, no
+  header and no token — `sanitizeChanges` truncates and drops secret-named fields.
+- **A raw key is never returned by a read** (`apiKey` read access is `false`), so a client
+  mints one by sending the value it generated; the admin panel shows it once. Deleting
+  the row revokes it.
+- There is **no outbound MCP client in this repo**, and none is planned without a real
+  requirement: a client pointed at arbitrary URLs is an SSRF surface needing its own
+  allowlist and credential store. Bizamiz AI cannot call these tools until *its* repo
+  grows an outbound client — its docs say so explicitly.
+
 ## Payment gateways (Wave 10)
 
 ZarinPal, Digipay, Snapp!Pay, Torob Pay. Design decisions in `WAVE-10.md`, operator and headless documentation in `docs/payment-gateways.md`. The rules that are easy to break:
