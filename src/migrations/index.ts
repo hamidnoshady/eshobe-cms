@@ -43,6 +43,7 @@ import * as migration_20261121_120000_theme_settings_legacy from './20261121_120
 import * as migration_20261122_120000_mcp_key_expiry_and_audit_event from './20261122_120000_mcp_key_expiry_and_audit_event';
 import * as migration_20261122_160000_mcp_site_management from './20261122_160000_mcp_site_management';
 import * as migration_20261123_090000_cafe_fulfillment_reason from './20261123_090000_cafe_fulfillment_reason';
+import * as migration_20261123_180000_mcp_custom_tool_permissions from './20261123_180000_mcp_custom_tool_permissions';
 export const migrations = [
   {
     up: migration_20260826_215740_initial_schema.up,
@@ -268,5 +269,10 @@ export const migrations = [
     up: migration_20261123_090000_cafe_fulfillment_reason.up,
     down: migration_20261123_090000_cafe_fulfillment_reason.down,
     name: '20261123_090000_cafe_fulfillment_reason',
+  },,
+  {
+    up: migration_20261123_180000_mcp_custom_tool_permissions.up,
+    down: migration_20261123_180000_mcp_custom_tool_permissions.down,
+    name: '20261123_180000_mcp_custom_tool_permissions',
   },
 ];
