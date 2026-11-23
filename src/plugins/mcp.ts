@@ -1,5 +1,5 @@
 import { mcpPlugin } from '@payloadcms/plugin-mcp'
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, Plugin } from 'payload'
 
 import { mcpOverrideAuth } from '@/mcp/auth'
 import {
@@ -87,7 +87,7 @@ const INSTRUCTIONS = [
  * Deliberately no Caddy carve-out on customer domains. Credentials and capabilities
  * are enforced by this plugin plus collection access controls, not by a friendly UI.
  */
-export const mcp = mcpPlugin({
+const payloadMcp = mcpPlugin({
   collections: mcpCollectionCapabilities,
   globals: mcpGlobalCapabilities,
   mcp: {
@@ -153,3 +153,31 @@ export const mcp = mcpPlugin({
   },
   overrideAuth: mcpOverrideAuth,
 })
+
+/**
+ * Register the platform alias in the same plugin transformation as Payload MCP.
+ * Independent Payload plugins may receive the same base config, so a separate
+ * transformer cannot rely on another plugin's newly added endpoints.
+ */
+export const mcp: Plugin = Object.assign(
+  async (config: Parameters<Plugin>[0]) => {
+    const configured = await payloadMcp(config)
+    const endpoints = configured.endpoints ?? []
+    const mcpRoutes = endpoints.filter(
+      (endpoint) => endpoint.path === '/mcp' && ['get', 'post'].includes(endpoint.method),
+    )
+
+    if (!mcpRoutes.some((endpoint) => endpoint.method === 'post')) {
+      throw new Error('Platform MCP route could not find the Payload MCP POST handler.')
+    }
+    if (endpoints.some((endpoint) => endpoint.path === '/platform/mcp')) {
+      throw new Error('Platform MCP route already exists in Payload config.')
+    }
+
+    return {
+      ...configured,
+      endpoints: [...endpoints, ...mcpRoutes.map((endpoint) => ({ ...endpoint, path: '/platform/mcp' }))],
+    }
+  },
+  payloadMcp,
+)
