@@ -1,10 +1,16 @@
 import type { MCPAccessSettings, MCPPluginConfig } from '@payloadcms/plugin-mcp'
 import { APIError, type PayloadRequest } from 'payload'
 
+import { isPlatformAdmin } from '@/access/platformAdmin'
+import { requestApiKey } from '@/access/siteApiKey'
 import { MCP_COLLECTION_SLUGS } from '@/plugins/mcp-slugs'
 
-import { toCamelCase } from './capabilities'
-import { MCP_KEY_CONTEXT, type McpKeyContext } from './context'
+import { MCP_PLATFORM_TOOL_NAMES, toCamelCase } from './capabilities'
+import {
+  MCP_KEY_CONTEXT,
+  MCP_PLATFORM_KEY_CONTEXT,
+  type McpKeyContext,
+} from './context'
 import { assertBodyWithinLimit, consumeMcpRateLimit } from './limits'
 
 /**
@@ -64,14 +70,58 @@ const capabilitiesOf = (key: KeyDoc): Record<string, unknown> => {
   return capabilities
 }
 
+const isPlatformMcpPath = (req: PayloadRequest): boolean => {
+  try {
+    return new URL(req.url ?? '', 'http://localhost').pathname === '/api/platform/mcp'
+  } catch {
+    return false
+  }
+}
+
+const platformMcpSettings = (): MCPAccessSettings => ({
+  // The platform endpoint exposes custom handlers only. In particular it never
+  // grants generated CRUD tools, which would otherwise run as a platform admin and
+  // bypass the tenant plugin's site constraint.
+  user: null as unknown as MCPAccessSettings['user'],
+  'payload-mcp-tool': Object.fromEntries(
+    MCP_PLATFORM_TOOL_NAMES.map((name) => [toCamelCase(name), true]),
+  ),
+})
+
 export const mcpOverrideAuth: NonNullable<MCPPluginConfig['overrideAuth']> = async (
   req: PayloadRequest,
   getDefaultMcpAccessSettings,
 ) => {
   assertBodyWithinLimit(req.headers?.get?.('content-length') ?? null)
 
+  if (isPlatformMcpPath(req)) {
+    const key = await requestApiKey(req)
+    if (key?.role !== 'platform') throw new APIError('Unauthorized', 401)
+
+    const decision = consumeMcpRateLimit(`platform:${key.id}`)
+    if (!decision.allowed) throw new APIError('Too many requests', 429)
+
+    req.context = {
+      ...(req.context ?? {}),
+      [MCP_PLATFORM_KEY_CONTEXT]: { id: key.id },
+    }
+
+    // The Payload MCP transport adapter dispatches only on its configured
+    // `/api/mcp` pathname. Keep the externally routed endpoint and auth decision
+    // separate, then normalize the already-authenticated request for that adapter.
+    const transportUrl = new URL(req.url ?? '', 'http://localhost')
+    transportUrl.pathname = '/api/mcp'
+    Object.defineProperty(req, 'url', { configurable: true, value: transportUrl.toString() })
+    return platformMcpSettings()
+  }
+
   const settings = await getDefaultMcpAccessSettings()
   const key = asKeyDoc(settings)
+
+  // A platform-admin user bypasses the multi-tenant plugin's site constraints.
+  // Never let that identity use tenant CRUD tools. Platform work has its own
+  // endpoint and API-key family, with an explicitly curated custom-tool surface.
+  if (isPlatformAdmin(settings.user)) throw new APIError('Forbidden', 403)
 
   assertNotExpired(key)
 
@@ -80,13 +130,24 @@ export const mcpOverrideAuth: NonNullable<MCPPluginConfig['overrideAuth']> = asy
     throw new APIError('Too many requests', 429)
   }
 
+  const capabilities = capabilitiesOf(key)
+  const customTools = capabilities['payload-mcp-tool']
+  if (customTools && typeof customTools === 'object') {
+    for (const name of MCP_PLATFORM_TOOL_NAMES) {
+      delete (customTools as Record<string, unknown>)[toCamelCase(name)]
+    }
+  }
+
   const context: McpKeyContext = {
-    capabilities: capabilitiesOf(key),
+    capabilities,
     id: key.id,
     label: key.label ?? null,
   }
 
   req.context = { ...(req.context ?? {}), [MCP_KEY_CONTEXT]: context }
 
-  return settings
+  return {
+    ...settings,
+    'payload-mcp-tool': customTools as Record<string, boolean> | undefined,
+  }
 }

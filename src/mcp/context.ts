@@ -14,6 +14,7 @@ import { toCamelCase } from './capabilities'
  * It lives on the request, is never serialized, and never reaches a response.
  */
 export const MCP_KEY_CONTEXT = 'mcpApiKey'
+export const MCP_PLATFORM_KEY_CONTEXT = 'mcpPlatformApiKey'
 
 export interface McpKeyContext {
   /** The `payload-mcp-api-keys` row id. Stable, and what rate limits bucket on. */
@@ -24,7 +25,12 @@ export interface McpKeyContext {
   capabilities: Record<string, unknown>
 }
 
-export const readMcpKeyContext = (req: PayloadRequest): McpKeyContext | null => {  const raw = (req.context as Record<string, unknown> | undefined)?.[MCP_KEY_CONTEXT]
+export interface McpPlatformKeyContext {
+  id: string
+}
+
+export const readMcpKeyContext = (req: PayloadRequest): McpKeyContext | null => {
+  const raw = (req.context as Record<string, unknown> | undefined)?.[MCP_KEY_CONTEXT]
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Partial<McpKeyContext>
   if (value.id === undefined) return null
@@ -33,6 +39,13 @@ export const readMcpKeyContext = (req: PayloadRequest): McpKeyContext | null => 
     id: value.id,
     label: value.label ?? null,
   }
+}
+
+export const readMcpPlatformKeyContext = (req: PayloadRequest): McpPlatformKeyContext | null => {
+  const raw = (req.context as Record<string, unknown> | undefined)?.[MCP_PLATFORM_KEY_CONTEXT]
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Partial<McpPlatformKeyContext>
+  return typeof value.id === 'string' && value.id ? { id: value.id } : null
 }
 
 /** The operations this key was actually granted for one collection, in the plugin's key shape. */

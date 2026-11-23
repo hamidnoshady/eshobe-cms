@@ -10,7 +10,7 @@ import {
   MCP_CUSTOM_TOOL_NAMES,
   toCamelCase,
 } from '@/mcp/capabilities'
-import { MCP_KEY_CONTEXT } from '@/mcp/context'
+import { MCP_KEY_CONTEXT, MCP_PLATFORM_KEY_CONTEXT } from '@/mcp/context'
 import {
   assertBodyWithinLimit,
   consumeMcpRateLimit,
@@ -174,7 +174,7 @@ describe('mcpOverrideAuth', () => {
 
     const resolved = await mcpOverrideAuth(req, vi.fn(async () => settings))
 
-    expect(resolved).toBe(settings)
+    expect(resolved).toMatchObject(settings)
 
     const context = (req.context as Record<string, Record<string, unknown>>)[MCP_KEY_CONTEXT]
     expect(context).toMatchObject({ id: 'key-1', label: 'editorial assistant' })
@@ -183,6 +183,46 @@ describe('mcpOverrideAuth', () => {
     // The capability groups survive, because a discovery tool reads them.
     expect(context.capabilities).toHaveProperty('pages', { create: false, find: true, update: false })
     expect(context.capabilities).toHaveProperty('payload-mcp-tool')
+  })
+
+  it('refuses platform-admin user keys on the tenant endpoint', async () => {
+    const resolve = vi.fn(async () => keySettings({ user: { id: 'admin-1', role: 'platformAdmin' } }))
+    const req = request()
+
+    await expect(mcpOverrideAuth(req, resolve)).rejects.toMatchObject({ status: 403 })
+    expect(req.context).not.toHaveProperty(MCP_KEY_CONTEXT)
+  })
+
+  it('gives a platform API key only the platform tools on the separate endpoint', async () => {
+    const req = request({
+      url: '/api/platform/mcp',
+      headers: new Headers({ authorization: 'Bearer eshobe_live_platform' }),
+      payload: {
+        find: vi.fn(async () => ({ docs: [{ id: 'platform-key-1', role: 'platform' }] })),
+        logger: { error: vi.fn() },
+        update: vi.fn(async () => ({})),
+      } as unknown as PayloadRequest['payload'],
+    })
+    const resolve = vi.fn(async () => keySettings())
+
+    const settings = await mcpOverrideAuth(req, resolve)
+
+    expect(resolve).not.toHaveBeenCalled()
+    expect(settings['payload-mcp-tool']).toEqual({ platformRead: true, platformWrite: true })
+    expect(settings.user).toBeNull()
+    expect(req.context).toHaveProperty(MCP_PLATFORM_KEY_CONTEXT, { id: 'platform-key-1' })
+    expect(req.context).not.toHaveProperty(MCP_KEY_CONTEXT)
+    expect(new URL(req.url ?? '', 'http://localhost').pathname).toBe('/api/mcp')
+  })
+
+  it('does not expose platform tools through tenant MCP grants', async () => {
+    const settings = keySettings({
+      'payload-mcp-tool': { cmsDescribeCapabilities: true, platformRead: true, platformWrite: true },
+    })
+
+    const resolved = await mcpOverrideAuth(request(), vi.fn(async () => settings))
+
+    expect(resolved['payload-mcp-tool']).toEqual({ cmsDescribeCapabilities: true })
   })
 
   it('refuses an oversized body before resolving the key', async () => {
