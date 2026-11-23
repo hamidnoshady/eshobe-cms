@@ -773,9 +773,12 @@ describe.sequential('café checkout (ESH-150)', () => {
       status: 'paid',
     })
 
-    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment' })).status).toBe(200)
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment', reason: ' مواد اولیه تمام شد ' })).status).toBe(200)
     expect((await sendState(id, { fulfillment: 'accepted', kind: 'fulfillment' })).status).toBe(409)
-    expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'rejected' }, status: 'paid' })
+    expect((await signedReceipt(id))?.order).toMatchObject({
+      cafe: { fulfillment: 'rejected', fulfillmentReason: 'مواد اولیه تمام شد' },
+      status: 'paid',
+    })
 
     const { totalDocs } = await payload.find({
       collection: 'audit-log',
@@ -791,6 +794,40 @@ describe.sequential('café checkout (ESH-150)', () => {
     await payload.update({ collection: 'orders', data: { status: 'refunded' }, id, overrideAccess: true })
     expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'rejected' }, status: 'refunded' })
     expect((await sendState(id, payment)).status).toBe(409)
+  })
+
+  it('takes a rejection reason only with a rejection, trimmed and bounded', async () => {
+    const id = await newCounterOrder()
+    // Not rejected yet, so a reason has nothing to explain.
+    expect((await sendState(id, { fulfillment: 'accepted', kind: 'fulfillment', reason: 'دیر شد' })).status).toBe(400)
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment', reason: '   ' })).status).toBe(400)
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment', reason: 'x'.repeat(201) })).status).toBe(400)
+    // Nothing was written by the refusals.
+    expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'awaiting_approval' } })
+
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment', reason: '  نداریم  ' })).status).toBe(200)
+    expect((await signedReceipt(id))?.order).toMatchObject({
+      cafe: { fulfillment: 'rejected', fulfillmentReason: 'نداریم' },
+    })
+  })
+
+  it('backfills the reason on a rejection that was first delivered without one', async () => {
+    const id = await newCounterOrder()
+    // Exactly what the shipped POS sent: a rejection, no text.
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment' })).status).toBe(200)
+    expect((await signedReceipt(id))?.order).toMatchObject({ cafe: { fulfillment: 'rejected' } })
+    expect((await signedReceipt(id))?.order.cafe?.fulfillmentReason ?? null).toBeNull()
+
+    // The re-send carries the words, and does not restamp the transition.
+    const before = (await orderById(id)).cafe?.fulfillmentAt
+    expect((await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment', reason: 'مواد اولیه تمام شد' })).status).toBe(200)
+    const after = await orderById(id)
+    expect(after.cafe?.fulfillmentReason).toBe('مواد اولیه تمام شد')
+    expect(after.cafe?.fulfillmentAt).toBe(before)
+    // A third identical delivery is a no-op, not another write.
+    expect(await (await sendState(id, { fulfillment: 'rejected', kind: 'fulfillment', reason: 'مواد اولیه تمام شد' })).json())
+      .toMatchObject({ result: 'already_applied' })
+    expect((await sendState(id, { fulfillment: 'accepted', kind: 'fulfillment' })).status).toBe(409)
   })
 
   it('records the POS payment axis, converges replays and refuses an amount it cannot reconcile', async () => {

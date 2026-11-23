@@ -113,6 +113,9 @@ export const CheckoutReceipt = async ({ order: orderId, outcome, receipt }: Prop
                   value={fulfillment === 'accepted' ? 'در صف آماده‌سازی' : FULFILLMENT_LABELS_FA[fulfillment]}
                 />
               )}
+              {stopped && cafe?.fulfillmentReason && (
+                <Row label="دلیل" value={cafe.fulfillmentReason} />
+              )}
             </>
           )}
           <Row

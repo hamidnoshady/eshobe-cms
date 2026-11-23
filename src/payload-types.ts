@@ -3106,6 +3106,10 @@ export interface Order {
     fulfillment?:
       ('awaiting_approval' | 'accepted' | 'preparing' | 'ready' | 'served' | 'rejected' | 'cancelled') | null;
     fulfillmentAt?: string | null;
+    /**
+     * دلیل رد که صندوق بیزا ثبت می‌کند؛ روی رسید خریدار نمایش داده می‌شود.
+     */
+    fulfillmentReason?: string | null;
     tableLabel?: string | null;
   };
   buyer: {
@@ -7329,6 +7333,7 @@ export interface OrdersSelect<T extends boolean = true> {
         cartFingerprint?: T;
         fulfillment?: T;
         fulfillmentAt?: T;
+        fulfillmentReason?: T;
         tableLabel?: T;
       };
   buyer?:

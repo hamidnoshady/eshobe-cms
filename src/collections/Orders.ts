@@ -294,6 +294,26 @@ export const Orders: CollectionConfig<'orders'> = {
           label: 'زمان آخرین تغییر آماده‌سازی',
           admin: { readOnly: true },
         },
+        /**
+         * Why the café said no.
+         *
+         * The staff member types it at the till, it is the only thing that turns
+         * «رد شد» into an answer the guest can act on, and it exists on this side
+         * for exactly one reader: the signed receipt. Written by the POS through
+         * `cafeOrderState`, never by a buyer or a site editor.
+         */
+        {
+          name: 'fulfillmentReason',
+          type: 'text',
+          access: { create: () => false, update: () => false },
+          label: 'دلیل رد سفارش',
+          maxLength: 200,
+          admin: {
+            description:
+              'دلیل رد که صندوق بیزا ثبت می‌کند؛ روی رسید خریدار نمایش داده می‌شود.',
+            readOnly: true,
+          },
+        },
         {
           name: 'tableLabel',
           type: 'text',
