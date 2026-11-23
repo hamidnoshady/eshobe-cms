@@ -107,7 +107,11 @@ test.describe.serial('platform MCP over Streamable HTTP', () => {
       },
     })
     expect(result.isError).not.toBe(true)
-    expect(JSON.stringify(result)).toContain('"ok":true')
+    const content = (result as { content?: Array<{ text?: string; type: string }> }).content ?? []
+    const response = content.find((part) => part.type === 'text')
+    expect(response?.type).toBe('text')
+    if (!response || response.type !== 'text') throw new Error('Platform write returned no text response.')
+    expect(JSON.parse(response.text ?? '')).toMatchObject({ ok: true, site: { id: acmeId } })
   })
 
   test('refuses a site API key on the platform endpoint', async () => {
