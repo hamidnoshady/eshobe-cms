@@ -60,10 +60,18 @@ export const updateCafeOrderState = async (req: PayloadRequest): Promise<Respons
   // `order.paid`/`order.refunded` back at it (eshobe-cms#221).
   if (body.kind === 'fulfillment') {
     const { fulfillment, tableLabel } = body
+    /**
+     * A rejection carries the café's own words. It is optional so an older POS —
+     * or a `cancelled` written by hand — stays valid, but a reason that *is*
+     * sent must belong to a rejection and be short enough to print.
+     */
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : null
     if (
-      Object.keys(body).some((field) => !['kind', 'fulfillment', 'tableLabel'].includes(field)) ||
+      Object.keys(body).some((field) => !['kind', 'fulfillment', 'tableLabel', 'reason'].includes(field)) ||
       !isFulfillmentState(fulfillment) ||
       fulfillment === 'awaiting_approval' ||
+      (body.reason !== undefined &&
+        (fulfillment !== 'rejected' || !reason || reason.length > 200)) ||
       (tableLabel !== undefined &&
         (typeof tableLabel !== 'string' ||
           tableLabel.trim().length === 0 ||
@@ -76,16 +84,33 @@ export const updateCafeOrderState = async (req: PayloadRequest): Promise<Respons
       `UPDATE orders
           SET cafe_fulfillment = $3,
               cafe_fulfillment_at = CURRENT_TIMESTAMP,
+              cafe_fulfillment_reason = $6::text,
               cafe_table_label = COALESCE(cafe_table_label, $4)
         WHERE id = $1 AND site_id = $2 AND cafe_service_mode IS NOT NULL
           AND ($4::text IS NULL OR (cafe_service_mode = 'dine_in'
             AND (cafe_table_token IS NULL OR strpos($4, cafe_table_token) = 0)))
           AND COALESCE(cafe_fulfillment::text, 'awaiting_approval') = ANY($5::text[])`,
-      [orderId, key.siteId, fulfillment, label, FULFILLMENT_PREDECESSORS[fulfillment]],
+      [orderId, key.siteId, fulfillment, label, FULFILLMENT_PREDECESSORS[fulfillment], reason],
     )
     // Fulfillment has its own timestamp. The generic order timestamp drives the
     // legacy paid/reversed poll feed and must not turn a kitchen change into a payment event.
     if (result.rowCount) return respond(200, 'applied')
+
+    /**
+     * A rejection that was already delivered — the first POS builds sent
+     * `rejected` with no reason at all — may be re-sent with the text. Converge
+     * the reason alone, without moving the transition timestamp, so replaying a
+     * state event can backfill a receipt that had nothing to explain.
+     */
+    if (reason) {
+      const patched = await db.query(
+        `UPDATE orders SET cafe_fulfillment_reason = $3
+          WHERE id = $1 AND site_id = $2 AND cafe_fulfillment::text = 'rejected'
+            AND cafe_fulfillment_reason IS DISTINCT FROM $3`,
+        [orderId, key.siteId, reason],
+      )
+      if (patched.rowCount) return respond(200, 'applied')
+    }
   } else if (body.kind === 'counter_payment') {
     const { accountingReference, amount } = body
     if (

@@ -42,6 +42,7 @@ import * as migration_20261116_180000_cafe_receipt_state from './20261116_180000
 import * as migration_20261121_120000_theme_settings_legacy from './20261121_120000_theme_settings_legacy';
 import * as migration_20261122_120000_mcp_key_expiry_and_audit_event from './20261122_120000_mcp_key_expiry_and_audit_event';
 import * as migration_20261122_160000_mcp_site_management from './20261122_160000_mcp_site_management';
+import * as migration_20261123_090000_cafe_fulfillment_reason from './20261123_090000_cafe_fulfillment_reason';
 export const migrations = [
   {
     up: migration_20260826_215740_initial_schema.up,
@@ -262,5 +263,10 @@ export const migrations = [
     up: migration_20261122_160000_mcp_site_management.up,
     down: migration_20261122_160000_mcp_site_management.down,
     name: '20261122_160000_mcp_site_management',
+  },
+  {
+    up: migration_20261123_090000_cafe_fulfillment_reason.up,
+    down: migration_20261123_090000_cafe_fulfillment_reason.down,
+    name: '20261123_090000_cafe_fulfillment_reason',
   },
 ];

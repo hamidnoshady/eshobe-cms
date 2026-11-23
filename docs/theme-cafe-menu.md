@@ -322,6 +322,14 @@ cannot show the buyer a receipt; refuse loudly rather than half-working.
 Also render the service mode, and the table label when the CMS has one, so the
 guest and the staff are reading the same thing.
 
+**A rejection carries the café's own reason.** The POS sends it with the
+`rejected` fulfillment, the CMS stores it as `order.cafe.fulfillmentReason`
+(at most 200 characters), and the receipt must print it next to the rejection.
+«سفارش پذیرفته نشد» alone leaves the guest guessing — was the item sold out, was
+the table closed, was the order a mistake? The reason is the only part of a
+rejection the guest can act on, so a theme that renders the rejection note
+without it is incomplete.
+
 ---
 
 ## 6. What you must not break
@@ -336,7 +344,8 @@ them:
   status writes that arrived with a site key (the POS telling you what it already
   knows). Do not treat its absence as a failure.
 - **The POS writes state back** with `PATCH /api/site/cafe-orders/:orderId/state`
-  (`fulfillment`, `counter_payment`, `payment`). So "pending" in your UI may mean
+  (`fulfillment`, `counter_payment`, `payment`), and a `rejected` fulfillment
+  carries the staff member's `reason`. So "pending" in your UI may mean
   "pending payment" *and* "accepted by the kitchen" — read `order.cafe`.
 - **Stock settlement** happens in the CMS for ordinary orders; a café order
   decrements no CMS product stock, including lines for CMS-owned products, because
