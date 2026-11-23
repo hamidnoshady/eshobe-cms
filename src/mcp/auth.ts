@@ -105,6 +105,13 @@ export const mcpOverrideAuth: NonNullable<MCPPluginConfig['overrideAuth']> = asy
       ...(req.context ?? {}),
       [MCP_PLATFORM_KEY_CONTEXT]: { id: key.id },
     }
+
+    // The Payload MCP transport adapter dispatches only on its configured
+    // `/api/mcp` pathname. Keep the externally routed endpoint and auth decision
+    // separate, then normalize the already-authenticated request for that adapter.
+    const transportUrl = new URL(req.url ?? '', 'http://localhost')
+    transportUrl.pathname = '/api/mcp'
+    Object.defineProperty(req, 'url', { configurable: true, value: transportUrl.toString() })
     return platformMcpSettings()
   }
 

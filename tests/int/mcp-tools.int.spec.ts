@@ -212,6 +212,7 @@ describe('mcpOverrideAuth', () => {
     expect(settings.user).toBeNull()
     expect(req.context).toHaveProperty(MCP_PLATFORM_KEY_CONTEXT, { id: 'platform-key-1' })
     expect(req.context).not.toHaveProperty(MCP_KEY_CONTEXT)
+    expect(new URL(req.url ?? '', 'http://localhost').pathname).toBe('/api/mcp')
   })
 
   it('does not expose platform tools through tenant MCP grants', async () => {
