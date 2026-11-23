@@ -102,17 +102,19 @@ client configuration in [`docs/mcp.md`](./docs/mcp.md). The rules that are easy 
   the key's grants; do not add a fallback path that deletes through another tool.
 - **Sensitive collections are absent, not unticked** — users, api-keys, credentials,
   billing, form-submissions, webhooks, audit-log, deployments, `site-theme-settings`
-  (secret answers). A checkbox is not a boundary. A platform admin's key gains no extra
-  reach: the matrix is the same for every key.
-- **Every tool must pass `overrideAccess: false` and `req`.** The key resolves to a real
-  user; the multi-tenant plugin then scopes the read/write. A tool that calls `payload`
-  without them reads across tenants, and the int suite will still be green.
+  (secret answers). A checkbox is not a boundary. Platform access uses a separate
+  `/api/platform/mcp` endpoint and role:platform API key; platform-admin user keys are
+  refused on `/api/mcp`.
+- **Every tenant CRUD tool must pass `overrideAccess: false` and `req`.** The key
+  resolves to a real user; the multi-tenant plugin then scopes the read/write. Platform
+  tools instead call the existing guarded `/api/platform/*` endpoint handler, whose
+  authorization is role:platform API key or platform-admin session.
 - **A create needs `site`, taken from `cms_site_context`.** A create has no document to
   read the tenant from; the multi-tenant plugin refuses a site the key's user is not in.
-- **Custom tools stay read-only.** The plugin's key form gives a custom tool a checkbox
-  that defaults to *enabled*, so a mutating custom tool would be granted to every key
-  ever minted. Publishing goes through `updatePages`, where `writeUnlessPublishing()` is
-  the authority.
+- **Tenant custom tools stay read-only.** The plugin's key form gives a custom tool a
+  checkbox that defaults to *enabled*, so tenant mutations belong in generated CRUD
+  tools. The separate platform tools are explicit allowlisted wrappers around existing
+  operator endpoints and accept only role:platform API keys.
 - **`expiresAt` is enforced in `overrideAuth`, not in the UI.** Blank means no expiry, so
   pre-existing keys keep working. `overrideAuth` also applies the per-key rate limit and
   the body cap, and puts a capability **allowlist** on `req.context` — never the key

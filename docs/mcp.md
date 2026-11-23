@@ -16,8 +16,15 @@ custom tools, a request gate and an audit hook — see
 
 | Direction | Status | Where |
 | --- | --- | --- |
-| **Inbound** — an external assistant calls this CMS | **Implemented and tested** | `/api/mcp`, `src/plugins/mcp.ts` |
+| **Inbound** — an external assistant calls this CMS | **Implemented; platform HTTP check pending** | `/api/mcp`, `src/plugins/mcp.ts` and `/api/platform/mcp` |
 | **Outbound** — this CMS calls an external MCP server and uses its tools | **Not implemented** | — |
+
+Platform operators use a separate `/api/platform/mcp` endpoint. It accepts only
+`role: "platform"` API keys and exposes the curated `platform_read` and
+`platform_write` tools over the existing `/api/platform/*` handlers. Tenant MCP keys
+and site API keys are refused there; platform-admin user keys are refused on
+`/api/mcp`. Keep the two endpoints and credentials separate. The platform tool
+allowlist deliberately omits operations that require an interactive admin session.
 
 The outbound client is deliberately absent. Nothing in this deployment has a use for
 remote MCP tools, and a client that can be pointed at an arbitrary URL is an SSRF
@@ -74,6 +81,24 @@ The key resolves to its **owner user**, and every tool then runs with
 — collection access, field access, the multi-tenant site scope and the
 `writeUnlessPublishing()` rule — not a second permission system that could drift from
 it.
+
+Platform operations use a different credential family and route. A
+`role: "platform"` API key calls `POST https://<control-plane-host>/api/platform/mcp`;
+site keys and tenant MCP keys are refused there, and a platform-admin-owned MCP key
+is refused on `/api/mcp`. The platform endpoint exposes only:
+
+- `platform_read`: the explicit report, audit, site, entitlement, settings, catalogue,
+  snapshot-export, routing and deployment-readiness operations in
+  `src/mcp/platformTools.ts`.
+- `platform_write`: allowlisted site lifecycle, feature hold, plugin/theme assignment,
+  snapshot import, theme sync and deployment lifecycle operations. Calls are routed
+  through their existing `/api/platform/*` handlers, which retain validation and
+  operator checks. Theme-package publishing and editing platform settings remain
+  session-only.
+
+Use HTTPS and keep the platform API key separate from every tenant MCP credential.
+This adapter does not add OAuth; it uses the CMS's existing hashed, revocable API-key
+authentication.
 
 ### Minting a key
 

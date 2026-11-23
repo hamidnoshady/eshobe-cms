@@ -8,6 +8,7 @@ import {
   type McpCapability,
 } from '@/mcp/capabilities'
 import { mcpTools } from '@/mcp/tools'
+import { mcpPlatformTools } from '@/mcp/platformTools'
 import { MCP_COLLECTION_SLUGS } from '@/plugins/mcp-slugs'
 
 /**
@@ -65,6 +66,7 @@ const INSTRUCTIONS = [
   'Writes run through the same validation, hooks, quota checks and publish permission as the admin panel. A refused write is a business rule, not a transient error — do not retry it.',
   'Titles and slugs are localized. Pass the locale when reading or writing a translated field, and never assume the default-locale value exists for another locale.',
   'Orders are read-only, and the site record cannot be edited: those are checkout and operator decisions. Platform administration, credentials and staff accounts are unreachable from here.',
+  'Platform operators use the separate POST /api/platform/mcp endpoint with a role: platform API key. A platform key does not work on /api/mcp, and a tenant MCP key does not work on /api/platform/mcp.',
 ].join('\n')
 
 /**
@@ -103,7 +105,7 @@ export const mcp = mcpPlugin({
         version: '1.1.0',
       },
     },
-    tools: mcpTools,
+    tools: [...mcpTools, ...mcpPlatformTools],
   },
   overrideApiKeyCollection: (collection: CollectionConfig) => {
     collection.admin = {

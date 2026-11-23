@@ -108,6 +108,9 @@ export const MCP_CUSTOM_TOOL_NAMES = [
   'cms_content_status',
 ] as const
 
+/** Platform controls have a separate endpoint and accept only role: platform keys. */
+export const MCP_PLATFORM_TOOL_NAMES = ['platform_read', 'platform_write'] as const
+
 export type McpCustomToolName = (typeof MCP_CUSTOM_TOOL_NAMES)[number]
 
 export interface McpCollectionDescription {

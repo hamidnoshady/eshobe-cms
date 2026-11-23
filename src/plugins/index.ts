@@ -33,6 +33,7 @@ import { faAdminLabels } from './faAdminLabels'
 import { jalaliDates } from './jalaliDates'
 import { mcp } from './mcp'
 import { mcpAudit } from './mcpAudit'
+import { platformMcpRoute } from './platformMcpRoute'
 import { publicReadLimits } from '@/lib/public-read-limits'
 import { tenantMediaPicker } from '@/plugins/tenant-media-picker'
 import { siteKeyTenantAssignment } from '@/plugins/site-key-tenant-assignment'
@@ -453,6 +454,9 @@ export const plugins: Plugin[] = [
   // Registers `payload-mcp-api-keys` and `/api/mcp`. After multi-tenant so every
   // tenant-scoped collection already exists in config.
   mcp,
+  // Adds a separately authenticated alias over the same MCP transport. Its path
+  // selects the platform API-key family and platform-only tool catalogue.
+  platformMcpRoute,
   // Audits every write that arrives over `/api/mcp` into `audit-log`, keyed on the
   // MCP key rather than the user behind it. After `mcp` so the key collection exists.
   mcpAudit,
