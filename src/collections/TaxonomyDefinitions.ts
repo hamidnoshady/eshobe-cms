@@ -11,7 +11,7 @@ import {
   isValidArchiveSlug,
   machineKeyMessage,
 } from '@/lib/content-paths'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { uniqueArchiveSlugPerSite, uniqueKeyPerSite } from './hooks/uniqueContentKeys'
 import { validateCafeTaxonomyIdentity } from './hooks/validateCafeTaxonomyIdentity'
 
@@ -130,6 +130,7 @@ export const TaxonomyDefinitions: CollectionConfig = {
       on: 'taxonomy',
     },
     migrationSourceField(),
+    migrationDetailsField(),
   ],
   hooks: {
     beforeChange: [forceApiKeySite],

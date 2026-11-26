@@ -76,7 +76,7 @@ const CUSTOMER_TARGET = [
   { entities: ['theme-settings', 'sites'], label: 'تنظیمات' },
   {
     entities: ['migration-center', 'migration-jobs', 'migration-sources'],
-    label: 'مهاجرت',
+    label: 'ابزارها',
   },
 ]
 

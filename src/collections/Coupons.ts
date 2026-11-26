@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { hiddenFromOperators } from '@/admin/visibility'
 import { authenticated } from '../access/authenticated'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { validateCoupon } from './hooks/validateCoupon'
 
 /**
@@ -74,6 +74,7 @@ export const Coupons: CollectionConfig = {
     { name: 'expiresAt', type: 'date', label: 'انقضا' },
     { name: 'active', type: 'checkbox', label: 'فعال', defaultValue: true },
     migrationSourceField({ optional: true }),
+    migrationDetailsField(),
   ],
   hooks: { beforeValidate: [validateCoupon] },
 }
