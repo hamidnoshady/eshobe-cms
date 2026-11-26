@@ -40,7 +40,7 @@ import {
 import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
-import { migrationSourceField } from '../fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from '../fields/migrationSource'
 import { validatePostRelations } from '../hooks/validatePostRelations'
 
 export const Posts: CollectionConfig<'posts'> = {
@@ -292,6 +292,7 @@ export const Posts: CollectionConfig<'posts'> = {
     },
     slugField({ disableUnique: true, localized: true, slugify: slugifyField }),
     migrationSourceField({ optional: true }),
+    migrationDetailsField(),
   ],
   hooks: {
     // `POSTS_BASE` is the whole difference between busting `/hello` (no such route

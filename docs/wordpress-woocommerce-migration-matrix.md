@@ -1,7 +1,7 @@
 # WordPress + WooCommerce → Eshobe CMS — Migration Matrix
 
-The capability map behind issue #166 and the Migration Center in
-**Settings → Migration Center** (`/admin/migration-center`). This matrix is
+The capability map behind issue #166 and the Import Manager at
+**Tools → Imports / ابزارها → درون‌ریزی** (`/admin/migration-center`). This matrix is
 deliberately narrower than a marketing claim: **Implemented** means the
 destination, importer, ledger disposition and reconciliation path exist in
 this repository. It does **not** mean a particular site can cut over without
@@ -75,6 +75,31 @@ not a substitute for a dry-run against the customer's real source.
    expiring claim emails from the center, and a storefront theme exchanges
    the token once for the verified customer identity. No WP password/hash or
    shopper-to-CMS-user promotion occurs in either path.
+
+## Editors do not carry import metadata (issue #236)
+
+Ordinary content editors are content-first. The `source` provenance group is
+`admin.hidden` on every collection that carries it and is write-protected by
+field-level `access.create`/`update` returning `false`, so a normal save — admin
+or REST — never creates or rewrites it; Payload restores the stored value on
+update, and the engine writes through `overrideAccess: true`. Existing source
+IDs, permalinks, timestamps, hashes, raw payloads and mappings are unchanged by
+this split, and `rawPayload` keeps its staff-only read.
+
+An **imported** record (`source.system !== 'eshobe'`) shows a collapsed,
+read-only «جزئیات مهاجرت» panel to platform staff or a member of its site: source
+system, mapping status, installation, source record ID, source type/status,
+source author, source modified date and the source permalink. Junk fields and
+the raw payload are never rendered. A record whose `mappingStatus` is `blocked`
+shows a compact warning linking to the Import Manager instead of a duplicate
+migration form. Native records show nothing.
+
+All import action stays in the one manager: WordPress content and WooCommerce
+commerce are option groups of the same job (`includeContent`, `includeMedia`,
+`includeMenus`, `includeComments` vs. `includeProducts`, `includeCustomers`,
+`includeCoupons`, `includeOrders`), so a content-only WordPress import and a
+WooCommerce store import are two configurations of one reviewed workflow — not
+two engines.
 
 The HTTP control surface is session-authenticated and tenant-checked:
 `GET /api/site/migration`, `POST /api/site/migration/source`,

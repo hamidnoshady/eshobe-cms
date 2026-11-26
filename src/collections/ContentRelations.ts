@@ -6,7 +6,7 @@ import { authenticatedOrSourceEntryPublished } from '../access/entryPublished'
 import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
 import { isMachineKey, machineKeyMessage } from '@/lib/content-paths'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { validateContentRelation } from './hooks/validateContentRelation'
 
 const targetCondition = (collection: string) => (_data: unknown, siblingData: { targetCollection?: string }) =>
@@ -120,6 +120,7 @@ export const ContentRelations: CollectionConfig = {
       defaultValue: 0,
     },
     migrationSourceField(),
+    migrationDetailsField(),
   ],
   hooks: {
     beforeChange: [forceApiKeySite],

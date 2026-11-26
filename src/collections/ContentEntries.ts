@@ -13,7 +13,7 @@ import { scopedPublicRead } from '../access/siteRead'
 import { revalidateContentEntry, revalidateContentEntryDelete } from '../hooks/revalidateContentEntry'
 import { ENTRY_STATUSES } from '@/lib/entry-status'
 import { slugifyField } from '@/lib/slug'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { uniqueEntrySlugPerContentType } from './hooks/uniqueContentKeys'
 import { validateContentEntry } from './hooks/validateContentEntry'
 
@@ -286,6 +286,7 @@ export const ContentEntries: CollectionConfig = {
       on: 'fromEntry',
     },
     migrationSourceField(),
+    migrationDetailsField(),
   ],
   hooks: {
     afterChange: [revalidateContentEntry],
