@@ -17,7 +17,7 @@ import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { validatePriceMinor } from '../lib/money'
 import { MAX_MENU_OPTIONS, MAX_MENU_SELECTIONS } from '@/lib/cafe-menu'
 import { enforceQuota } from '@/collections/hooks/enforceQuota'
-import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
+import { migrationSourceField } from './fields/migrationSource'
 import { menuSourceFields } from './fields/menuSource'
 import { validateMenuSource } from './hooks/validateMenuSource'
 import { validateProductCommerce } from './hooks/validateProductCommerce'
@@ -412,7 +412,6 @@ export const Products: CollectionConfig<'products'> = {
     { name: 'canonicalUrl', type: 'text', label: 'نشانی کانونی' },
     { name: 'noindex', type: 'checkbox', label: 'در موتور جست‌وجو نمایه نشود', defaultValue: false },
     migrationSourceField({ optional: true }),
-    migrationDetailsField(),
   ],
   versions: {
     drafts: {

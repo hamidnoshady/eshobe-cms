@@ -5,7 +5,7 @@ import { authenticated } from '../access/authenticated'
 import { authenticatedOrSourceEntryPublished } from '../access/entryPublished'
 import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
-import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
+import { migrationSourceField } from './fields/migrationSource'
 import { validateEntryTermRelation } from './hooks/validateEntryTermRelation'
 
 /**
@@ -72,7 +72,6 @@ export const EntryTermRelations: CollectionConfig = {
       defaultValue: 0,
     },
     migrationSourceField(),
-    migrationDetailsField(),
   ],
   hooks: {
     beforeChange: [forceApiKeySite],

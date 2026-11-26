@@ -16,7 +16,7 @@ import { revalidateSiteDoc, revalidateSiteDocDelete } from '../../hooks/revalida
 import { reservedPageSlug } from '../../hooks/reservedPageSlug'
 import { generatePreviewPath } from '../../utilities/generatePreviewPath'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
-import { migrationDetailsField, migrationSourceField } from '../fields/migrationSource'
+import { migrationSourceField } from '../fields/migrationSource'
 import { validatePageParent } from '../hooks/validatePageParent'
 
 import {
@@ -150,7 +150,6 @@ export const Pages: CollectionConfig<'pages'> = {
       relationTo: 'pages',
     },
     migrationSourceField({ optional: true }),
-    migrationDetailsField(),
   ],
   hooks: {
     afterChange: [revalidateSiteDoc()],

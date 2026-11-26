@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { hiddenFromOperators } from '@/admin/visibility'
 import { authenticated } from '../access/authenticated'
-import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
+import { migrationSourceField } from './fields/migrationSource'
 import { validateCustomer } from './hooks/validateCustomer'
 
 const noDirectWrite = () => false
@@ -104,7 +104,6 @@ export const Customers: CollectionConfig = {
     },
     { name: 'notes', type: 'textarea', label: 'یادداشت' },
     migrationSourceField({ optional: true }),
-    migrationDetailsField(),
   ],
   hooks: { beforeValidate: [validateCustomer] },
 }

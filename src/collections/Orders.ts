@@ -15,7 +15,7 @@ import { emitOrderPaid } from './hooks/emitOrderPaid'
 import { emitOrderSubmitted } from './hooks/emitOrderSubmitted'
 import { emitOrderReversal } from './hooks/emitOrderReversal'
 import { settleStock } from './hooks/settleStock'
-import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
+import { migrationSourceField } from './fields/migrationSource'
 import { validateOrderCommerce } from './hooks/validateOrderCommerce'
 
 /**
@@ -630,7 +630,6 @@ export const Orders: CollectionConfig<'orders'> = {
       ],
     },
     migrationSourceField({ optional: true }),
-    migrationDetailsField(),
   ],
   hooks: {
     // `emitOrderSubmitted` sits beside the others, not before `settleStock`: create-time

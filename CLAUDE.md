@@ -75,35 +75,6 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
 - Anything that enumerates a document's locales (hreflang, sitemap) must read with `fallbackLocale: false`. With the fallback on, an untranslated page reports the _Persian_ slug for `en`, and `where: { slug }` does not fall back — so the URL it advertises 404s.
 - The home page is `/`, never `/home`. `HOME_SLUG` and `pagePath()` in `src/lib/slug.ts` are the only code that knows the reserved slug — links, revalidation and the route resolver all go through them, or the front page grows a second URL. Rich-text internal links go through `CMSLink` (via the `link` JSX converter override in `src/components/RichText`), not a hand-built `/${slug}` — the default converter gives the home page `/home` and drops the locale segment.
 
-### Import metadata is not editorial content
-
-- **Technical import, integration and migration metadata never clutters an
-  ordinary content editor.** It is accessible through a centralized management
-  screen, or a permission-protected contextual action, and only when needed.
-  The first application is provenance: `source` (`migrationSourceField`,
-  `src/collections/fields/migrationSource.ts`) is `admin.hidden` on all 16
-  collections that carry it and its `access.create`/`access.update` are `false`,
-  so an ordinary save cannot create or rewrite it — Payload drops the submitted
-  value and, on update, restores the stored one. The import engine writes it
-  through `overrideAccess: true`; a create without that flag keeps the native
-  defaults (`system: 'eshobe'`, `mappingStatus: 'manual'`). Never re-expose it
-  as an input, and never re-enable writes "for an admin" — admin hiding is
-  navigation, the access rule is the boundary.
-- **A record's migration details are read-only and on demand.** Imported records
-  (`source.system !== 'eshobe'`) get `migrationDetailsField()` — a `ui` field
-  rendering the collapsed «جزئیات مهاجرت» panel (`src/admin/fields/MigrationDetails.tsx`),
-  gated to platform staff or a member of the record's site, never rendering
-  `rawPayload`. A `mappingStatus: 'blocked'` record gets a compact warning that
-  links to the Import Manager. Native records render nothing — not an empty
-  group, not a collapsed stub.
-- **There is exactly one WordPress/WooCommerce import surface:** «ابزارها →
-  درون‌ریزی» (`/admin/migration-center`, `src/admin/navigation.ts`). WordPress
-  content and WooCommerce commerce are option groups inside one job of the #166
-  engine — do not add a second center, a per-collection import button, or a
-  second importer. Keep unsupported Woo/WP capabilities blocking or archived
-  per `docs/wordpress-woocommerce-migration-matrix.md`; the hidden editor group
-  is a UX change, never a licence to widen what the engine imports.
-
 ## Embedded editing (the POS modal)
 
 `POST /api/platform/sites/:id/embed-session` + `GET /api/embed/enter` + `src/admin/EmbedChrome.tsx`; contract in the last section of [`docs/platform-control-api.md`](./docs/platform-control-api.md).

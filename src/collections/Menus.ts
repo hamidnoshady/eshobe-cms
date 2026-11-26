@@ -4,7 +4,7 @@ import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { authenticated } from '../access/authenticated'
 import { apiKeyAware } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
-import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
+import { migrationSourceField } from './fields/migrationSource'
 import { MENU_TARGET_COLLECTIONS, validateMenu } from './hooks/validateMenu'
 
 const activeOrStaff: Access = ({ req: { user } }) =>
@@ -260,7 +260,6 @@ export const Menus: CollectionConfig = {
       ],
     },
     migrationSourceField({ optional: true }),
-    migrationDetailsField(),
   ],
   hooks: {
     beforeValidate: [validateMenu],

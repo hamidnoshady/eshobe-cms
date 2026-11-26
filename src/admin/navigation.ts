@@ -172,18 +172,15 @@ export const CUSTOMER_NAV: NavGroupDef[] = [
     entities: [view('theme-settings', 'تنظیمات پوسته'), collection('sites', 'تنظیمات سایت')],
   },
   {
-    // «ابزارها → درون‌ریزی»: the one WordPress/WooCommerce Import Manager
-    // (issue #166, issue #236). A single wizard view first — it owns every
-    // action, and both source workflows (WordPress content, WooCommerce
-    // commerce) are option groups inside one job — then the job/source ledgers
-    // it writes. The bookkeeping collections are operator support detail, not
-    // customer nav (`hiddenFromCustomers`). There is deliberately no second
-    // import menu, and no per-collection import entry.
-    label: 'ابزارها',
+    // The WordPress/WooCommerce Migration Center (issue #166) is a settings
+    // surface of its own: the wizard view first (it owns every action), then
+    // the job/source ledgers it writes. The bookkeeping collections are
+    // operator support detail, not customer nav (`hiddenFromCustomers`).
+    label: 'مهاجرت',
     entities: [
-      view('migration-center', 'درون‌ریزی (وردپرس / ووکامرس)'),
-      collection('migration-jobs', 'کارهای درون‌ریزی'),
-      collection('migration-sources', 'منابع درون‌ریزی'),
+      view('migration-center', 'مرکز مهاجرت'),
+      collection('migration-jobs'),
+      collection('migration-sources'),
     ],
   },
 ]
