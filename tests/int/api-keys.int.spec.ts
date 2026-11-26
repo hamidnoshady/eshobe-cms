@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto'
 import type { Payload, PayloadRequest } from 'payload'
 
 import { createLocalReq, getPayload } from 'payload'
+import sharp from 'sharp'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import type { User } from '@/payload-types'
@@ -218,6 +219,79 @@ describe('a site key', () => {
       expect(idOf((created as { site: unknown }).site)).toBe(siteId.acme)
     } finally {
       await payload.delete({ id: created.id, collection: 'products', overrideAccess: true })
+    }
+  })
+
+  it('uploads media into its own site and cannot edit another site\'s', async () => {
+    // The POS's media library posts a featured image to `/api/media` with its site
+    // key and no session. `create` used to be `authenticated` for every caller, so
+    // the upload was refused with the same 403 an anonymous visitor gets — a key is
+    // not a `users` session. `forceApiKeySite` then files the bytes under the site
+    // the key names, never the `site` a client happened to send.
+    const issued = await issueKey({ name: 'media write test', role: 'site', siteId: siteId.acme })
+    const req = await reqWithKey(issued.key)
+
+    const png = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 10, g: 110, b: 104 } },
+    })
+      .png()
+      .toBuffer()
+
+    const created = await payload.create({
+      collection: 'media',
+      locale: 'fa',
+      overrideAccess: false,
+      req,
+      data: { alt: 'تصویر آزمایشی WAVE-9', site: siteId.studio } as never,
+      file: {
+        data: png,
+        mimetype: 'image/png',
+        name: `api-key-media-${randomUUID()}.png`,
+        size: png.length,
+      },
+    })
+
+    try {
+      expect(idOf((created as { site: unknown }).site)).toBe(siteId.acme)
+
+      // The real caller names no site at all (`/api/media` multipart carries only
+      // the file): the create must still land on the key's own library.
+      const fileOnly = await payload.create({
+        collection: 'media',
+        locale: 'fa',
+        overrideAccess: false,
+        req,
+        data: {} as never,
+        file: {
+          data: png,
+          mimetype: 'image/png',
+          name: `api-key-media-bare-${randomUUID()}.png`,
+          size: png.length,
+        },
+      })
+      expect(idOf((fileOnly as { site: unknown }).site)).toBe(siteId.acme)
+      await payload.delete({ id: fileOnly.id, collection: 'media', overrideAccess: true })
+
+      const { docs: studioMedia } = await payload.find({
+        collection: 'media',
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+        where: { site: { equals: siteId.studio } },
+      })
+      if (studioMedia[0]) {
+        await expect(
+          payload.update({
+            id: studioMedia[0].id,
+            collection: 'media',
+            overrideAccess: false,
+            req,
+            data: { alt: 'نباید نوشته شود' } as never,
+          }),
+        ).rejects.toThrow()
+      }
+    } finally {
+      await payload.delete({ id: created.id, collection: 'media', overrideAccess: true })
     }
   })
 
