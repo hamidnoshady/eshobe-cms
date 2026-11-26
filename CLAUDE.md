@@ -86,8 +86,11 @@ Stack: Next 16, React 19, Payload 3, Postgres, Tailwind v4, pnpm.
   so an ordinary save cannot create or rewrite it — Payload drops the submitted
   value and, on update, restores the stored one. The import engine writes it
   through `overrideAccess: true`; a create without that flag keeps the native
-  defaults (`system: 'eshobe'`, `mappingStatus: 'manual'`). Never re-expose it
-  as an input, and never re-enable writes "for an admin" — admin hiding is
+  defaults (`system: 'eshobe'`, `mappingStatus: 'manual'`). A trusted server
+  integration that wants to name provenance without bypassing collection access
+  sets `PROVENANCE_WRITE_CONTEXT_KEY` on the operation (`cafeMenuSync` does, so
+  a changed default can never relabel POS-created terms). Never re-expose it as
+  an input, and never re-enable writes "for an admin" — admin hiding is
   navigation, the access rule is the boundary.
 - **A record's migration details are read-only and on demand.** Imported records
   (`source.system !== 'eshobe'`) get `migrationDetailsField()` — a `ui` field

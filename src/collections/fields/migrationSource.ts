@@ -54,10 +54,11 @@ export const migrationSourceField = ({ optional = false }: { optional?: boolean 
      * Service-only. A normal editor save (admin or REST) cannot write
      * provenance: Payload deletes the field and, on update, restores the
      * stored value — so an imported record keeps its source identifiers and
-     * hashes no matter what the form submits.
+     * hashes no matter what the form submits. A trusted server integration
+     * opts in per operation with `PROVENANCE_WRITE_CONTEXT_KEY`.
      */
-    create: () => false,
-    update: () => false,
+    create: ({ req }) => Boolean(req.context?.[PROVENANCE_WRITE_CONTEXT_KEY]),
+    update: ({ req }) => Boolean(req.context?.[PROVENANCE_WRITE_CONTEXT_KEY]),
   },
   fields: [
     {
@@ -183,6 +184,25 @@ export const migrationSourceField = ({ optional = false }: { optional?: boolean 
     },
   ],
 })
+
+/**
+ * The one context flag that lets a *server-side integration* write provenance
+ * while ordinary field access stays denied.
+ *
+ * A create/update guarded only by `overrideAccess: true` also bypasses the
+ * collection's own access rules, which is more than a provenance write needs.
+ * An integration that resolves its own site and source id sets this flag on the
+ * operation instead: the field access functions honour it, everything else
+ * stays enforced. It is server-only — `req.context` cannot be supplied by a
+ * REST/GraphQL caller — which is the same shape as the gateway and storage
+ * secret-read flags.
+ *
+ * Callers today: `src/endpoints/cafeMenuSync.ts`, which stamps a café category's
+ * native `{ system: 'eshobe', mappingStatus: 'manual' }` explicitly rather than
+ * relying on the group defaults. The WordPress/WooCommerce engine does not need
+ * it; it writes with `overrideAccess: true` from a service context.
+ */
+export const PROVENANCE_WRITE_CONTEXT_KEY = 'provenanceWrite'
 
 /** Name of the read-only, on-demand view that replaces the hidden group. */
 export const MIGRATION_DETAILS_FIELD = 'migrationDetails'
