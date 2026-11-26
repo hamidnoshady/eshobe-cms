@@ -11,6 +11,12 @@ import { fileURLToPath } from 'url'
 import { anyone } from '../access/anyone'
 import { scopedPublicRead } from '../access/siteRead'
 import { authenticated } from '../access/authenticated'
+import {
+  apiKeyAware,
+  apiKeyCreateAware,
+  apiKeyUpdateAware,
+  forceApiKeySite,
+} from '../access/siteApiKey'
 import { setMediaPrefix } from '../hooks/mediaPrefix'
 import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { sanitizeSvgUpload } from '@/hooks/sanitizeSvgUpload'
@@ -30,12 +36,17 @@ export const Media: CollectionConfig = {
   slug: 'media',
   folders: true,
   access: {
-    create: authenticated,
-    delete: authenticated,
+    // A site API key (WAVE-9 §9.4) is that site's own headless client — the POS
+    // uploads a featured image through `/api/media`, and without this it was
+    // refused with the same 403 an anonymous caller gets, because a bearer key is
+    // not a `users` session. `forceApiKeySite` (below) is what stops the key from
+    // filing the file under a different site's library.
+    create: apiKeyCreateAware(authenticated),
+    delete: apiKeyAware(authenticated),
     // Public and host-scoped: a media library belongs to one customer, and its file
     // route is served on their domain (`/api/media/file/*` is a Caddy carve-out).
     read: scopedPublicRead(anyone),
-    update: authenticated,
+    update: apiKeyUpdateAware(authenticated),
   },
   admin: {
     group: SITE_CONTENT_GROUP,
@@ -71,9 +82,10 @@ export const Media: CollectionConfig = {
     // An SVG is validated against an allowlist (and refused if it carries anything
     // but drawing) before Payload sees the file. See `src/lib/svg.ts`.
     beforeOperation: [sanitizeSvgUpload],
-    // Namespaces the file's key in the object-storage bucket by site. No-op while
-    // uploads are local.
-    beforeChange: [setMediaPrefix],
+    // `forceApiKeySite` first: it stamps `site` from the bearer key on a create
+    // (a site key has no tenant cookie to read it from), and `setMediaPrefix`
+    // derives the bucket key from that `site`.
+    beforeChange: [forceApiKeySite, setMediaPrefix],
     afterChange: [accountMediaStorage, revalidateSiteGlobal('media')],
     afterDelete: [accountMediaStorageDelete, revalidateSiteGlobalDelete('media')],
     // Counts files, not bytes — `mediaStorageMb` is metered separately and reported,
