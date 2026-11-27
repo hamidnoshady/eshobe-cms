@@ -5,6 +5,7 @@ import { addDataAndFileToRequest, ValidationError } from 'payload'
 
 import type { Product, Site, TaxonomyTerm } from '@/payload-types'
 
+import { PROVENANCE_WRITE_CONTEXT_KEY } from '@/collections/fields/migrationSource'
 import { CAFE_SYNC_CONTEXT, isMenuSourceId } from '@/collections/hooks/validateMenuSource'
 import { CAFE_MENU_TAXONOMY } from '@/lib/cafe-menu'
 import { idOf, isUuid } from '@/lib/ids'
@@ -59,6 +60,9 @@ const ensureTaxonomy = async (req: PayloadRequest, siteId: string) => {
   // writes can conflict; retrying then finds the winner instead of creating one.
   return req.payload.create({
     collection: 'taxonomy-definitions', depth: 0, locale: 'fa', overrideAccess: false, req,
+    // Provenance access is denied to ordinary writers (#236); this integration
+    // names its own native origin explicitly rather than relying on defaults.
+    context: { [PROVENANCE_WRITE_CONTEXT_KEY]: true },
     data: {
       hasArchive: false, hierarchical: true, key: CAFE_MENU_TAXONOMY,
       pluralLabel: 'دسته‌های منوی کافه', singularLabel: 'دستهٔ منوی کافه', site: siteId,
@@ -137,7 +141,17 @@ export const upsertCafeCategory: Endpoint['handler'] = async (req) => {
     }
     const doc = existing
       ? await req.payload.update({ collection: 'taxonomy-terms', id: existing.id, data, depth: 0, locale, overrideAccess: false, req })
-      : await req.payload.create({ collection: 'taxonomy-terms', data: { ...data, source: { system: 'eshobe', mappingStatus: 'manual' } }, depth: 0, locale, overrideAccess: false, req })
+      : await req.payload.create({
+          collection: 'taxonomy-terms',
+          data: { ...data, source: { system: 'eshobe', mappingStatus: 'manual' } },
+          depth: 0,
+          locale,
+          overrideAccess: false,
+          // Same reason as `ensureTaxonomy`: a service write may name its
+          // provenance, while every ordinary writer stays denied.
+          context: { [PROVENANCE_WRITE_CONTEXT_KEY]: true },
+          req,
+        })
     return answer({ id: doc.id, taxonomyId: taxonomy.id, ok: true })
   } catch (error) {
     return errorResponse(error)

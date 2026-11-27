@@ -8,7 +8,7 @@ import { authenticated } from '../access/authenticated'
 import { apiKeyAware, apiKeyCreateAware, apiKeyUpdateAware, forceApiKeySite, forceApiKeySiteBeforeValidate } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
 import { slugifyField } from '@/lib/slug'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { menuSourceFields } from './fields/menuSource'
 import { validateMenuSource } from './hooks/validateMenuSource'
 import { uniqueTermSlugPerTaxonomy } from './hooks/uniqueContentKeys'
@@ -124,6 +124,7 @@ export const TaxonomyTerms: CollectionConfig = {
     },
     ...menuSourceFields(),
     migrationSourceField(),
+    migrationDetailsField(),
   ],
   hooks: {
     beforeChange: [forceApiKeySite],

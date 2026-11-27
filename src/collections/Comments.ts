@@ -4,7 +4,7 @@ import { hiddenFromOperators, SITE_CONTENT_GROUP } from '@/admin/visibility'
 import { authenticated } from '../access/authenticated'
 import { apiKeyAware } from '../access/siteApiKey'
 import { scopedPublicRead } from '../access/siteRead'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { validateComment } from './hooks/validateComment'
 
 const staffOnlyField: FieldAccess = ({ req: { user } }) => Boolean(user)
@@ -237,6 +237,7 @@ export const Comments: CollectionConfig = {
       ],
     },
     migrationSourceField({ optional: true }),
+    migrationDetailsField(),
   ],
   hooks: {
     beforeValidate: [validateComment],

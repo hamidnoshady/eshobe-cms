@@ -5,17 +5,31 @@ import type { Field } from 'payload'
  * migration can create (issue #166: "preserve original WP/Woo ID, source
  * permalink, source raw payload, source timestamps and relationships").
  *
- * Two rules are load-bearing:
+ * Three rules are load-bearing:
  *
+ * - **This is not editorial content (issue #236).** The group is `admin.hidden`,
+ *   so no create/edit view renders it — not a collapsed stub, not a blank
+ *   panel. Imported records get a read-only, on-demand «جزئیات مهاجرت» view
+ *   instead (`migrationDetailsField` below, `MigrationDetails` component), and
+ *   native records get nothing at all. All import management lives in one
+ *   place: «ابزارها → درون‌ریزی» (`/admin/migration-center`).
+ * - **An ordinary save can never create or rewrite provenance.** Field-level
+ *   `create`/`update` access is `false`, so Payload drops the submitted group
+ *   and, on update, falls back to the stored document's value
+ *   (`fields/hooks/beforeValidate/promise.js`). The migration engine and other
+ *   service writes still write it through `overrideAccess: true`; a create
+ *   without that flag keeps the native defaults below. Admin hiding is *not*
+ *   the protection — this access rule is.
  * - **`rawPayload` never leaves with an anonymous caller.** A source record
  *   can carry postmeta and plugin fields the site owner never meant to
  *   publish, so its read is a staff session only — a site API key does not
  *   unlock it, and the public theme API never sees the key at all. The
  *   *mapped* fields beside it are the publication surface.
- * - **The group defaults describe a native document** (`system: 'eshobe'`,
- *   `mappingStatus: 'manual'`), so editor-created content and
- *   migration-created content are distinguishable at a glance and in queries
- *   without either side needing a sentinel.
+ *
+ * The group defaults describe a native document (`system: 'eshobe'`,
+ * `mappingStatus: 'manual'`), so editor-created content and
+ * migration-created content are distinguishable in queries without either
+ * side needing a sentinel.
  */
 /**
  * `optional` is for collections that predate provenance (pages, posts,
@@ -31,6 +45,20 @@ export const migrationSourceField = ({ optional = false }: { optional?: boolean 
   admin: {
     description:
       'رد مبدأ این سند. برای محتوای ساخته‌شده در همین‌جا سامانه «ای‌شوب» می‌ماند؛ رکورد مهاجر، شناسه و نشانی اصلی وردپرس/ووکامرس را این‌جا نگه می‌دارد تا ورود مجدد بدون تکرار و قابل تطبیق باشد.',
+    // Provenance belongs to the import engine, not the editor. It is still
+    // read through the admin's data layer so `MigrationDetails` can show it.
+    hidden: true,
+  },
+  access: {
+    /**
+     * Service-only. A normal editor save (admin or REST) cannot write
+     * provenance: Payload deletes the field and, on update, restores the
+     * stored value — so an imported record keeps its source identifiers and
+     * hashes no matter what the form submits. A trusted server integration
+     * opts in per operation with `PROVENANCE_WRITE_CONTEXT_KEY`.
+     */
+    create: ({ req }) => Boolean(req.context?.[PROVENANCE_WRITE_CONTEXT_KEY]),
+    update: ({ req }) => Boolean(req.context?.[PROVENANCE_WRITE_CONTEXT_KEY]),
   },
   fields: [
     {
@@ -155,4 +183,47 @@ export const migrationSourceField = ({ optional = false }: { optional?: boolean 
       },
     },
   ],
+})
+
+/**
+ * The one context flag that lets a *server-side integration* write provenance
+ * while ordinary field access stays denied.
+ *
+ * A create/update guarded only by `overrideAccess: true` also bypasses the
+ * collection's own access rules, which is more than a provenance write needs.
+ * An integration that resolves its own site and source id sets this flag on the
+ * operation instead: the field access functions honour it, everything else
+ * stays enforced. It is server-only — `req.context` cannot be supplied by a
+ * REST/GraphQL caller — which is the same shape as the gateway and storage
+ * secret-read flags.
+ *
+ * Callers today: `src/endpoints/cafeMenuSync.ts`, which stamps a café category's
+ * native `{ system: 'eshobe', mappingStatus: 'manual' }` explicitly rather than
+ * relying on the group defaults. The WordPress/WooCommerce engine does not need
+ * it; it writes with `overrideAccess: true` from a service context.
+ */
+export const PROVENANCE_WRITE_CONTEXT_KEY = 'provenanceWrite'
+
+/** Name of the read-only, on-demand view that replaces the hidden group. */
+export const MIGRATION_DETAILS_FIELD = 'migrationDetails'
+
+/**
+ * A `ui` field: no column, no API value, nothing to save. It renders
+ * `MigrationDetails`, which draws a compact conflict warning plus a collapsed,
+ * read-only panel — and only for a record that actually came from an import
+ * (`source.system !== 'eshobe'`). A native document renders nothing, and the
+ * panel itself re-checks the caller's permission and the record's provenance.
+ */
+export const migrationDetailsField = (): Field => ({
+  name: MIGRATION_DETAILS_FIELD,
+  type: 'ui',
+  admin: {
+    components: {
+      Field: '@/admin/fields/MigrationDetails#MigrationDetails',
+    },
+    condition: (data) => {
+      const source = (data as { source?: { system?: unknown } } | null | undefined)?.source
+      return typeof source?.system === 'string' && source.system !== 'eshobe'
+    },
+  },
 })

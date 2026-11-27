@@ -357,7 +357,7 @@ export interface Page {
             url?: string | null;
             label: string;
             /**
-             * Choose how the link should be rendered.
+             * نحوهٔ نمایش پیوند را انتخاب کنید.
              */
             appearance?: ('default' | 'outline') | null;
           };
@@ -531,7 +531,7 @@ export interface ThemePackage {
   status: 'draft' | 'published' | 'deprecated';
   provider: 'github';
   /**
-   * owner/name
+   * مالک/نام مخزن (owner/name)
    */
   repository: string;
   /**
@@ -2054,7 +2054,7 @@ export interface ContentBlock {
           url?: string | null;
           label: string;
           /**
-           * Choose how the link should be rendered.
+           * نحوهٔ نمایش پیوند را انتخاب کنید.
            */
           appearance?: ('default' | 'outline') | null;
         };
@@ -2118,7 +2118,7 @@ export interface CallToActionBlock {
           url?: string | null;
           label: string;
           /**
-           * Choose how the link should be rendered.
+           * نحوهٔ نمایش پیوند را انتخاب کنید.
            */
           appearance?: ('default' | 'outline') | null;
         };
@@ -5654,6 +5654,14 @@ export interface PayloadMcpApiKey {
      * List the publishing state of a content collection: title, slug, draft or published, publication date and whether a publication is scheduled for the future. Use it to answer "what is live", "what is still a draft" and "what goes out later" without reading every document.
      */
     cmsContentStatus?: boolean | null;
+    /**
+     * Read platform-wide reports, site records, audit, settings, entitlements, and deployments. Allowed operations: audit.list, deployment.get, deployment.readiness, events.list, features.list, overview.get, plans.list, plugins.list, routing.list, saas.overview, settings.get, site.entitlement, site.get, site.list, site.quota, site.snapshot.export, site.usage, subscriptions.list, theme-packages.list, themes.list. Use pathParams.id for site or deployment routes and query for URL filters.
+     */
+    platformRead?: boolean | null;
+    /**
+     * Write through the CMS operator routes: update site lifecycle fields, import snapshots, change plugin/theme/feature settings, sync themes, and operate deployments. Allowed operations: deployment.create, deployment.poll, deployment.redeploy, deployment.revert, deployment.rollback, deployment.stop, deployment.verify, plugin.update, site.feature.update, site.snapshot.import, site.update, theme.apply, theme-package.sync. Supply pathParams.id where required and a JSON body. For snapshot import, first use dryRun:true and only perform the import after reviewing the plan. Session-only operations (including publishing a theme package and editing platform settings) are intentionally unavailable to API keys.
+     */
+    platformWrite?: boolean | null;
   };
   /**
    * پس از این لحظه، هر درخواستی با این کلید با ۴۰۱ رد می‌شود. خالی یعنی بدون انقضا.
@@ -8987,6 +8995,8 @@ export interface PayloadMcpApiKeysSelect<T extends boolean = true> {
         cmsDescribeCapabilities?: T;
         cmsSiteContext?: T;
         cmsContentStatus?: T;
+        platformRead?: T;
+        platformWrite?: T;
       };
   expiresAt?: T;
   updatedAt?: T;

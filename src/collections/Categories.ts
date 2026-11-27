@@ -8,7 +8,7 @@ import { uniqueSlugPerSite } from '../hooks/uniqueSlugPerSite'
 import { slugifyField } from '@/lib/slug'
 import { slugField } from 'payload'
 import { revalidateSiteGlobal, revalidateSiteGlobalDelete } from '@/hooks/revalidateSiteGlobal'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { validateCategoryParent } from './hooks/validateCategoryParent'
 
 export const Categories: CollectionConfig = {
@@ -54,6 +54,7 @@ export const Categories: CollectionConfig = {
       relationTo: 'categories',
     },
     migrationSourceField({ optional: true }),
+    migrationDetailsField(),
   ],
   hooks: {
     afterChange: [revalidateSiteGlobal('category')],

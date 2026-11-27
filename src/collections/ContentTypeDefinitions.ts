@@ -17,7 +17,7 @@ import {
   CUSTOM_FIELD_RELATION_COLLECTIONS,
   CUSTOM_FIELD_TYPE_OPTIONS,
 } from '@/lib/custom-fields'
-import { migrationSourceField } from './fields/migrationSource'
+import { migrationDetailsField, migrationSourceField } from './fields/migrationSource'
 import { uniqueArchiveSlugPerSite, uniqueKeyPerSite } from './hooks/uniqueContentKeys'
 import { validateContentTypeDefinition } from './hooks/validateContentTypeDefinition'
 
@@ -248,6 +248,7 @@ export const ContentTypeDefinitions: CollectionConfig = {
       on: 'contentType',
     },
     migrationSourceField(),
+    migrationDetailsField(),
   ],
   hooks: {
     beforeChange: [forceApiKeySite],
